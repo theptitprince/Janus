@@ -241,3 +241,10 @@ Choix faits pendant la réalisation, sur les points non couverts ou ambigus du c
 - **Question** : le brief cite « version X.Y, empreinte SHA-256 fournie », valeurs qui évoluent.
 - **Décision** : le modèle porte des emplacements `{VERSION}` et `{EMPREINTE}` (et `{APPLICATION}`, `{PRODUIT}`, `{DISTRIBUTION}`) à remplir depuis `docs/INTEGRATION.md` au moment de l'usage.
 - **Raison** : un brief figé deviendrait faux dès le renseignement des constantes.
+
+## Application de démonstration
+
+### D42 — 2026-10-05 — Banc d'essai
+- **Question** : comment faire de l'application de démonstration un banc d'essai de bout en bout alors que les constantes du module sont vides dans le dépôt, et que `php -S` ne fait pas d'authentification Basic.
+- **Décision** : `client/demo_appli.py` accepte `--serveur` et `--cle-publique`, qui remplacent les constantes du module pour cette exécution seulement (banc d'essai, jamais dans une application livrée) ; `construire()` renvoie la fenêtre sans `mainloop` pour être pilotée par le test de bout en bout. `serveur/tests/routeur_banc.php` (non déployé) reproduit Apache : authentification Basic de `/admin/` contre le `.htpasswd` réel, puis `REMOTE_USER` ; refus des chemins protégés par les `.htaccess`. Le test de bout en bout active la démo par sa fenêtre contre le serveur PHP réel et consulte la console par HTTP.
+- **Raison** : le parcours complet (installation, console, application) se rejoue sur un poste de développement, sans hébergement.

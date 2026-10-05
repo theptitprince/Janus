@@ -1,0 +1,19 @@
+# Secrets : jamais dans un commit
+*.key
+prive/config.php
+prive/.htpasswd
+serveur/prive/config.php
+serveur/prive/.htpasswd
+serveur/prive/cles/
+serveur/prive/install.verrou
+*.db
+*.db-wal
+*.db-shm
+data/
+
+# Python
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec

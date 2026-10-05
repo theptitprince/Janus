@@ -37,7 +37,12 @@ const ADMIN_ACTIONS = [
     'email_test' => 'Envoyer un e-mail de test',
     'mot_de_passe' => 'Changer le mot de passe',
     'cle_rotation' => 'Generer une nouvelle cle de signature (rotation, irreversible)',
+    'sauvegarde_telecharger' => 'Telecharger une copie de la base',
 ];
+
+// Actions sans renouvellement du jeton CSRF : la page reste affichee apres un
+// telechargement, son formulaire doit rester utilisable.
+const ADMIN_ACTIONS_SANS_RENOUVELLEMENT = ['sauvegarde_telecharger'];
 
 // Messages apres redirection : seul un code passe dans l'URL, jamais une donnee.
 const ADMIN_MESSAGES = [
@@ -222,9 +227,6 @@ function admin_get(array $ctx): array
         case 'journal':
             return admin_page($ctx, 'Journal', admin_ecran_journal($ctx));
         case 'sauvegarde':
-            if (($ctx['get']['telecharger'] ?? '') === '1') {
-                return admin_telecharger_base($ctx);
-            }
             return admin_page($ctx, 'Sauvegarde', admin_ecran_sauvegarde($ctx));
         case 'reglages':
             return admin_page($ctx, 'Reglages', admin_ecran_reglages($ctx));
@@ -246,13 +248,18 @@ function admin_post(array $ctx, array &$session): array
     if (!isset(ADMIN_ACTIONS[$action])) {
         return admin_page($ctx, 'Action inconnue', '<p class="erreur">Action inconnue.</p>', 400);
     }
-    if (($ctx['post']['confirme'] ?? '') !== '1') {
+    // Changement de mot de passe : la double saisie tient lieu de confirmation ;
+    // la page de confirmation sans JavaScript recopierait sinon le mot de passe
+    // en clair dans des champs caches.
+    if (($ctx['post']['confirme'] ?? '') !== '1' && $action !== 'mot_de_passe') {
         return admin_page($ctx, 'Confirmation', admin_ecran_confirmation($ctx, $action));
     }
     $fonction = 'admin_action_' . $action;
     $reponse = $fonction($ctx);
     // Jeton renouvele apres une ecriture reussie : un renvoi du formulaire est refuse.
-    $ctx['csrf'] = csrf_renouveler($session);
+    if (!in_array($action, ADMIN_ACTIONS_SANS_RENOUVELLEMENT, true)) {
+        $ctx['csrf'] = csrf_renouveler($session);
+    }
     return is_array($reponse) ? $reponse : admin_page($ctx, ADMIN_ACTIONS[$action], (string)$reponse);
 }
 
@@ -394,7 +401,7 @@ function admin_ecran_confirmation(array $ctx, string $action): string
             continue;
         }
         $caches[$nom] = $valeur;
-        $resume[$nom] = in_array($nom, ['nouveau', 'confirmation'], true) ? '********' : h($valeur);
+        $resume[$nom] = h($valeur);
     }
     $formulaire = f_formulaire($ctx, $action, f_bouton('Confirmer : ' . ADMIN_ACTIONS[$action], 'principal'), $caches);
     $formulaire = str_replace('name="confirme" value="0"', 'name="confirme" value="1"', $formulaire);
@@ -418,7 +425,7 @@ function licence_statut_affiche(array $lic, int $maintenant): string
 function etiquette(string $statut): string
 {
     $libelles = ['active' => 'Active', 'expiree' => 'Expiree', 'suspendue' => 'Suspendue', 'revoquee' => 'Revoquee',
-        'en_attente' => 'En attente', 'acceptee' => 'Acceptee', 'refusee' => 'Refusee'];
+        'en_attente' => 'En attente', 'acceptee' => 'Acceptee', 'refusee' => 'Refusee', 'inactive' => 'Inactive'];
     return '<span class="etiquette ' . h($statut) . '">' . h($libelles[$statut] ?? $statut) . '</span>';
 }
 
@@ -755,9 +762,18 @@ function admin_ecran_licence(array $ctx, int $id): string
         if ($lic['machine'] !== null) {
             $etat .= f_formulaire($ctx, 'licence_liberer', f_bouton('Liberer le poste'), ['id' => $id], 'en-ligne');
         }
+        // Annexe D : sur suspension, le poste efface sa cle. Une cle obtenue par
+        // demande n'a jamais ete montree a personne : la reactivation seule ne
+        // suffit pas a debloquer ce poste.
+        $suspension = $lic['origine'] === 'demande'
+            ? '<p class="alerte">Licence obtenue par demande : l\'utilisateur n\'a jamais vu sa cle. Apres une '
+                . 'suspension, le poste l\'efface ; la reactiver ne le debloquera pas. Pour une coupure temporaire, '
+                . 'preferer une echeance proche (date libre) ; sinon, creer ensuite une nouvelle cle a lui transmettre.</p>'
+            : '<p class="discret">Apres une suspension, le poste efface sa cle : une fois la licence reactivee, '
+                . 'l\'utilisateur saisit de nouveau la meme cle.</p>';
         $actions .= '<section><h2>Etat</h2><div class="rangee">' . $etat . '</div><p class="discret">Suspendre et revoquer '
             . 'bloquent le poste a sa connexion suivante. La revocation est definitive. Liberer le poste permet '
-            . 'd\'activer la meme cle sur un autre ordinateur.</p></section>';
+            . 'd\'activer la meme cle sur un autre ordinateur.</p>' . $suspension . '</section>';
     }
     $lignes = [];
     foreach (db_lignes($ctx['db'], 'SELECT * FROM journal WHERE cible = ? ORDER BY id DESC LIMIT 50', ['licence ' . $id]) as $j) {
@@ -835,7 +851,9 @@ function admin_action_licence_prolonger(array $ctx): array
         $echeance = $depart + (int)$mode * JOUR;
     } elseif ($mode === 'date' && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($ctx['post']['date'] ?? '')) === 1) {
         $date = DateTime::createFromFormat('!Y-m-d H:i:s', $ctx['post']['date'] . ' 23:59:59');
-        if ($date === false || $date->getTimestamp() <= $ctx['maintenant']) {
+        // createFromFormat accepte le 31 fevrier (devient le 3 mars) : la date relue doit etre la date saisie.
+        if ($date === false || $date->format('Y-m-d') !== $ctx['post']['date']
+            || $date->getTimestamp() <= $ctx['maintenant']) {
             throw new AdminErreur('Date invalide ou passee.');
         }
         $echeance = $date->getTimestamp();
@@ -935,7 +953,7 @@ function admin_ecran_produits(array $ctx): string
         foreach (db_lignes($db, 'SELECT d.*, (SELECT COUNT(*) FROM licences l WHERE l.distribution_id = d.id) AS nb '
             . 'FROM distributions d WHERE d.produit_id = ? ORDER BY d.code', [(int)$p['id']]) as $d) {
             $lignes[] = ['<a href="index.php?page=distribution&amp;id=' . (int)$d['id'] . '">' . h($d['code']) . '</a>'
-                . ((int)$d['actif'] === 1 ? '' : ' ' . etiquette('revoquee')),
+                . ((int)$d['actif'] === 1 ? '' : ' ' . etiquette('inactive')),
                 h($d['libelle']), h($d['client']), (int)$d['tolerance_j'] . ' / ' . (int)$d['preavis_j'] . ' j',
                 $d['duree_defaut_j'] === null ? 'perpetuelle' : (int)$d['duree_defaut_j'] . ' j',
                 (int)$d['essai_j'] . ' j', h($d['version_min'] ?: '-'), h(implode(', ', options_lire($d['options'])) ?: '-'),
@@ -1213,7 +1231,8 @@ function admin_ecran_journal(array $ctx): string
 function csv_cellule($valeur): string
 {
     $texte = (string)$valeur;
-    if ($texte !== '' && strpos('=+-@', $texte[0]) !== false) {
+    // Tabulation et retour chariot en tete aussi : certains tableurs les sautent puis evaluent la suite.
+    if ($texte !== '' && strpos("=+-@\t\r", $texte[0]) !== false) {
         $texte = "'" . $texte;
     }
     return '"' . str_replace('"', '""', $texte) . '"';
@@ -1278,14 +1297,16 @@ function admin_ecran_sauvegarde(array $ctx): string
         $lignes[] = [h(basename($copie)), h(number_format((int)filesize($copie) / 1024, 0, ',', ' ') . ' Ko')];
     }
     return '<p>Base : ' . h(number_format((int)@filesize($base) / 1024, 0, ',', ' ')) . ' Ko.</p>'
-        . '<p><a class="bouton principal" href="index.php?page=sauvegarde&amp;telecharger=1">Telecharger une copie de la '
-        . 'base</a></p><p class="discret">La copie contient les empreintes des postes et les hachages des cles, jamais les cles '
+        . f_formulaire($ctx, 'sauvegarde_telecharger', f_bouton('Telecharger une copie de la base', 'principal'))
+        . '<p class="discret">La copie contient les empreintes des postes et les hachages des cles, jamais les cles '
         . 'en clair. La sauvegarde quotidienne est faite par la tache planifiee OVH (prive/sauvegarde.php).</p>'
         . '<h2>Dernieres sauvegardes quotidiennes</h2>' . tableau_html(['Fichier', 'Taille'], $lignes, 'Aucune sauvegarde : '
             . 'verifier la tache planifiee.');
 }
 
-function admin_telecharger_base(array $ctx): array
+// POST uniquement : la copie ecrit un fichier et le journal ; un simple lien
+// (balise img sur un autre site) suffirait sinon a la declencher.
+function admin_action_sauvegarde_telecharger(array $ctx): array
 {
     $dossier = (string)$ctx['config']['dossier_sauvegardes'];
     if (!is_dir($dossier) && !mkdir($dossier, 0700, true) && !is_dir($dossier)) {

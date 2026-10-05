@@ -113,6 +113,24 @@ function signature_fichier(array $config, int $kid): string
     return rtrim((string)$config['cles'], '/') . '/signature_' . $kid . '.key';
 }
 
+/**
+ * Fiche publique deposee a cote de chaque cle privee : cle publique, bulletin et
+ * date. Elle survit a une restauration de la base et permet de rattraper une
+ * rotation que la base restauree ignore (voir signature_resynchroniser).
+ */
+function signature_fiche(array $config, int $kid): string
+{
+    return rtrim((string)$config['cles'], '/') . '/signature_' . $kid . '.json';
+}
+
+function signature_fiche_ecrire(array $config, int $kid, string $publique, ?string $bulletin,
+                                int $active_depuis): void
+{
+    fichier_secret_ecrire(signature_fiche($config, $kid), json_encode(['kid' => $kid,
+        'cle_publique' => $publique, 'bulletin' => $bulletin, 'active_depuis' => $active_depuis],
+        JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+}
+
 /** Nouvelle paire Ed25519 : cle privee dans prive/cles/, cle publique en base. */
 function signature_creer(PDO $db, array $config, int $kid, ?string $bulletin, int $maintenant): array
 {
@@ -120,6 +138,7 @@ function signature_creer(PDO $db, array $config, int $kid, ?string $bulletin, in
     $privee = sodium_crypto_sign_secretkey($paire);
     $publique = b64url(sodium_crypto_sign_publickey($paire));
     fichier_secret_ecrire(signature_fichier($config, $kid), base64_encode($privee));
+    signature_fiche_ecrire($config, $kid, $publique, $bulletin, $maintenant);
     db_inserer($db, 'cles_signature', [
         'kid' => $kid, 'cle_publique' => $publique, 'bulletin' => $bulletin,
         'active_depuis' => $maintenant, 'retiree_le' => null,
@@ -131,18 +150,74 @@ function signature_creer(PDO $db, array $config, int $kid, ?string $bulletin, in
 /** Cle de signature courante : la plus recente non retiree. */
 function signature_active(PDO $db, array $config): array
 {
+    $cle = signature_lire_active($db, $config);
+    if (!isset($cle['privee']) && signature_resynchroniser($db, $config)) {
+        $cle = signature_lire_active($db, $config);
+    }
+    if ($cle === null) {
+        throw new RuntimeException('aucune cle de signature');
+    }
+    if (!isset($cle['privee'])) {
+        throw new RuntimeException('cle privee de signature illisible (kid ' . $cle['kid'] . ')');
+    }
+    return $cle;
+}
+
+/** Ligne active de la base et sa cle privee ('privee' absente si le fichier manque). */
+function signature_lire_active(PDO $db, array $config): ?array
+{
     $ligne = db_ligne($db, 'SELECT kid, cle_publique FROM cles_signature WHERE retiree_le IS NULL '
         . 'ORDER BY kid DESC LIMIT 1');
     if ($ligne === null) {
-        throw new RuntimeException('aucune cle de signature');
+        return null;
     }
-    $kid = (int)$ligne['kid'];
-    $contenu = @file_get_contents(signature_fichier($config, $kid));
+    $cle = ['kid' => (int)$ligne['kid'], 'cle_publique' => $ligne['cle_publique']];
+    $contenu = @file_get_contents(signature_fichier($config, $cle['kid']));
     $privee = is_string($contenu) ? base64_decode(trim($contenu), true) : false;
-    if (!is_string($privee) || strlen($privee) !== SODIUM_CRYPTO_SIGN_SECRETKEYBYTES) {
-        throw new RuntimeException('cle privee de signature illisible (kid ' . $kid . ')');
+    if (is_string($privee) && strlen($privee) === SODIUM_CRYPTO_SIGN_SECRETKEYBYTES) {
+        $cle['privee'] = $privee;
     }
-    return ['kid' => $kid, 'cle_publique' => $ligne['cle_publique'], 'privee' => $privee];
+    return $cle;
+}
+
+/**
+ * Base restauree d'une sauvegarde anterieure a une rotation : elle designe une
+ * cle privee effacee depuis, et l'API ne pourrait plus rien signer. Les fiches
+ * publiques des cles suivantes sont reprises dans l'ordre des kid, sans trou
+ * (chaque bulletin est signe par la cle precedente), sans outil ni acces SQL.
+ */
+function signature_resynchroniser(PDO $db, array $config): bool
+{
+    $kid = (int)db_valeur($db, 'SELECT COALESCE(MAX(kid), 0) FROM cles_signature');
+    $fiches = [];
+    while (true) {
+        $fiche = json_decode((string)@file_get_contents(signature_fiche($config, $kid + 1)), true);
+        if (!is_array($fiche) || ($fiche['kid'] ?? null) !== $kid + 1 || !is_string($fiche['cle_publique'] ?? null)
+            || !is_int($fiche['active_depuis'] ?? null) || !is_string($fiche['bulletin'] ?? null)) {
+            break;
+        }
+        $fiches[] = $fiche;
+        $kid++;
+    }
+    if ($fiches === []) {
+        return false;
+    }
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        foreach ($fiches as $fiche) {
+            db_modifier($db, 'UPDATE cles_signature SET retiree_le = ? WHERE retiree_le IS NULL AND kid < ?',
+                [$fiche['active_depuis'], $fiche['kid']]);
+            db_inserer($db, 'cles_signature', ['kid' => $fiche['kid'], 'cle_publique' => $fiche['cle_publique'],
+                'bulletin' => $fiche['bulletin'], 'active_depuis' => $fiche['active_depuis'], 'retiree_le' => null]);
+        }
+        journal_ecrire($db, 'systeme', 'cles_resynchronisees', 'kid ' . $kid,
+            count($fiches) . ' cle(s) reprise(s) des fiches de prive/cles/ (base restauree ?)', null, time());
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        $db->exec('ROLLBACK');
+        throw $e;
+    }
+    return true;
 }
 
 /**
@@ -176,8 +251,10 @@ function signature_rotation(PDO $db, array $config, int $maintenant): array
     $bulletin = json_encode(signer(['type' => 'nouvelle_cle', 'kid' => $kid, 'cle_publique' => $publique,
         'valide_des' => $maintenant], $ancienne), JSON_UNESCAPED_SLASHES);
     $fichier = signature_fichier($config, $kid);
-    // Cle privee ecrite avant la base : une base qui designe une cle absente bloquerait l'API.
+    // Cle privee et fiche ecrites avant la base : une base qui designe une cle
+    // absente bloquerait l'API.
     fichier_secret_ecrire($fichier, base64_encode($privee));
+    signature_fiche_ecrire($config, $kid, $publique, $bulletin, $maintenant);
     $db->exec('BEGIN IMMEDIATE');
     try {
         db_modifier($db, 'UPDATE cles_signature SET retiree_le = ? WHERE kid = ?', [$maintenant, $ancienne['kid']]);
@@ -187,6 +264,7 @@ function signature_rotation(PDO $db, array $config, int $maintenant): array
     } catch (Throwable $e) {
         $db->exec('ROLLBACK');
         @unlink($fichier);
+        @unlink(signature_fiche($config, $kid));
         throw $e;
     }
     @unlink(signature_fichier($config, $ancienne['kid']));

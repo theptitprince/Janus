@@ -657,7 +657,7 @@ function test_console_acces(): void
     check('utilisateur : nom invalide ignore', admin_utilisateur(['REMOTE_USER' => '<x>']) === '');
     check('utilisateur : PHP_AUTH_USER (en-tete du client) ignore', admin_utilisateur(['PHP_AUTH_USER' => 'etienne']) === '');
     $pages = ['tableau', 'demandes', 'licences', 'licence_nouvelle', 'produits', 'produit', 'distribution', 'serveurs',
-        'journal', 'sauvegarde', 'reglages'];
+        'cles', 'journal', 'sauvegarde', 'reglages'];
     foreach ($pages as $page) {
         $r = console($env, $session, 'GET', ['page' => $page]);
         check('console : page ' . $page, $r['code'] === 200 && strpos($r['corps'], '<title>') !== false);
@@ -917,10 +917,68 @@ function test_console_reglages_exports(): void
     check('tableau : controle d\'exposition', strpos(console($env, $session, 'GET', [])['corps'], 'id="exposition"') !== false);
 }
 
+
+function verifier_enveloppe(array $enveloppe, string $publique): ?array
+{
+    $octets = deb64url((string)$enveloppe['payload']);
+    if ($octets === null || !sodium_crypto_sign_verify_detached((string)deb64url((string)$enveloppe['sig']), $octets,
+            (string)deb64url($publique))) {
+        return null;
+    }
+    return json_decode($octets, true);
+}
+
+function test_rotation(): void
+{
+    $env = serveur();
+    $session = [];
+    $kid1 = $env['publique'];
+    $cle = creer_licence($env);
+    appel($env, 'activer', ['cle' => $cle]);
+    $r = console($env, $session, 'GET', ['page' => 'cles']);
+    check('ecran Cles : cle publique et bouton Copier', strpos($r['corps'], '<code id="cle_publique">' . $kid1 . '</code>') !== false
+        && strpos($r['corps'], 'data-copier="cle_publique"') !== false);
+    check('ecran Cles : lignes pour etdel_licence.py', strpos($r['corps'], h('LICENCE_CLE_PUBLIQUE = "' . $kid1 . '"')) !== false
+        && strpos($r['corps'], h('LICENCE_URL = "https://licence.exemple.fr/api/v1/"')) !== false);
+    $r = action($env, $session, 'cle_rotation', [], ['maintenant' => T0 + 100]);
+    check('rotation depuis la console', $r['code'] === 303 && strpos($r['entetes']['Location'], 'ok=rotation') !== false);
+    check('rotation journalisee', db_valeur($env['db'], "SELECT acteur FROM journal WHERE action = 'cle_rotation'") === 'etienne');
+    $active = signature_active($env['db'], $env['config']);
+    check('rotation : kid 2 actif', $active['kid'] === 2 && $active['cle_publique'] !== $kid1);
+    check('rotation : kid 1 retire', (int)db_valeur($env['db'], 'SELECT retiree_le FROM cles_signature WHERE kid = 1') === T0 + 100);
+    check('rotation : ancienne cle privee effacee', !is_file($env['config']['cles'] . '/signature_1.key'));
+    $fichier = $env['config']['cles'] . '/signature_2.key';
+    check('rotation : nouvelle cle privee 0600', is_file($fichier) && (fileperms($fichier) & 0777) === 0600);
+    $bulletin = json_decode((string)db_valeur($env['db'], 'SELECT bulletin FROM cles_signature WHERE kid = 2'), true);
+    $annonce = verifier_enveloppe($bulletin, $kid1);
+    check('bulletin signe par la cle precedente', $bulletin['kid'] === 1 && $annonce !== null);
+    check('bulletin : contenu', $annonce === ['type' => 'nouvelle_cle', 'kid' => 2, 'cle_publique' => $active['cle_publique'],
+        'valide_des' => T0 + 100]);
+    check('bulletin : invalide sous la nouvelle cle', verifier_enveloppe($bulletin, $active['cle_publique']) === null);
+    [$code, $enveloppe] = api_traiter($env['db'], $env['config'], json_encode(['v' => 1, 'op' => 'valider', 'produit' => 'APP',
+        'distribution' => 'APP-A', 'machine' => MACHINE_A, 'poste' => 'PC', 'version' => '1.4.0', 'nonce' => 'nonce-rotation',
+        't' => T0 + 200, 'cle' => $cle]), '10.9.9.9', T0 + 200);
+    $p = verifier_enveloppe($enveloppe, $active['cle_publique']);
+    check('reponses signees par la nouvelle cle', $enveloppe['kid'] === 2 && $p !== null && $p['ok'] === true);
+    check('bulletin diffuse dans les reponses', $p['bulletins'] === [$bulletin]);
+    check('ancienne cle : ne verifie plus les reponses', verifier_enveloppe($enveloppe, $kid1) === null);
+    check('bulletins diffuses 12 mois', api_bulletins($env['db'], T0 + 100 + 365 * JOUR) === [$bulletin]
+        && api_bulletins($env['db'], T0 + 101 + 365 * JOUR) === []);
+    $r3 = signature_rotation($env['db'], $env['config'], T0 + 300);
+    $b3 = json_decode($r3['bulletin'], true);
+    check('seconde rotation : chaine de bulletins', $r3['kid'] === 3 && $b3['kid'] === 2
+        && verifier_enveloppe($b3, $active['cle_publique'])['cle_publique'] === $r3['cle_publique']
+        && count(api_bulletins($env['db'], T0 + 400)) === 2);
+    $r = console($env, $session, 'GET', ['page' => 'cles']);
+    check('ecran Cles : historique', substr_count($r['corps'], 'signe par la cle precedente') === 2
+        && strpos($r['corps'], 'premiere cle') !== false);
+    check('navigation : ecran Cles', strpos($r['corps'], 'href="index.php?page=cles"') !== false);
+}
+
 $tests = ['test_fichiers', 'test_formats', 'test_installation', 'test_ping_et_requetes_invalides', 'test_activer_valider',
     'test_statuts_versions_surcharges', 'test_demandes', 'test_notifications', 'test_limites', 'test_sauvegarde',
     'test_signature', 'test_console_acces', 'test_console_demandes', 'test_console_licences',
-    'test_console_produits_serveurs', 'test_console_reglages_exports'];
+    'test_console_produits_serveurs', 'test_console_reglages_exports', 'test_rotation'];
 foreach ($tests as $test) {
     try {
         $test();

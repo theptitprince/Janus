@@ -217,3 +217,10 @@ Choix faits pendant la réalisation, sur les points non couverts ou ambigus du c
 - **Question** : « changement de mot de passe par la même voie » alors que l'assistant est verrouillé après usage.
 - **Décision** : écran Réglages, formulaire « Changer le mot de passe » (même fonction `password_hash`, 20 caractères minimum), pour l'utilisateur connecté.
 - **Raison** : l'assistant ne doit jamais redevenir exécutable.
+
+## Rotation de clé
+
+### D38 — 2026-10-05 — Rotation de la clé de signature
+- **Question** : sort de l'ancienne clé privée ; sens de `retiree_le`.
+- **Décision** : le bouton « Nouvelle cle de signature » génère la paire sur le serveur, signe le bulletin `{"type": "nouvelle_cle", "kid", "cle_publique", "valide_des"}` avec la clé active, enregistre la nouvelle clé (kid + 1), date `retiree_le` de l'ancienne au moment de la rotation, puis efface l'ancienne clé privée. Le serveur signe toujours avec la clé non retirée de plus grand kid et diffuse les bulletins dont `active_depuis` date de moins de 12 mois. L'écran Clés montre la clé active (bouton « Copier »), les trois lignes à reporter dans `etdel_licence.py`, l'historique et la date jusqu'à laquelle les postes acceptent encore chaque ancienne clé (retrait + 90 jours, règle appliquée côté client, voir D19).
+- **Raison** : une fois le bulletin signé, l'ancienne clé privée ne sert plus à rien ; la conserver n'ajouterait qu'un risque.

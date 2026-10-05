@@ -111,6 +111,15 @@ function htpasswd_ecrire(string $fichier, string $utilisateur, string $mot_de_pa
     @chmod($fichier, 0644);
 }
 
+function htpasswd_utilisateurs(string $fichier): array
+{
+    $utilisateurs = [];
+    foreach ((is_file($fichier) ? file($fichier, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : []) ?: [] as $ligne) {
+        $utilisateurs[] = explode(':', $ligne, 2)[0];
+    }
+    return $utilisateurs;
+}
+
 function admin_htaccess(string $htpasswd): string
 {
     if (preg_match('/["\r\n]/', $htpasswd) === 1) {
@@ -227,8 +236,10 @@ function reinitialisation_executer(array $config, string $jeton, string $utilisa
     if (!reinitialisation_ouverte($config) || !hash_equals((string)$config['jeton_reinitialisation'], $jeton)) {
         throw new RuntimeException('Jeton de reinitialisation incorrect ou deja utilise.');
     }
-    if (!utilisateur_valide($utilisateur)) {
-        throw new InvalidArgumentException('Identifiant invalide (lettres, chiffres, . _ -, 32 caracteres maximum).');
+    // Seul le mot de passe d'un compte existant se remplace : jamais de compte en plus.
+    if (!in_array($utilisateur, htpasswd_utilisateurs((string)$config['htpasswd']), true)) {
+        throw new InvalidArgumentException('Identifiant inconnu : seul le mot de passe d\'un compte existant peut etre '
+            . 'reinitialise.');
     }
     $erreur = mot_de_passe_erreur($mot_de_passe, $confirmation);
     if ($erreur !== null) {

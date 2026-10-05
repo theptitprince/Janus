@@ -145,7 +145,7 @@ Si `admin/.htaccess` a été écrasé par erreur, la console répond « accès r
 | Ligne « DANGER » dans le contrôle d'exposition | `prive/` ou `data/` est servi par le web : les déplacer à côté du dossier `licence/`, ou vérifier que leurs `.htaccess` ont bien été envoyés |
 | Mot de passe de la console perdu | voir ci-dessous |
 
-**Mot de passe de la console perdu.** Par FTP, inscrire dans `prive/config.php` une nouvelle chaîne aléatoire d'au moins 20 caractères dans `jeton_reinitialisation` (différente du jeton d'installation et de tout jeton déjà utilisé), puis ouvrir `https://licence.mondomaine.fr/install.php` : l'assistant, toujours verrouillé, ne propose alors que le remplacement du mot de passe de la console. Chaque jeton ne sert qu'une fois ; remettre ensuite `jeton_reinitialisation` à vide.
+**Mot de passe de la console perdu.** Par FTP, inscrire dans `prive/config.php` une nouvelle chaîne aléatoire d'au moins 20 caractères dans `jeton_reinitialisation` (différente du jeton d'installation et de tout jeton déjà utilisé), puis ouvrir `https://licence.mondomaine.fr/install.php` : l'assistant, toujours verrouillé, ne propose alors que le remplacement du mot de passe d'un compte existant de la console. Chaque jeton ne sert qu'une fois ; remettre ensuite `jeton_reinitialisation` à vide.
 
 ## 11. Banc d'essai local
 

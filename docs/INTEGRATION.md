@@ -1,7 +1,7 @@
 # Intégrer la licence ETDEL dans une application
 
 Module de référence : `client/etdel_licence.py`, version **1.0.0**.
-Empreinte SHA-256 (fins de ligne normalisées en LF) : `ab8aeb5d5defd0e73759933d136a3c6f3dec95b0df6fa7e6c6e8e4b44a3ab239`
+Empreinte SHA-256 (fins de ligne normalisées en LF) : `19da6e07e1cad84cfa7fe581a86c93fc303ff97cb5d8967abc2db5fafc3b40cb`
 
 Le module est **le même pour toutes les applications** : on le copie tel quel, sans aucune modification, à côté du script principal. Il n'a pas de fichier de configuration. Tout ce qui est propre à une application (produit, distribution, version) passe en paramètres.
 
@@ -44,7 +44,7 @@ root.mainloop()
 - fenêtre d'activation si aucune licence n'est active (« J'ai une cle » ou « Demander une licence ») ; rien n'est envoyé sans clic explicite ; fermer cette fenêtre quitte l'application ;
 - bandeau de préavis en superposition (période d'essai, tolérance hors ligne bientôt épuisée, échéance proche) ;
 - relecture de l'état toutes les 25 s ; licence expirée ou révoquée en cours de session : message, puis fermeture ;
-- interception de la fermeture de la fenêtre : l'heure atteinte est enregistrée, puis le gestionnaire d'origine de l'application est appelé (à défaut, `root.destroy()`) ;
+- interception de la fermeture de la fenêtre : l'heure atteinte est enregistrée, puis le gestionnaire d'origine de l'application est appelé (à défaut, `root.destroy()`) ; si l'application annule la fermeture, le contrôle continue ; il s'arrête à la destruction réelle de la fenêtre ;
 - raccourci **Ctrl+Maj+L** : fenêtre « Licence » (identifiant du poste, titulaire, échéance, statut, bouton « Verifier maintenant », diagnostic).
 
 `installer()` renvoie la Garde pour les usages avancés.
@@ -137,10 +137,10 @@ Aucune fonction publique ne lève d'exception vers l'application : toute erreur 
 | `DEMANDE_EN_ATTENTE` | demande en attente, sans essai | fenêtre d'attente, suivi chaque minute |
 | `DEMANDE_REFUSEE` | refus reçu | fenêtre : motif éventuel, « Nouvelle demande », « J'ai une cle » |
 | `VALIDE` | tout va bien | rien |
-| `AVERTISSEMENT` | fin de tolérance hors ligne ou échéance sous 15 jours | bandeau avec `etat()["message"]` |
+| `AVERTISSEMENT` | fin de tolérance hors ligne (préavis, limité à la seconde moitié de la tolérance) ou échéance sous 15 jours | bandeau avec `etat()["message"]` |
 | `EXPIREE` | tolérance épuisée ou échéance dépassée | au lancement : fenêtre « Reessayer » ; en session : message puis fermeture |
 | `REVOQUEE` | clé révoquée, suspendue, libérée ou liée à un autre poste | message puis fermeture ; fenêtre d'activation au lancement suivant |
-| `VERSION_REFUSEE` | version inférieure à la version minimale | message invitant à mettre à jour, fermeture |
+| `VERSION_REFUSEE` | version inférieure à la version minimale | au lancement : fenêtre « Mise a jour necessaire » (« Reessayer », « Quitter ») ; en session : message puis fermeture. Installer une version à jour lève le blocage sans attendre le serveur |
 
 ## Ce que le module transmet et conserve
 

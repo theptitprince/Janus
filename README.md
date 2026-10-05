@@ -6,13 +6,14 @@ Système de licences pour les applications Python Windows signées ETDEL : un se
 |---|---|
 | `client/` | module `etdel_licence.py` (à copier tel quel dans chaque application) et ses tests |
 | `serveur/` | API, console d'administration, assistant d'installation, tests |
-| `docs/` | intégration, déploiement, décisions de réalisation |
+| `docs/` | [intégration](docs/INTEGRATION.md), [modèle de brief d'intégration](docs/modele_brief_integration.md), déploiement, [décisions de réalisation](docs/DECISIONS.md) |
 
 ## Tests
 
 ```
 python client/test_etdel_licence.py                # module client (Windows)
 xvfb-run -a python3 client/test_etdel_licence.py   # module client (Linux sans écran)
+xvfb-run -a python3 client/test_licence_integration.py  # test générique à copier dans chaque application
 php serveur/tests/test_serveur.php                 # serveur, PHP CLI, base temporaire
 python3 serveur/tests/test_bout_en_bout.py         # serveur PHP réel (php -S) + client réel
 ```

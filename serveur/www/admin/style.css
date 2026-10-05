@@ -1,0 +1,76 @@
+/* style.css - Console des licences ETDEL : mise en page sobre, utilisable sur mobile.
+   ETDEL (c) 2026 */
+:root {
+  --fond: #f4f5f7; --panneau: #fff; --texte: #1d2733; --discret: #66707c; --ligne: #d9dde3;
+  --accent: #1f5f99; --danger: #b3261e; --succes: #1e7b34; --alerte: #b4500a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--fond); color: var(--texte); font: 15px/1.45 system-ui, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem; padding: .6rem 1rem; background: var(--texte); }
+header a, header span { color: #fff; text-decoration: none; }
+.marque { font-weight: 700; margin-right: .5rem; }
+nav { display: flex; flex-wrap: wrap; gap: .2rem; flex: 1; }
+nav a { padding: .3rem .55rem; border-radius: 4px; opacity: .85; }
+nav a:hover, nav a.actif { background: rgba(255, 255, 255, .15); opacity: 1; }
+.utilisateur { font-size: .85rem; opacity: .7; }
+main { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+h1 { font-size: 1.45rem; margin: .4rem 0 1rem; }
+h2 { font-size: 1.1rem; margin: 1.6rem 0 .6rem; }
+a { color: var(--accent); }
+code { font-family: Consolas, "DejaVu Sans Mono", monospace; font-size: .92em; }
+.discret { color: var(--discret); }
+.succes, .erreur { padding: .6rem .8rem; border-radius: 4px; background: #e7f4ea; color: var(--succes); }
+.erreur { background: #fbe9e7; color: var(--danger); }
+.pastille { display: inline-block; min-width: 1.3em; padding: 0 .35em; border-radius: 1em; background: var(--alerte);
+  color: #fff; font-size: .8em; text-align: center; }
+.compteur { display: block; padding: 1rem; margin-bottom: 1rem; border-radius: 6px; background: var(--panneau);
+  border: 1px solid var(--ligne); text-decoration: none; color: var(--texte); font-size: 1.1rem; }
+.compteur strong { font-size: 2rem; margin-right: .4rem; }
+.compteur.alerte { border-color: var(--alerte); background: #fff4ec; }
+.cartes { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .6rem; }
+.carte { background: var(--panneau); border: 1px solid var(--ligne); border-radius: 6px; padding: .8rem; }
+.carte strong { display: block; font-size: 1.6rem; }
+.carte span { color: var(--discret); font-size: .9rem; }
+.defilement { overflow-x: auto; background: var(--panneau); border: 1px solid var(--ligne); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: .45rem .6rem; border-bottom: 1px solid var(--ligne); text-align: left; vertical-align: top; }
+th { background: #eef0f3; font-size: .85rem; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+.message { white-space: pre-wrap; }
+.etiquette { display: inline-block; padding: .05rem .45rem; border-radius: 3px; font-size: .82rem; background: #e6e8eb; }
+.etiquette.active, .etiquette.acceptee { background: #e7f4ea; color: var(--succes); }
+.etiquette.expiree, .etiquette.en_attente, .etiquette.suspendue { background: #fff1e6; color: var(--alerte); }
+.etiquette.revoquee, .etiquette.refusee { background: #fbe9e7; color: var(--danger); }
+.fiche { display: grid; grid-template-columns: minmax(130px, 220px) 1fr; gap: .35rem 1rem; background: var(--panneau);
+  border: 1px solid var(--ligne); border-radius: 6px; padding: .8rem; margin: 0 0 1rem; }
+.fiche dt { color: var(--discret); }
+.fiche dd { margin: 0; overflow-wrap: anywhere; }
+.colonnes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 1.5rem; }
+.formulaire label, .filtres label { display: block; margin: 0 0 .7rem; font-size: .9rem; color: var(--discret); }
+.formulaire input:not([type=checkbox]), .formulaire select, .formulaire textarea, .filtres input, .filtres select {
+  display: block; width: 100%; max-width: 32rem; margin-top: .2rem; padding: .45rem; font: inherit; color: var(--texte);
+  border: 1px solid var(--ligne); border-radius: 4px; background: #fff; }
+label.case { color: var(--texte); }
+.filtres { display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-end; margin-bottom: 1rem; }
+.filtres label { margin: 0; min-width: 12rem; }
+.en-ligne { display: inline-flex; flex-wrap: wrap; align-items: flex-end; gap: .4rem; margin: 0 .4rem .4rem 0; }
+.en-ligne label { margin: 0; font-size: .85rem; }
+.en-ligne input[type=number] { width: 6rem; padding: .3rem; }
+.rangee { display: flex; flex-wrap: wrap; align-items: flex-start; }
+button, .bouton { display: inline-block; padding: .45rem .9rem; font: inherit; border: 1px solid var(--ligne);
+  border-radius: 4px; background: #fff; color: var(--texte); cursor: pointer; text-decoration: none; }
+button:hover, .bouton:hover { border-color: var(--accent); }
+.principal { background: var(--accent); border-color: var(--accent); color: #fff; }
+.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.copie { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0 1rem; }
+.copie code { padding: .5rem .7rem; background: var(--panneau); border: 1px solid var(--ligne); border-radius: 4px;
+  font-size: 1.05rem; overflow-wrap: anywhere; }
+#exposition li.danger { background: none; color: var(--danger); font-weight: 700; }
+#exposition li.protege { color: var(--succes); }
+@media (max-width: 600px) {
+  header { justify-content: space-between; }
+  nav { order: 3; flex-basis: 100%; }
+  main { padding: .6rem; }
+  .fiche { grid-template-columns: 1fr; }
+  .fiche dt { margin-top: .4rem; }
+}

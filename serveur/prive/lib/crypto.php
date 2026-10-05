@@ -159,6 +159,40 @@ function signer(array $payload, array $cle): array
     ];
 }
 
+/**
+ * Rotation : nouvelle paire generee sur le serveur, annoncee aux postes par un
+ * bulletin signe par la cle precedente. L'ancienne cle privee est effacee : le
+ * bulletin est deja signe et plus rien ne doit etre signe avec elle. Les postes
+ * acceptent encore l'ancienne cle 90 jours apres valide_des.
+ */
+function signature_rotation(PDO $db, array $config, int $maintenant): array
+{
+    $ancienne = signature_active($db, $config);
+    $kid = (int)db_valeur($db, 'SELECT MAX(kid) FROM cles_signature') + 1;
+    $paire = sodium_crypto_sign_keypair();
+    $privee = sodium_crypto_sign_secretkey($paire);
+    $publique = b64url(sodium_crypto_sign_publickey($paire));
+    sodium_memzero($paire);
+    $bulletin = json_encode(signer(['type' => 'nouvelle_cle', 'kid' => $kid, 'cle_publique' => $publique,
+        'valide_des' => $maintenant], $ancienne), JSON_UNESCAPED_SLASHES);
+    $fichier = signature_fichier($config, $kid);
+    // Cle privee ecrite avant la base : une base qui designe une cle absente bloquerait l'API.
+    fichier_secret_ecrire($fichier, base64_encode($privee));
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        db_modifier($db, 'UPDATE cles_signature SET retiree_le = ? WHERE kid = ?', [$maintenant, $ancienne['kid']]);
+        db_inserer($db, 'cles_signature', ['kid' => $kid, 'cle_publique' => $publique, 'bulletin' => $bulletin,
+            'active_depuis' => $maintenant, 'retiree_le' => null]);
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        $db->exec('ROLLBACK');
+        @unlink($fichier);
+        throw $e;
+    }
+    @unlink(signature_fichier($config, $ancienne['kid']));
+    return ['kid' => $kid, 'cle_publique' => $publique, 'ancien_kid' => $ancienne['kid'], 'bulletin' => $bulletin];
+}
+
 function secret_fichier(array $config): string
 {
     return rtrim((string)$config['cles'], '/') . '/secret_demandes.key';

@@ -22,6 +22,7 @@ define('MACHINE_C', hash('sha256', 'poste C'));
 
 require RACINE . '/prive/lib/api.php';
 require RACINE . '/prive/lib/installation.php';
+require RACINE . '/prive/lib/admin.php';
 
 $failures = [];
 $verifications = 0;
@@ -178,6 +179,7 @@ function test_fichiers(): void
     $www = file_get_contents(RACINE . '/www/.htaccess');
     check('www/.htaccess : pas de listing', strpos($www, 'Options -Indexes') !== false);
     check('www/.htaccess : HTTPS force', strpos($www, 'RewriteRule ^ https://') !== false);
+    check('www/.htaccess : Referrer-Policy identique a la console', strpos($www, 'Referrer-Policy "same-origin"') !== false);
     check('www/.htaccess : HSTS, CSP, X-Frame-Options', strpos($www, 'Strict-Transport-Security') !== false
         && strpos($www, 'Content-Security-Policy') !== false && strpos($www, 'X-Frame-Options "DENY"') !== false);
     check('www/.htaccess : base et cles jamais servies', preg_match('/FilesMatch[^\n]*db[^\n]*key/', $www) === 1);
@@ -619,9 +621,306 @@ function test_signature(): void
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// Console d'administration
+// ---------------------------------------------------------------------------
+
+function console(array $env, array &$session, string $methode, array $get = [], array $post = [], array $options = []): array
+{
+    $ctx = ['db' => $env['db'], 'config' => $env['config'], 'methode' => $methode, 'get' => $get, 'post' => $post,
+        'utilisateur' => $options['utilisateur'] ?? 'etienne', 'ip' => '192.0.2.50',
+        'origine' => array_key_exists('origine', $options) ? $options['origine'] : 'https://licence.exemple.fr',
+        'hote' => 'licence.exemple.fr', 'maintenant' => $options['maintenant'] ?? T0];
+    return admin_traiter($ctx, $session);
+}
+
+function action(array $env, array &$session, string $action, array $champs = [], array $options = []): array
+{
+    $post = array_map('strval', $champs) + ['action' => $action, 'csrf' => csrf_jeton($session), 'confirme' => '1'];
+    return console($env, $session, 'POST', [], $post, $options);
+}
+
+function cle_affichee(array $reponse): ?string
+{
+    return preg_match('/<code id="cle">(ETDEL(-[0-9A-Z]{4}){4})<\/code>/', $reponse['corps'], $m) === 1 ? $m[1] : null;
+}
+
+function test_console_acces(): void
+{
+    $env = serveur();
+    $session = [];
+    $r = console($env, $session, 'GET', [], [], ['utilisateur' => '']);
+    check('console : sans utilisateur .htpasswd, 403', $r['code'] === 403 && strpos($r['corps'], 'Authentification') !== false);
+    check('utilisateur : REMOTE_USER', admin_utilisateur(['REMOTE_USER' => 'etienne']) === 'etienne');
+    check('utilisateur : REDIRECT_REMOTE_USER', admin_utilisateur(['REDIRECT_REMOTE_USER' => 'etienne']) === 'etienne');
+    check('utilisateur : nom invalide ignore', admin_utilisateur(['REMOTE_USER' => '<x>']) === '');
+    check('utilisateur : PHP_AUTH_USER (en-tete du client) ignore', admin_utilisateur(['PHP_AUTH_USER' => 'etienne']) === '');
+    $pages = ['tableau', 'demandes', 'licences', 'licence_nouvelle', 'produits', 'produit', 'distribution', 'serveurs',
+        'journal', 'sauvegarde', 'reglages'];
+    foreach ($pages as $page) {
+        $r = console($env, $session, 'GET', ['page' => $page]);
+        check('console : page ' . $page, $r['code'] === 200 && strpos($r['corps'], '<title>') !== false);
+        check('console : en-tetes de securite (' . $page . ')', isset($r['entetes']['Content-Security-Policy'],
+            $r['entetes']['X-Frame-Options'], $r['entetes']['Strict-Transport-Security']));
+        check('console : mobile (' . $page . ')', strpos($r['corps'], 'name="viewport"') !== false);
+        check('console : Referrer-Policy compatible avec le controle Origin (' . $page . ')',
+            $r['entetes']['Referrer-Policy'] === 'same-origin');
+        check('console : aucune ressource externe (' . $page . ')',
+            preg_match('/(src|href)="(https?:)?\/\//', $r['corps']) === 0);
+        check('console : pas de script en ligne (' . $page . ')', preg_match('/<script(?![^>]*src=)/', $r['corps']) === 0
+            && strpos($r['corps'], 'style="') === false && strpos($r['corps'], 'javascript:') === false);
+    }
+    check('console : page inconnue 404', console($env, $session, 'GET', ['page' => 'rien'])['code'] === 404);
+    $avant = (int)db_valeur($env['db'], 'SELECT COUNT(*) FROM produits');
+    $post = ['action' => 'produit_enregistrer', 'code' => 'NOUVEAU', 'nom' => 'N', 'actif' => '1', 'confirme' => '1'];
+    check('CSRF : sans jeton, refuse', console($env, $session, 'POST', [], $post)['code'] === 403);
+    $post['csrf'] = csrf_jeton($session);
+    check('CSRF : mauvaise origine, refusee', console($env, $session, 'POST', [], $post,
+        ['origine' => 'https://pirate.exemple.com'])['code'] === 403);
+    check('CSRF : origine null, refusee', console($env, $session, 'POST', [], $post, ['origine' => 'null'])['code'] === 403);
+    $sans = $post;
+    $sans['confirme'] = '0';
+    $r = console($env, $session, 'POST', [], $sans);
+    check('confirmation : page de confirmation sans ecriture', $r['code'] === 200 && strpos($r['corps'], 'Confirmer') !== false
+        && strpos($r['corps'], 'name="confirme" value="1"') !== false && (int)db_valeur($env['db'], 'SELECT COUNT(*) FROM produits') === $avant);
+    $r = console($env, $session, 'POST', [], $post, ['origine' => null]);
+    check('ecriture confirmee (origine absente) : redirection', $r['code'] === 303 && $r['entetes']['Location'] === 'index.php?page=produits&ok=produit');
+    check('ecriture : effectuee', (int)db_valeur($env['db'], 'SELECT COUNT(*) FROM produits') === $avant + 1);
+    check('ecriture : journalisee avec l\'utilisateur', db_valeur($env['db'],
+        "SELECT acteur FROM journal WHERE action = 'produit_cree'") === 'etienne');
+    $post['code'] = 'NOUVEAU2';
+    check('jeton renouvele apres ecriture : renvoi refuse', console($env, $session, 'POST', [], $post)['code'] === 403);
+    check('action inconnue', action($env, $session, 'supprimer_tout')['code'] === 400);
+    $r = console($env, $session, 'GET', ['page' => 'tableau', 'ok' => 'produit']);
+    check('message apres redirection', strpos($r['corps'], 'Produit enregistre.') !== false);
+    $r = console($env, $session, 'GET', ['page' => 'tableau', 'ok' => '<script>']);
+    check('message inconnu ignore', strpos($r['corps'], '&lt;script') === false && strpos($r['corps'], '<script>') === false);
+}
+
+function test_console_demandes(): void
+{
+    $env = serveur();
+    $session = [];
+    $jeton = jeton_demande();
+    appel($env, 'demander', ['titulaire' => '<script>alert(1)</script>', 'email' => 'c@exemple.fr',
+        'message' => "Mot pour ETDEL : merci", 'jeton' => $jeton]);
+    $r = console($env, $session, 'GET', ['page' => 'tableau']);
+    check('tableau : 1 demande en attente', strpos($r['corps'], '<strong>1</strong> demande(s) en attente') !== false);
+    check('navigation : pastille', strpos($r['corps'], '<span class="pastille">1</span>') !== false);
+    $r = console($env, $session, 'GET', ['page' => 'demandes']);
+    check('demandes : echappement HTML', strpos($r['corps'], '&lt;script&gt;alert(1)&lt;/script&gt;') !== false
+        && strpos($r['corps'], '<script>alert') === false);
+    foreach (['SHXT-2380', 'PC-PASSERELLE', 'Mot pour ETDEL : merci', 'c@exemple.fr', date_fr(T0 + 15 * JOUR)] as $attendu) {
+        check('demandes : colonne ' . $attendu, strpos($r['corps'], h($attendu)) !== false);
+    }
+    $r = console($env, $session, 'GET', ['page' => 'demande', 'id' => 1]);
+    check('fiche demande : duree pre-remplie (365)', strpos($r['corps'], 'name="duree_j" value="365"') !== false);
+    check('fiche demande : options pre-remplies', strpos($r['corps'], 'name="options" value="export_pdf"') !== false);
+    check('fiche demande : motif borne a 500', strpos($r['corps'], 'maxlength="500"') !== false);
+    $r = action($env, $session, 'demande_accepter', ['id' => 1, 'duree_j' => 90, 'titulaire' => 'Armement Durand',
+        'options' => 'export_pdf'], ['maintenant' => T0 + 600]);
+    $cle = cle_affichee($r);
+    check('acceptation : cle affichee une fois', $r['code'] === 200 && $cle !== null);
+    $lic = licence(['db' => $env['db']], (string)$cle);
+    check('acceptation : licence liee au poste', $lic['machine'] === MACHINE_A && (int)$lic['echeance'] === T0 + 600 + 90 * JOUR);
+    check('acceptation : options de la distribution = pas de surcharge', $lic['options'] === null);
+    check('acceptation : journal', db_valeur($env['db'], "SELECT acteur FROM journal WHERE action = 'demande_acceptee'") === 'etienne');
+    $p = appel($env, 'suivre_demande', ['demande' => 1, 'jeton' => $jeton], ['maintenant' => T0 + 700])['p'];
+    check('application : cle recue sans saisie, 90 jours', $p['statut'] === 'acceptee' && $p['cle'] === $cle && $p['jours_restants'] === 90);
+    $r = console($env, $session, 'GET', ['page' => 'demandes']);
+    check('historique des demandes traitees', strpos($r['corps'], 'licence n. ' . $lic['id']) !== false);
+    $r = console($env, $session, 'GET', ['page' => 'demande', 'id' => 1]);
+    check('fiche demande traitee : plus de formulaire', strpos($r['corps'], 'demande_accepter') === false);
+    $jeton2 = jeton_demande();
+    appel($env, 'demander', ['machine' => MACHINE_B, 'titulaire' => 'B', 'email' => '', 'message' => '', 'jeton' => $jeton2]);
+    $r = action($env, $session, 'demande_refuser', ['id' => 2, 'motif' => 'Licence reservee aux armateurs']);
+    check('refus : redirection', $r['code'] === 303 && strpos($r['entetes']['Location'], 'ok=refusee') !== false);
+    $p = appel($env, 'suivre_demande', ['machine' => MACHINE_B, 'demande' => 2, 'jeton' => $jeton2])['p'];
+    check('refus : motif renvoye tel quel', $p['statut'] === 'refusee' && $p['motif'] === 'Licence reservee aux armateurs');
+    check('refus d\'une demande traitee : erreur', action($env, $session, 'demande_refuser', ['id' => 2])['code'] === 409);
+    check('acceptation : duree invalide', action($env, $session, 'demande_accepter', ['id' => 3, 'duree_j' => 'abc',
+        'titulaire' => 'X'])['code'] === 400);
+}
+
+function test_console_licences(): void
+{
+    $env = serveur();
+    $session = [];
+    $r = console($env, $session, 'GET', ['page' => 'licence_nouvelle']);
+    check('nouvelle cle : duree par defaut de la distribution', strpos($r['corps'], 'data-duree="365"') !== false);
+    $r = action($env, $session, 'licence_creer', ['distribution_id' => $env['dist']['APP-A'], 'titulaire' => 'Armement Martin',
+        'email' => 'martin@exemple.fr', 'note' => 'Navire 1', 'duree_j' => 30]);
+    $cle = cle_affichee($r);
+    check('creation : cle affichee', $cle !== null && cle_normaliser($cle) === $cle);
+    $lic = licence(['db' => $env['db']], (string)$cle);
+    $id = (int)$lic['id'];
+    check('creation : non liee, 30 jours', $lic['machine'] === null && (int)$lic['echeance'] === T0 + 30 * JOUR
+        && $lic['origine'] === 'console');
+    check('creation : seul le hash est stocke', $lic['cle_hash'] === cle_hash((string)$cle) && $lic['cle_indice'] === substr($cle, -4));
+    check('creation : titulaire obligatoire', action($env, $session, 'licence_creer', ['distribution_id' => $env['dist']['APP-A'],
+        'titulaire' => ''])['code'] === 400);
+    check('creation : e-mail invalide', action($env, $session, 'licence_creer', ['distribution_id' => $env['dist']['APP-A'],
+        'titulaire' => 'X', 'email' => 'pas-une-adresse'])['code'] === 400);
+    check('activation de la cle creee', appel($env, 'activer', ['cle' => $cle])['p']['ok'] === true);
+    $r = console($env, $session, 'GET', ['page' => 'licence', 'id' => $id]);
+    check('fiche licence : poste lie et dernier contact', strpos($r['corps'], 'SHXT-2380') !== false
+        && strpos($r['corps'], 'PC-PASSERELLE') !== false);
+    check('fiche licence : cle jamais affichee', strpos($r['corps'], substr((string)$cle, 0, 14)) === false);
+    $r = console($env, $session, 'GET', ['page' => 'licences', 'q' => 'martin']);
+    check('recherche', strpos($r['corps'], 'Armement Martin') !== false);
+    $r = console($env, $session, 'GET', ['page' => 'licences', 'q' => 'inexistant_%']);
+    check('recherche sans resultat (joker echappe)', strpos($r['corps'], 'Aucune licence.') !== false);
+    action($env, $session, 'licence_prolonger', ['id' => $id, 'mode' => '30']);
+    check('prolonger +30 j', (int)licence_lire($env['db'], $id)['echeance'] === T0 + 60 * JOUR);
+    action($env, $session, 'licence_prolonger', ['id' => $id, 'mode' => '365']);
+    check('prolonger +1 an', (int)licence_lire($env['db'], $id)['echeance'] === T0 + 425 * JOUR);
+    action($env, $session, 'licence_prolonger', ['id' => $id, 'mode' => 'date', 'date' => '2030-01-31']);
+    check('prolonger : date libre (fin de journee)', date('Y-m-d H:i:s', (int)licence_lire($env['db'], $id)['echeance'])
+        === '2030-01-31 23:59:59');
+    check('prolonger : date passee refusee', action($env, $session, 'licence_prolonger', ['id' => $id, 'mode' => 'date',
+        'date' => '2020-01-01'])['code'] === 400);
+    $echue = creer_licence($env, 'APP-A', -10);
+    $id_echue = (int)licence(['db' => $env['db']], $echue)['id'];
+    action($env, $session, 'licence_prolonger', ['id' => $id_echue, 'mode' => '30']);
+    check('prolonger une licence echue : depuis aujourd\'hui', (int)licence_lire($env['db'], $id_echue)['echeance'] === T0 + 30 * JOUR);
+    $perpetuelle = (int)licence(['db' => $env['db']], creer_licence($env, 'APP-A', null))['id'];
+    check('prolonger une perpetuelle : refuse', action($env, $session, 'licence_prolonger', ['id' => $perpetuelle,
+        'mode' => '30'])['code'] === 400);
+    action($env, $session, 'licence_modifier', ['id' => $id, 'titulaire' => 'Armement Martin SA', 'email' => '',
+        'note' => '', 'tolerance_j' => '30', 'options' => 'export_pdf, special']);
+    $lic = licence_lire($env['db'], $id);
+    check('modifier : tolerance et options surchargees', (int)$lic['tolerance_j'] === 30
+        && $lic['options'] === '["export_pdf","special"]' && $lic['titulaire'] === 'Armement Martin SA');
+    $p = appel($env, 'valider', ['cle' => $cle])['p'];
+    check('modifier : effet au controle suivant', $p['hors_ligne_jusqu'] === T0 + 30 * JOUR && $p['options'] === ['export_pdf', 'special']);
+    action($env, $session, 'licence_modifier', ['id' => $id, 'titulaire' => 'Armement Martin SA', 'tolerance_j' => '',
+        'options_distribution' => '1', 'options' => 'ignore']);
+    $lic = licence_lire($env['db'], $id);
+    check('modifier : retour aux valeurs de la distribution', $lic['tolerance_j'] === null && $lic['options'] === null);
+    check('modifier : tolerance hors bornes', action($env, $session, 'licence_modifier', ['id' => $id, 'titulaire' => 'X',
+        'tolerance_j' => '366'])['code'] === 400);
+    check('modifier : option invalide', action($env, $session, 'licence_modifier', ['id' => $id, 'titulaire' => 'X',
+        'options' => 'Export PDF'])['code'] === 400);
+    action($env, $session, 'licence_suspendre', ['id' => $id]);
+    check('suspendre : poste bloque', appel($env, 'valider', ['cle' => $cle])['p']['code'] === 'suspendue');
+    action($env, $session, 'licence_reactiver', ['id' => $id]);
+    check('reactiver', appel($env, 'valider', ['cle' => $cle])['p']['ok'] === true);
+    $r = action($env, $session, 'licence_liberer', ['id' => $id]);
+    check('liberer le poste', $r['code'] === 303 && licence_lire($env['db'], $id)['machine'] === null);
+    check('apres liberation : nouvel ordinateur', appel($env, 'activer', ['cle' => $cle, 'machine' => MACHINE_B])['p']['ok'] === true);
+    check('apres liberation : journal', strpos((string)db_valeur($env['db'], "SELECT detail FROM journal WHERE action = 'poste_libere'"),
+        'SHXT-2380') !== false);
+    action($env, $session, 'licence_revoquer', ['id' => $id]);
+    check('revoquer : poste bloque a la connexion suivante',
+        appel($env, 'valider', ['cle' => $cle, 'machine' => MACHINE_B])['p']['code'] === 'revoquee');
+    check('revocation definitive', action($env, $session, 'licence_reactiver', ['id' => $id])['code'] === 400);
+    $r = console($env, $session, 'GET', ['page' => 'licence', 'id' => $id]);
+    check('licence revoquee : plus d\'actions', strpos($r['corps'], 'licence_reactiver') === false);
+    check('licence inconnue', console($env, $session, 'GET', ['page' => 'licence', 'id' => 999])['code'] === 400);
+}
+
+function test_console_produits_serveurs(): void
+{
+    $env = serveur();
+    $session = [];
+    action($env, $session, 'produit_enregistrer', ['code' => 'NAVIRE', 'nom' => 'Suivi navire', 'version_min' => '', 'actif' => '1']);
+    $produit = (int)db_valeur($env['db'], "SELECT id FROM produits WHERE code = 'NAVIRE'");
+    check('produit cree', $produit > 0);
+    check('produit : code en double refuse', action($env, $session, 'produit_enregistrer', ['code' => 'NAVIRE',
+        'nom' => 'X'])['code'] === 400);
+    check('produit : code invalide refuse', action($env, $session, 'produit_enregistrer', ['code' => 'NA VIRE',
+        'nom' => 'X'])['code'] === 400);
+    $r = action($env, $session, 'distribution_enregistrer', ['produit_id' => $produit, 'code' => 'NAVIRE-DEMO',
+        'libelle' => 'Demo', 'client' => 'Salon', 'tolerance_j' => '3', 'preavis_j' => '1', 'duree_defaut_j' => '30',
+        'essai_j' => '7', 'version_min' => '', 'options' => 'demo', 'message' => 'Version de demonstration', 'actif' => '1']);
+    $dist = (int)db_valeur($env['db'], "SELECT id FROM distributions WHERE code = 'NAVIRE-DEMO'");
+    check('distribution creee depuis la console', $r['code'] === 303 && $dist > 0);
+    $p = appel($env, 'demander', ['produit' => 'NAVIRE', 'distribution' => 'NAVIRE-DEMO', 'titulaire' => 'Visiteur',
+        'email' => '', 'message' => '', 'jeton' => jeton_demande()])['p'];
+    check('nouveau produit utilisable sans toucher au code', $p['ok'] === true && $p['essai_jusqu'] === T0 + 7 * JOUR
+        && $p['options'] === ['demo']);
+    $r = console($env, $session, 'GET', ['page' => 'distribution', 'id' => $dist]);
+    check('ligne installer() prete a copier', strpos($r['corps'],
+        h('etdel_licence.installer(root, produit="NAVIRE", distribution="NAVIRE-DEMO", version=APP_VERSION)')) !== false);
+    check('distribution : tolerance hors bornes', action($env, $session, 'distribution_enregistrer', ['id' => $dist,
+        'libelle' => 'Demo', 'tolerance_j' => '400', 'preavis_j' => '1', 'essai_j' => '0'])['code'] === 400);
+    action($env, $session, 'distribution_dupliquer', ['id' => $dist, 'code' => 'NAVIRE-CLIENTA']);
+    $copie = db_ligne($env['db'], "SELECT * FROM distributions WHERE code = 'NAVIRE-CLIENTA'");
+    check('dupliquer une distribution', $copie !== null && $copie['options'] === '["demo"]' && (int)$copie['essai_j'] === 7
+        && $copie['libelle'] === 'Demo (copie)');
+    check('dupliquer : code existant refuse', action($env, $session, 'distribution_dupliquer', ['id' => $dist,
+        'code' => 'NAVIRE-DEMO'])['code'] === 400);
+    action($env, $session, 'distribution_enregistrer', ['id' => $dist, 'libelle' => 'Demo', 'tolerance_j' => '3',
+        'preavis_j' => '1', 'essai_j' => '7', 'options' => 'demo']);
+    check('desactiver une distribution', appel($env, 'demander', ['produit' => 'NAVIRE', 'distribution' => 'NAVIRE-DEMO',
+        'machine' => MACHINE_B, 'titulaire' => 'V', 'email' => '', 'message' => '', 'jeton' => jeton_demande()])['p']['code']
+        === 'produit_inconnu');
+    $r = console($env, $session, 'GET', ['page' => 'produits']);
+    check('ecran produits', strpos($r['corps'], 'NAVIRE-CLIENTA') !== false && strpos($r['corps'], 'Suivi navire') !== false);
+    // Serveurs.
+    check('url : http distant refuse', action($env, $session, 'url_ajouter', ['url' => 'http://licence3.exemple.fr/api/v1/',
+        'priorite' => 5])['code'] === 400);
+    action($env, $session, 'url_ajouter', ['url' => 'https://licence3.exemple.fr/api/v1/', 'priorite' => 5]);
+    check('url ajoutee en tete', appel($env, 'ping')['p']['urls'][0] === 'https://licence3.exemple.fr/api/v1/');
+    check('url en double refusee', action($env, $session, 'url_ajouter', ['url' => 'https://licence3.exemple.fr/api/v1/',
+        'priorite' => 5])['code'] === 400);
+    $ids = array_map('intval', array_column(db_lignes($env['db'], 'SELECT id FROM urls_serveur ORDER BY id'), 'id'));
+    action($env, $session, 'url_modifier', ['id' => $ids[0], 'priorite' => 10]);
+    action($env, $session, 'url_modifier', ['id' => $ids[1], 'priorite' => 20]);
+    check('urls desactivees retirees de la liste', appel($env, 'ping')['p']['urls'] === ['https://licence3.exemple.fr/api/v1/']);
+    check('derniere url active : non desactivable', action($env, $session, 'url_modifier', ['id' => $ids[2],
+        'priorite' => 5])['code'] === 400);
+    $r = console($env, $session, 'GET', ['page' => 'serveurs']);
+    check('ecran serveurs : suivi de migration', strpos($r['corps'], 'Suivi d\'une migration') !== false);
+}
+
+function test_console_reglages_exports(): void
+{
+    $env = serveur();
+    $session = [];
+    check('reglages : adresse invalide refusee', action($env, $session, 'reglages_enregistrer',
+        ['email_notification' => 'a@exemple.fr, faux', 'email_expediteur' => ''])['code'] === 400);
+    action($env, $session, 'reglages_enregistrer', ['email_notification' => 'a@exemple.fr, b@exemple.fr',
+        'email_expediteur' => 'licences@licence.exemple.fr']);
+    check('reglages enregistres', reglage_lire($env['db'], 'email_notification') === 'a@exemple.fr, b@exemple.fr');
+    $r = action($env, $session, 'email_test');
+    $mail = $env['mails'][count($env['mails']) - 1];
+    check('e-mail de test envoye', strpos($r['corps'], 'E-mail envoye a a@exemple.fr') !== false && $mail['sujet'] === '[ETDEL Licences] E-mail de test'
+        && $mail['a'] === 'a@exemple.fr, b@exemple.fr');
+    check('mot de passe trop court refuse', action($env, $session, 'mot_de_passe', ['nouveau' => 'court',
+        'confirmation' => 'court'])['code'] === 400);
+    action($env, $session, 'mot_de_passe', ['nouveau' => 'un tout nouveau mot de passe 2026', 'confirmation' => 'un tout nouveau mot de passe 2026']);
+    $ligne = trim((string)file_get_contents($env['config']['htpasswd']));
+    check('mot de passe change (.htpasswd bcrypt)', password_verify('un tout nouveau mot de passe 2026', substr($ligne, 8)));
+    $cle = creer_licence($env, 'APP-A', 365, ['titulaire' => '=HYPERLINK("http://x")']);
+    appel($env, 'activer', ['cle' => $cle]);
+    $r = console($env, $session, 'GET', ['page' => 'export', 'quoi' => 'licences']);
+    check('export licences : CSV UTF-8', $r['entetes']['Content-Type'] === 'text/csv; charset=UTF-8'
+        && strpos($r['corps'], "\xEF\xBB\xBF\"id\";\"titulaire\";") === 0);
+    check('export : formule neutralisee', strpos($r['corps'], "\"'=HYPERLINK(\"\"http://x\"\")\"") !== false);
+    check('export : jamais la cle', strpos($r['corps'], substr($cle, 6, 9)) === false);
+    $r = console($env, $session, 'GET', ['page' => 'export', 'quoi' => 'demandes']);
+    check('export demandes', $r['code'] === 200 && strpos($r['corps'], '"motif_refus"') !== false);
+    $r = console($env, $session, 'GET', ['page' => 'export', 'quoi' => 'journal', 'action' => 'activation']);
+    check('export journal filtre', substr_count($r['corps'], "\r\n") === 2 && strpos($r['corps'], 'activation') !== false);
+    $r = console($env, $session, 'GET', ['page' => 'journal', 'action' => 'mot_de_passe']);
+    check('journal filtre', strpos($r['corps'], '1 evenement(s).') !== false);
+    $r = console($env, $session, 'GET', ['page' => 'sauvegarde', 'telecharger' => '1']);
+    check('telecharger une copie de la base', $r['code'] === 200 && is_file($r['fichier'])
+        && strncmp((string)file_get_contents($r['fichier'], false, null, 0, 16), 'SQLite format 3', 15) === 0);
+    @unlink($r['fichier']);
+    check('telechargement journalise', db_valeur($env['db'], "SELECT acteur FROM journal WHERE action = 'sauvegarde_telechargee'") === 'etienne');
+    $ecritures = array_column(db_lignes($env['db'], "SELECT action FROM journal WHERE acteur = 'etienne' "
+        . "AND action <> 'installation' ORDER BY id"), 'action');
+    check('toutes les ecritures journalisees', $ecritures === ['reglages', 'email_test', 'mot_de_passe', 'sauvegarde_telechargee']);
+    check('tableau : controle d\'exposition', strpos(console($env, $session, 'GET', [])['corps'], 'id="exposition"') !== false);
+}
+
 $tests = ['test_fichiers', 'test_formats', 'test_installation', 'test_ping_et_requetes_invalides', 'test_activer_valider',
     'test_statuts_versions_surcharges', 'test_demandes', 'test_notifications', 'test_limites', 'test_sauvegarde',
-    'test_signature'];
+    'test_signature', 'test_console_acces', 'test_console_demandes', 'test_console_licences',
+    'test_console_produits_serveurs', 'test_console_reglages_exports'];
 foreach ($tests as $test) {
     try {
         $test();

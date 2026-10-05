@@ -175,3 +175,45 @@ Choix faits pendant la réalisation, sur les points non couverts ou ambigus du c
 - **Question** : « aucun test ne dépend de l'heure réelle », alors que `php -S` utilise l'horloge du système.
 - **Décision** : les tests unitaires (client et serveur) injectent l'heure ; le test de bout en bout fait tourner client et serveur sur l'heure du système, et aucune de ses vérifications ne dépend de sa valeur.
 - **Raison** : le serveur n'expose pas d'horloge réglable en production, volontairement.
+
+## Console d'administration
+
+### D31 — 2026-10-05 — Confirmation, CSRF et en-têtes
+- **Question** : forme de la confirmation ; détails du contrôle CSRF.
+- **Décision** : chaque formulaire d'écriture déclenche une boîte de confirmation (JavaScript) ; sans JavaScript, le serveur affiche une page de confirmation qui renvoie les mêmes champs. Le jeton CSRF est renouvelé après chaque écriture réussie : un formulaire renvoyé (touche F5) est refusé, ce qui garantit aussi qu'une clé n'est affichée qu'une fois. L'en-tête Origin, s'il est présent, doit correspondre à l'hôte (`null` est refusé) ; absent, le jeton suffit. `Referrer-Policy: same-origin` et non `no-referrer` : un essai dans un vrai navigateur a montré qu'avec `no-referrer`, Chrome envoie `Origin: null` sur les POST de formulaire, que le contrôle refusait. Les messages après redirection passent par un code fixe dans l'URL, jamais par une donnée.
+- **Raison** : sécurité sans dépendre de JavaScript ; la session PHP ne sert qu'au jeton.
+
+### D32 — 2026-10-05 — Utilisateur de la console
+- **Question** : d'où lire l'utilisateur authentifié.
+- **Décision** : `REMOTE_USER`, à défaut `REDIRECT_REMOTE_USER`, jamais `PHP_AUTH_USER` ; sans utilisateur, la console répond 403 même si le `.htaccess` n'est pas appliqué.
+- **Raison** : PHP remplit `PHP_AUTH_USER` depuis l'en-tête envoyé par le client, même quand Apache n'a rien vérifié.
+
+### D33 — 2026-10-05 — Règles des actions sur les licences
+- **Question** : transitions et calculs non précisés.
+- **Décision** :
+  - « réactiver » ne s'applique qu'à une licence suspendue ; la révocation est définitive ;
+  - « libérer le poste » efface l'empreinte, l'identifiant, le nom de l'ordinateur et la date de liaison (l'ancien poste est inscrit au journal) ;
+  - « prolonger » part de l'échéance, ou d'aujourd'hui si elle est passée ; la date libre fixe l'échéance à 23 h 59 min 59 s (fuseau de `config.php`) ; une licence perpétuelle ne se prolonge pas ;
+  - à la création d'une clé, la durée est préremplie avec la durée par défaut de la distribution ; vide = perpétuelle ;
+  - à l'acceptation d'une demande, des options identiques à celles de la distribution ne créent pas de surcharge.
+- **Raison** : comportements les plus prévisibles pour l'administrateur.
+
+### D34 — 2026-10-05 — Produits, distributions et URL
+- **Question** : modification des codes ; liste d'URL vide.
+- **Décision** : les codes de produit et de distribution ne sont plus modifiables après création (ils sont inscrits dans les applications) ; désactiver se fait par la case « Actif ». La console refuse de retirer la dernière URL diffusée. L'écran Serveurs affiche le nombre de postes vus depuis 24 h, 7 et 30 jours pour suivre une migration.
+- **Raison** : éviter de casser des applications livrées par une simple saisie.
+
+### D35 — 2026-10-05 — Exports et sauvegarde
+- **Question** : format CSV ; copie téléchargée.
+- **Décision** : séparateur point-virgule et BOM UTF-8 (ouverture directe dans un tableur français) ; une cellule commençant par `=`, `+`, `-` ou `@` est préfixée d'une apostrophe (pas de formule exécutée). La copie téléchargée est faite par `VACUUM INTO` dans le dossier des sauvegardes, envoyée puis supprimée ; le téléchargement est journalisé.
+- **Raison** : simplicité d'usage et protection contre l'injection de formules.
+
+### D36 — 2026-10-05 — Vérification « base non téléchargeable »
+- **Question** : l'annexe A demande un test HTTP prouvant que la base renvoie 403 quand `prive/` est dans `www/`, ce qu'aucun test hors OVH ne peut faire (`php -S` ignore `.htaccess`).
+- **Décision** : le tableau de bord contient un « contrôle d'exposition » : le navigateur tente de télécharger la base, les clés, `config.php`, `.htpasswd` et `schema.sql` par leur URL et affiche « protégé » ou « DANGER ». Les tests PHP vérifient la présence des directives `Require all denied` et `FilesMatch`.
+- **Raison** : la vérification se fait sur l'hébergement réel, là où elle a du sens.
+
+### D37 — 2026-10-05 — Mot de passe de la console
+- **Question** : « changement de mot de passe par la même voie » alors que l'assistant est verrouillé après usage.
+- **Décision** : écran Réglages, formulaire « Changer le mot de passe » (même fonction `password_hash`, 20 caractères minimum), pour l'utilisateur connecté.
+- **Raison** : l'assistant ne doit jamais redevenir exécutable.

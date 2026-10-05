@@ -1,0 +1,31 @@
+# .htaccess - Racine web du serveur de licences : HTTPS force, pas de listing,
+#             en-tetes de securite, fichiers sensibles jamais servis.
+# ETDEL (c) 2026
+Options -Indexes
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+RewriteEngine On
+# OVH mutualise : SERVER_PORT vaut 80 en HTTP clair (methode documentee par OVH).
+RewriteCond %{SERVER_PORT} ^80$
+RewriteCond %{HTTP:X-Forwarded-Proto} !^https$
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+</IfModule>
+
+<IfModule mod_headers.c>
+Header always set Strict-Transport-Security "max-age=31536000"
+Header always set X-Frame-Options "DENY"
+Header always set X-Content-Type-Options "nosniff"
+Header always set Referrer-Policy "no-referrer"
+Header always set Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+</IfModule>
+
+<FilesMatch "(\.(db|db-wal|db-shm|sqlite|key|sql|log|bak|verrou)|^\.ht.*|^config.*\.php)$">
+<IfModule mod_authz_core.c>
+Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+Order deny,allow
+Deny from all
+</IfModule>
+</FilesMatch>

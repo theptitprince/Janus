@@ -11,11 +11,13 @@ Système de licences pour les applications Python Windows signées ETDEL : un se
 ## Tests
 
 ```
-python client/test_etdel_licence.py          # Windows
-xvfb-run -a python3 client/test_etdel_licence.py   # Linux sans écran
+python client/test_etdel_licence.py                # module client (Windows)
+xvfb-run -a python3 client/test_etdel_licence.py   # module client (Linux sans écran)
+php serveur/tests/test_serveur.php                 # serveur, PHP CLI, base temporaire
+python3 serveur/tests/test_bout_en_bout.py         # serveur PHP réel (php -S) + client réel
 ```
 
-La suite affiche `=== TOUS LES TESTS PASSENT (client) ===` ou la liste des échecs (code de sortie 1). Aucun test ne dépend du réseau réel ni de l'heure réelle.
+Chaque suite affiche `=== TOUS LES TESTS PASSENT (<suite>) ===` ou la liste des échecs (code de sortie 1). Aucun test ne dépend du réseau réel ; les tests unitaires injectent l'heure (voir D30 pour le test de bout en bout).
 
 Les choix de réalisation sont consignés dans [docs/DECISIONS.md](docs/DECISIONS.md).
 

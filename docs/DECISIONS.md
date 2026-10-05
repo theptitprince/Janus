@@ -224,3 +224,20 @@ Choix faits pendant la réalisation, sur les points non couverts ou ambigus du c
 - **Question** : sort de l'ancienne clé privée ; sens de `retiree_le`.
 - **Décision** : le bouton « Nouvelle cle de signature » génère la paire sur le serveur, signe le bulletin `{"type": "nouvelle_cle", "kid", "cle_publique", "valide_des"}` avec la clé active, enregistre la nouvelle clé (kid + 1), date `retiree_le` de l'ancienne au moment de la rotation, puis efface l'ancienne clé privée. Le serveur signe toujours avec la clé non retirée de plus grand kid et diffuse les bulletins dont `active_depuis` date de moins de 12 mois. L'écran Clés montre la clé active (bouton « Copier »), les trois lignes à reporter dans `etdel_licence.py`, l'historique et la date jusqu'à laquelle les postes acceptent encore chaque ancienne clé (retrait + 90 jours, règle appliquée côté client, voir D19).
 - **Raison** : une fois le bulletin signé, l'ancienne clé privée ne sert plus à rien ; la conserver n'ajouterait qu'un risque.
+
+## Kit d'intégration
+
+### D39 — 2026-10-05 — Empreinte publiée du module
+- **Question** : comment publier et contrôler l'empreinte d'un fichier qui change une fois (constantes renseignées après l'installation du serveur) et que Git peut convertir en CRLF sous Windows.
+- **Décision** : l'empreinte SHA-256 est calculée sur le contenu aux fins de ligne normalisées en LF. Elle est publiée avec la version dans `docs/INTEGRATION.md` et reprise dans `client/test_licence_integration.py` ; `test_etdel_licence.py` échoue si ces trois éléments divergent. Le test du module accepte des constantes vides, ou renseignées (URL HTTPS et clé publique de 32 octets).
+- **Raison** : une seule référence, impossible à oublier lors du renseignement des constantes.
+
+### D40 — 2026-10-05 — Test d'intégration générique
+- **Question** : comment tester une application réelle sans réseau ni heure réelle, alors que `installer()` construit sa propre Garde.
+- **Décision** : `test_licence_integration.py` remplace, le temps du test, les constantes du module, la fabrique `Garde` (horloge et transport factices) et la boîte de message ; il redirige `%APPDATA%`, `%LOCALAPPDATA%`, `%PROGRAMDATA%` et le dossier personnel vers un dossier temporaire. Seule la fonction `creer_application()` (et les codes produit et distribution) est à adapter dans chaque application.
+- **Raison** : l'API publique du module ne porte aucun réglage de test, et l'application testée est bien la vraie.
+
+### D41 — 2026-10-05 — Modèle de brief
+- **Question** : le brief cite « version X.Y, empreinte SHA-256 fournie », valeurs qui évoluent.
+- **Décision** : le modèle porte des emplacements `{VERSION}` et `{EMPREINTE}` (et `{APPLICATION}`, `{PRODUIT}`, `{DISTRIBUTION}`) à remplir depuis `docs/INTEGRATION.md` au moment de l'usage.
+- **Raison** : un brief figé deviendrait faux dès le renseignement des constantes.

@@ -64,7 +64,7 @@ class Horloge(object):
         return self.t
 
     def avancer(self, jours=0, secondes=0):
-        self.t += int(jours * JOUR) + secondes
+        self.t += int(round(jours * JOUR)) + secondes
 
 
 class Monotone(object):
@@ -165,6 +165,11 @@ class FauxServeur(object):
             return 200, self.signer(payload, self.kid, os.urandom(32))
         if mode == "mauvaise_signature":
             return 200, self.signer(payload, self.kid, os.urandom(32))
+        if mode == "kid_falsifie":
+            # Reponse authentique dont le kid (hors signature) a ete change en route.
+            enveloppe = json.loads(self.signer(payload, self.kid))
+            enveloppe["kid"] = 7
+            return 200, json.dumps(enveloppe).encode("utf-8")
         return 200, self.signer(payload, self.kid)
 
     def jeton(self, base, cle, lic, dist):
@@ -528,6 +533,44 @@ def test_tolerance_par_licence():
     check("tolerance surchargee 30 j : jour 30 EXPIREE", g.etat()["statut"] == L.EXPIREE)
 
 
+def test_preavis_superieur_a_la_tolerance():
+    horloge, serveur, dossiers, g, cle, _r = garde_active(jours=None, tolerance_j=3)
+    check("preavis 5 j, tolerance 3 j : VALIDE apres verification", g.etat()["statut"] == L.VALIDE)
+    serveur.modes[URL1] = serveur.modes[URL2] = serveur.modes[URL_SECOURS] = "injoignable"
+    horloge.avancer(jours=1.4)
+    check("preavis borne : VALIDE a 1,4 j", g.etat()["statut"] == L.VALIDE)
+    horloge.avancer(jours=0.1)
+    check("preavis borne : AVERTISSEMENT a mi-tolerance", g.etat()["statut"] == L.AVERTISSEMENT)
+    horloge.avancer(jours=1.5)
+    check("preavis borne : EXPIREE a 3 j", g.etat()["statut"] == L.EXPIREE)
+
+
+def test_deux_instances():
+    horloge, serveur, dossiers = contexte()
+    a = garde(serveur, dossiers, horloge)
+    a.demarrer()
+    b = garde(serveur, dossiers, horloge)
+    b.demarrer()
+    check("deux instances : activation dans la seconde", b.activer(serveur.creer_cle())["ok"])
+    a.arreter()
+    check("deux instances : fermer la premiere ne perd pas la cle",
+          garde(serveur, dossiers, horloge).etat()["statut"] == L.VALIDE)
+    horloge, serveur, dossiers = contexte()
+    a = garde(serveur, dossiers, horloge)
+    a.demarrer()
+    b = garde(serveur, dossiers, horloge)
+    b.demarrer()
+    b.demander("Armement")
+    check("deux instances : la premiere voit la demande apres relecture",
+          a.etat()["statut"] == L.A_ACTIVER and (a._rafraichir() or a.etat()["statut"] == L.ESSAI))
+    a.arreter()
+    b.arreter()
+    c = garde(serveur, dossiers, horloge)
+    check("deux instances : demande conservee", c.etat()["demande"] == 1)
+    serveur.accepter(1)
+    check("deux instances : cle livree", c._controler() and c.etat()["statut"] == L.VALIDE)
+
+
 def test_recul_horloge():
     horloge, serveur, dossiers = contexte()
     cle = serveur.creer_cle(jours=None)
@@ -819,6 +862,12 @@ def test_cache_altere():
 
 
 def test_bulletins():
+    horloge, serveur, dossiers = contexte()
+    g = garde(serveur, dossiers, horloge)
+    serveur.modes[URL1] = "kid_falsifie"
+    check("kid falsifie au premier contact : reponse authentique acceptee", g.activer(serveur.creer_cle())["ok"])
+    serveur.modes[URL1] = "ok"
+    check("kid falsifie : la cle embarquee reste utilisable", g._controler() is True and g.etat()["kid_actif"] == 1)
     horloge, serveur, dossiers, g, cle, _r = garde_active()
     check("kid initial", g.etat()["kid_actif"] == 1)
     serveur.tourner_cle()
@@ -849,6 +898,9 @@ def test_bulletins():
     check("ancienne cle : encore acceptee a 89 j", g._controler() is True)
     horloge.avancer(jours=2)
     check("ancienne cle : refusee apres 90 j", g._controler() is False)
+    serveur.modes[URL1] = serveur.modes[URL2] = "kid_falsifie"
+    check("ancienne cle sous un autre kid : refusee", g._controler() is False)
+    serveur.modes[URL1] = serveur.modes[URL2] = "ok"
     serveur.kid = 2
     check("nouvelle cle : acceptee", g._controler() is True)
     del vieux_horloge, vieux_serveur
@@ -868,6 +920,13 @@ def test_version_et_expiration():
     check("version a jour : VALIDE",
           garde(serveur, dossiers_temporaires(), horloge, version="2.1", machine=MACHINE_B)
           .activer(serveur.creer_cle())["ok"])
+    horloge, serveur, dossiers, g, cle, _r = garde_active()
+    serveur.distributions["APP-A"]["version_min"] = "2.0"
+    g._controler()
+    g.arreter()
+    check("refus de version memorise", garde(serveur, dossiers, horloge).etat()["statut"] == L.VERSION_REFUSEE)
+    check("application mise a jour : refus de version leve",
+          garde(serveur, dossiers, horloge, version="2.1").etat()["statut"] == L.VALIDE)
     horloge, serveur, dossiers, g, cle, _r = garde_active(jours=10)
     e = g.etat()
     check("echeance sous 15 j : AVERTISSEMENT", e["statut"] == L.AVERTISSEMENT and e["jours_restants"] == 10)
@@ -1243,9 +1302,12 @@ def tests_tk():
     root.protocol("WM_DELETE_WINDOW", lambda: appels.append("origine"))
     L.installer(root, "APP", "APP-A", "1.0", _garde=g)
     pomper(root)
+    seq = g._local["seq"]
     root.tk.eval(root.protocol("WM_DELETE_WINDOW"))
-    check("tk fermeture : arreter puis gestionnaire d'origine", appels == ["origine"] and g._arrete)
+    check("tk fermeture : heure gravee puis gestionnaire d'origine", appels == ["origine"] and g._local["seq"] > seq)
+    check("tk fermeture annulee par l'application : controle maintenu", not g._arrete and existe(root))
     root.destroy()
+    check("tk destruction reelle : arreter", g._arrete)
     horloge, serveur, dossiers, g, cle, _r = garde_active()
     root = tk.Tk()
     L.installer(root, "APP", "APP-A", "1.0", _garde=g)
@@ -1312,9 +1374,23 @@ def tests_tk():
     g.arreter()
     root = tk.Tk()
     del messages[:]
-    L.installer(root, "APP", "APP-A", "1.0", _garde=garde(serveur, dossiers, horloge))
+    g = garde(serveur, dossiers, horloge, version="1.4.0")
+    L.installer(root, "APP", "APP-A", "1.0", _garde=g)
     pomper(root)
-    check("tk VERSION_REFUSEE : message puis fermeture",
+    integ = g._integration
+    check("tk VERSION_REFUSEE au lancement : fenetre de mise a jour", integ.fenetre is not None
+          and integ.fenetre.page == "version" and messages == [])
+    check("tk VERSION_REFUSEE : message et boutons", any("mettez l'application a jour" in t for t in textes(integ.fenetre.win))
+          and "Reessayer" in textes(integ.fenetre.win) and "Quitter" in textes(integ.fenetre.win))
+    serveur.distributions["APP-A"]["version_min"] = None
+    bouton(integ.fenetre.win, "Reessayer").invoke()
+    check("tk VERSION_REFUSEE : Reessayer apres baisse de la version minimale",
+          pomper(root, 3, lambda: integ.fenetre is None) and g.etat()["statut"] == L.VALIDE)
+    serveur.distributions["APP-A"]["version_min"] = "9.0"
+    g._controler()
+    integ._tick()
+    pomper(root, 0.1)
+    check("tk VERSION_REFUSEE en session : message puis fermeture",
           len(messages) == 1 and "mettez l'application a jour" in messages[0] and not existe(root))
 
     # Palette.
@@ -1329,7 +1405,8 @@ def tests_tk():
 def main():
     tests = [test_ed25519, test_formats, test_fichier, test_publication, test_non_configure, test_activation,
              test_donnees_transmises, test_tolerance, test_tolerance_par_licence, test_recul_horloge,
-             test_avance_horloge_corrigee, test_revocation, test_autre_poste, test_renommage,
+             test_avance_horloge_corrigee, test_preavis_superieur_a_la_tolerance, test_deux_instances,
+             test_revocation, test_autre_poste, test_renommage,
              test_demande_essai_acceptee, test_demande_refusee, test_essai_unique, test_essai_epuise,
              test_demande_reprise_et_perte, test_options_distributions, test_migration_url,
              test_signature_invalide, test_cache_altere, test_bulletins, test_version_et_expiration,

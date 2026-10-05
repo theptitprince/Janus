@@ -139,8 +139,14 @@ function admin_envoyer(array $reponse): void
         header($nom . ': ' . $valeur);
     }
     if (isset($reponse['fichier'])) {
-        readfile($reponse['fichier']);
-        @unlink($reponse['fichier']);
+        // Copie complete de la base : supprimee meme si le telechargement est interrompu.
+        $fichier = $reponse['fichier'];
+        ignore_user_abort(true);
+        register_shutdown_function(static function () use ($fichier): void {
+            @unlink($fichier);
+        });
+        readfile($fichier);
+        @unlink($fichier);
         return;
     }
     echo $reponse['corps'];
@@ -1284,6 +1290,12 @@ function admin_telecharger_base(array $ctx): array
     $dossier = (string)$ctx['config']['dossier_sauvegardes'];
     if (!is_dir($dossier) && !mkdir($dossier, 0700, true) && !is_dir($dossier)) {
         throw new AdminErreur('Dossier de sauvegarde inaccessible.');
+    }
+    // Filet : une copie restee d'un telechargement interrompu ne survit pas plus d'une heure.
+    foreach (glob($dossier . '/telechargement-*.db') ?: [] as $ancienne) {
+        if (filemtime($ancienne) < time() - 3600) {
+            @unlink($ancienne);
+        }
     }
     $fichier = $dossier . '/telechargement-' . bin2hex(random_bytes(8)) . '.db';
     base_copier($ctx['db'], $fichier);

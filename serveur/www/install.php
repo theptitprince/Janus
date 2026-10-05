@@ -64,6 +64,8 @@ if (installation_verrouillee($config)) {
                 '<p>Le mot de passe de la console est change. Remettre <code>jeton_reinitialisation</code> a vide dans '
                 . 'config.php.</p><p><a href="admin/">Console d\'administration</a></p>');
         } catch (Throwable $e) {
+            // Ralentit les essais de jeton ; les jetons font 20 caracteres au moins.
+            sleep(1);
             $message = '<ul><li>' . h($e->getMessage()) . '</li></ul>';
         }
     }
@@ -113,6 +115,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         'confirmation' => (string)($_POST['confirmation'] ?? ''),
     ];
     if (!hash_equals((string)$config['jeton_installation'], (string)($_POST['jeton'] ?? ''))) {
+        sleep(1);
         $erreurs[] = 'Jeton d\'installation incorrect.';
     } else {
         $erreurs = installation_erreurs($parametres);

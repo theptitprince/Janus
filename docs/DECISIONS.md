@@ -78,7 +78,7 @@ Choix faits pendant la réalisation, sur les points non couverts ou ambigus du c
 
 ### D14 — 2026-10-05 — EXPIREE au lancement
 - **Question** : l'annexe D dit « message puis fermeture » ; la section 7 prévoit une « fenêtre de licence et bouton Réessayer » quand la tolérance est épuisée.
-- **Décision** : au lancement, `EXPIREE` ouvre la fenêtre de licence (« Reessayer », « J'ai une cle ») ; en cours de session, message puis fermeture.
+- **Décision** : au lancement, `EXPIREE` ouvre la fenêtre de licence (« Reessayer », « J'ai une cle ») ; en cours de session, message puis fermeture. Même principe pour `VERSION_REFUSEE` (voir D44).
 - **Raison** : concilie les deux passages ; un poste revenu à portée du réseau peut se débloquer sans relancer l'application.
 
 ### D15 — 2026-10-05 — Fenêtre d'activation
@@ -253,5 +253,39 @@ Choix faits pendant la réalisation, sur les points non couverts ou ambigus du c
 
 ### D43 — 2026-10-05 — Mot de passe de la console perdu
 - **Question** : sans SSH ni outil local, et avec un assistant verrouillé, comment retrouver l'accès à la console si le mot de passe est perdu ? Le cahier des charges prévoit le « changement de mot de passe par la même voie » que la création du `.htpasswd`.
-- **Décision** : un jeton `jeton_reinitialisation` (20 caractères minimum, différent du jeton d'installation) déposé par FTP dans `config.php` ouvre, dans `install.php` toujours verrouillé, un formulaire qui ne fait que réécrire le `.htpasswd` (bcrypt). Chaque jeton ne sert qu'une fois (son SHA-256 est inscrit dans `prive/reinitialisation.utilisee`) ; l'opération est journalisée. Rien d'autre de l'installation n'est rejouable.
+- **Décision** : un jeton `jeton_reinitialisation` (20 caractères minimum, différent du jeton d'installation) déposé par FTP dans `config.php` ouvre, dans `install.php` toujours verrouillé, un formulaire qui ne fait que remplacer le mot de passe d'un compte existant du `.htpasswd` (bcrypt ; jamais de compte supplémentaire ; une seconde d'attente après un échec). Chaque jeton ne sert qu'une fois (son SHA-256 est inscrit dans `prive/reinitialisation.utilisee`) ; l'opération est journalisée. Rien d'autre de l'installation n'est rejouable.
 - **Raison** : l'accès FTP est la seule preuve d'autorité disponible ; la portée est limitée au mot de passe.
+
+## Corrections après revue du code
+
+Une revue indépendante (lecture du code et scénarios rejoués contre le vrai module et le vrai serveur) a relevé les défauts suivants, corrigés et couverts par des tests.
+
+### D44 — 2026-10-05 — Refus de version après mise à jour de l'application
+- **Question** : le refus `version_trop_ancienne` mémorisé bloquait aussi la version mise à jour, qui se fermait au lancement avant tout contrôle.
+- **Décision** : le refus mémorise la version refusée et ne s'applique qu'à elle. Au lancement, `VERSION_REFUSEE` ouvre la fenêtre « Mise a jour necessaire » avec « Reessayer » et « Quitter » (le message reste affiché, fermer quitte) ; en session, message puis fermeture.
+- **Raison** : une baisse de la version minimale ou une mise à jour doit débloquer le poste.
+
+### D45 — 2026-10-05 — Préavis supérieur à la tolérance
+- **Question** : avec un préavis au moins égal à la tolérance (par exemple 5 j pour 3 j), le bandeau s'affichait dès la vérification réussie et ne partait plus.
+- **Décision** : le préavis ne commence jamais avant la moitié de la durée hors ligne (`max(fin − préavis, émis + durée/2)`). Avec les valeurs par défaut (15 j / 5 j), rien ne change : bandeau du 10e au 15e jour.
+- **Raison** : un avertissement doit signaler une absence de connexion, pas un réglage.
+
+### D46 — 2026-10-05 — Plusieurs instances de la même application
+- **Question** : deux instances ouvertes s'écrasaient l'état local (la dernière fermée pouvait effacer la clé ou la demande enregistrée par l'autre).
+- **Décision** : avant chaque contrôle, activation, demande, fermeture, et à chaque relecture périodique (25 s), le module relit l'état sur disque ; s'il est plus récent (compteur `seq`), il l'adopte en gardant l'heure maximale la plus grande.
+- **Raison** : solution simple sans verrou système ; il ne reste qu'une course sur deux écritures simultanées.
+
+### D47 — 2026-10-05 — Fermeture annulée par l'application
+- **Question** : `arreter()` appelé avant le gestionnaire de fermeture d'origine stoppait le contrôle même si l'application annulait la fermeture (« modifications non enregistrées »).
+- **Décision** : à la demande de fermeture, le module enregistre l'heure atteinte puis appelle le gestionnaire d'origine ; l'arrêt du contrôle a lieu à la destruction réelle de la fenêtre.
+- **Raison** : respecte l'intention (« grave l'heure atteinte ») sans désarmer la licence d'une application restée ouverte.
+
+### D48 — 2026-10-05 — `kid` hors signature
+- **Question** : le `kid` de l'enveloppe n'est pas signé ; une réponse authentique dont le `kid` est changé en route pouvait classer la clé embarquée sous un faux numéro et faire rejeter ensuite toutes les vraies réponses.
+- **Décision** : la clé embarquée est toujours essayée en dernier recours, quel que soit le `kid` annoncé, sauf si elle est retirée ; aucune clé retirée n'est acceptée pour une réponse nouvelle, sous quelque `kid` que ce soit.
+- **Raison** : corrige le défaut sans changer le protocole de l'annexe C.
+
+### D49 — 2026-10-05 — Limites et téléchargements côté serveur
+- **Question** : limites contournables en changeant d'adresse IPv6 ; copie de la base laissée sur le serveur après un téléchargement interrompu ; réinitialisation du mot de passe capable de créer un second compte.
+- **Décision** : les limites comptent par adresse IPv4 et par préfixe /64 en IPv6 (une IPv4 notée en IPv6 reste une IPv4) ; la copie téléchargée est supprimée même si le téléchargement est interrompu (et toute copie de plus d'une heure est purgée) ; la réinitialisation n'accepte qu'un compte existant (D43).
+- **Raison** : fermer les contournements relevés sans changer l'usage normal.

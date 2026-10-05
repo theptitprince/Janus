@@ -282,6 +282,13 @@ function test_installation(): void
     } catch (RuntimeException $e) {
         check('reinitialisation : mauvais jeton refuse', true);
     }
+    try {
+        reinitialisation_executer($config, 'jeton-de-reinitialisation-0001', 'pirate', 'mot de passe retrouve 2026',
+            'mot de passe retrouve 2026', '', T0);
+        check('reinitialisation : aucun compte supplementaire', false);
+    } catch (InvalidArgumentException $e) {
+        check('reinitialisation : aucun compte supplementaire', htpasswd_utilisateurs($config['htpasswd']) === ['admin']);
+    }
     reinitialisation_executer($config, 'jeton-de-reinitialisation-0001', 'admin', 'mot de passe retrouve 2026',
         'mot de passe retrouve 2026', '', T0);
     check('reinitialisation : .htpasswd reecrit', password_verify('mot de passe retrouve 2026',
@@ -608,6 +615,15 @@ function test_limites(): void
     check('demander : jour suivant', appel($env, 'demander', ['machine' => hash('sha256', 'lim9'), 'titulaire' => 'T',
         'email' => '', 'message' => '', 'jeton' => jeton_demande()], $ip + ['maintenant' => T0 + JOUR])['p']['ok'] === true);
     check('ping : non limite', appel($env, 'ping', [], $ip)['p']['ok'] === true);
+    $codes = [];
+    for ($i = 0; $i < 4; $i++) {
+        $codes[] = appel($env, 'demander', ['machine' => hash('sha256', 'v6-' . $i), 'titulaire' => 'T', 'email' => '',
+            'message' => '', 'jeton' => jeton_demande()], ['ip' => '2001:db8:aa:bb::' . dechex($i + 1)])['p']['code'];
+    }
+    check('limites IPv6 : par prefixe /64', $codes === [null, null, null, 'trop_de_requetes']);
+    check('ip_limite : IPv6 /64', ip_limite('2001:db8:aa:bb:1:2:3:4') === '2001:db8:aa:bb::/64');
+    check('ip_limite : IPv4 et IPv4 notee en IPv6', ip_limite('203.0.113.5') === '203.0.113.5'
+        && ip_limite('::ffff:203.0.113.5') === '203.0.113.5');
 }
 
 function test_sauvegarde(): void
@@ -932,10 +948,16 @@ function test_console_reglages_exports(): void
     check('telecharger une copie de la base', $r['code'] === 200 && is_file($r['fichier'])
         && strncmp((string)file_get_contents($r['fichier'], false, null, 0, 16), 'SQLite format 3', 15) === 0);
     @unlink($r['fichier']);
+    $reste = $env['config']['dossier_sauvegardes'] . '/telechargement-abandonne.db';
+    file_put_contents($reste, 'copie interrompue');
+    touch($reste, time() - 7200);
+    $r = console($env, $session, 'GET', ['page' => 'sauvegarde', 'telecharger' => '1']);
+    check('copie d\'un telechargement interrompu purgee', !is_file($reste));
+    @unlink($r['fichier']);
     check('telechargement journalise', db_valeur($env['db'], "SELECT acteur FROM journal WHERE action = 'sauvegarde_telechargee'") === 'admin');
     $ecritures = array_column(db_lignes($env['db'], "SELECT action FROM journal WHERE acteur = 'admin' "
         . "AND action <> 'installation' ORDER BY id"), 'action');
-    check('toutes les ecritures journalisees', $ecritures === ['reglages', 'email_test', 'mot_de_passe', 'sauvegarde_telechargee']);
+    check('toutes les ecritures journalisees', $ecritures === ['reglages', 'email_test', 'mot_de_passe', 'sauvegarde_telechargee', 'sauvegarde_telechargee']);
     check('tableau : controle d\'exposition', strpos(console($env, $session, 'GET', [])['corps'], 'id="exposition"') !== false);
 }
 

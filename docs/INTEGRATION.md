@@ -1,7 +1,7 @@
 # Intégrer la licence ETDEL dans une application
 
-Module de référence : `client/etdel_licence.py`, version **1.0.0**.
-Empreinte SHA-256 (fins de ligne normalisées en LF) : `19da6e07e1cad84cfa7fe581a86c93fc303ff97cb5d8967abc2db5fafc3b40cb`
+Module de référence : `client/etdel_licence.py`, version **1.0.1**.
+Empreinte SHA-256 (fins de ligne normalisées en LF) : `e6c4f01e2c6d30aafdb3ea7ead968044b4b530666e1c43e1c8f24382ac5cb3a2`
 
 Le module est **le même pour toutes les applications** : on le copie tel quel, sans aucune modification, à côté du script principal. Il n'a pas de fichier de configuration. Tout ce qui est propre à une application (produit, distribution, version) passe en paramètres.
 

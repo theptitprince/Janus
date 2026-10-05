@@ -868,6 +868,13 @@ def test_bulletins():
     check("kid falsifie au premier contact : reponse authentique acceptee", g.activer(serveur.creer_cle())["ok"])
     serveur.modes[URL1] = "ok"
     check("kid falsifie : la cle embarquee reste utilisable", g._controler() is True and g.etat()["kid_actif"] == 1)
+    # Le kid altere (7) a classe la cle embarquee sous un faux numero : le
+    # bulletin signe qui annonce le vrai kid 7 doit malgre tout etre adopte.
+    for _n in range(6):
+        serveur.tourner_cle()
+    check("kid falsifie puis rotation vers ce kid : bulletin adopte",
+          g._controler() is True and g.etat()["kid_actif"] == 7
+          and g._local["cles"]["7"]["cle"] == serveur.publique(7))
     horloge, serveur, dossiers, g, cle, _r = garde_active()
     check("kid initial", g.etat()["kid_actif"] == 1)
     serveur.tourner_cle()
@@ -972,6 +979,26 @@ def test_diagnostic_et_journal():
     check("journal ecrit", "activee" in contenu)
     check("journal : jamais la cle en clair", cle not in contenu and cle[-9:] not in contenu)
     check("journal : indice de cle", cle[-4:] in contenu)
+    # Sous Windows, un fichier ouvert ne se renomme pas : le journal doit rester libre.
+    try:
+        os.replace(journal, journal + ".deplace")
+        libre = True
+    except OSError:
+        libre = False
+    check("journal : fichier jamais garde ouvert", libre)
+    g._log(L.logging.INFO, "apres deplacement")
+    check("journal : recree apres deplacement", os.path.exists(journal))
+    petit = L._FichierJournal(os.path.join(dossiers[0], "petit.log"), taille_max=200, archives=2)
+    petit.setFormatter(L.logging.Formatter("%(message)s"))
+    for n in range(20):
+        petit.emit(L.logging.LogRecord("t", L.logging.INFO, __file__, 0, "ligne %02d " % n + "x" * 40,
+                                       None, None))
+    base = os.path.join(dossiers[0], "petit.log")
+    check("journal : rotation a la taille maximale", os.path.getsize(base) <= 200)
+    check("journal : deux archives", os.path.exists(base + ".1") and os.path.exists(base + ".2"))
+    check("journal : pas de troisieme archive", not os.path.exists(base + ".3"))
+    with open(base, "r") as f:
+        check("journal : derniere ligne dans le fichier courant", "ligne 19" in f.read())
 
 
 class _Gestionnaire(http.server.BaseHTTPRequestHandler):

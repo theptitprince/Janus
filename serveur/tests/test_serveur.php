@@ -27,6 +27,19 @@ require RACINE . '/prive/lib/admin.php';
 $failures = [];
 $verifications = 0;
 
+// Windows (poste de developpement) n'a pas de droits Unix : chmod n'y fait rien.
+const WINDOWS = PHP_OS_FAMILY === 'Windows';
+
+function droits_0600(string $fichier): bool
+{
+    return is_file($fichier) && (WINDOWS || (fileperms($fichier) & 0777) === 0600);
+}
+
+function chemin_absolu(string $chemin): bool
+{
+    return $chemin !== '' && ($chemin[0] === '/' || (WINDOWS && preg_match('#^[A-Za-z]:[/\\\\]#', $chemin) === 1));
+}
+
 function check(string $nom, bool $condition): void
 {
     global $failures, $verifications;
@@ -242,7 +255,7 @@ function test_installation(): void
     check('installation : base creee', is_file($env['config']['base']));
     check('installation : verrou', installation_verrouillee($env['config']));
     $fichier_cle = $env['config']['cles'] . '/signature_1.key';
-    check('installation : cle privee hors www, 0600', is_file($fichier_cle) && (fileperms($fichier_cle) & 0777) === 0600);
+    check('installation : cle privee hors www, 0600', droits_0600($fichier_cle));
     check('installation : secret des demandes', strlen(secret_demandes($env['config'])) === 32);
     $htpasswd = file_get_contents($env['config']['htpasswd']);
     check('installation : .htpasswd bcrypt $2y$', preg_match('/^admin:\$2y\$/', $htpasswd) === 1);
@@ -252,7 +265,7 @@ function test_installation(): void
     check('installation : admin/.htaccess AuthType Basic', strpos($htaccess, 'AuthType Basic') !== false
         && strpos($htaccess, 'Require valid-user') !== false);
     check('installation : AuthUserFile absolu', strpos($htaccess, 'AuthUserFile "' . $env['config']['htpasswd'] . '"') !== false
-        && $env['config']['htpasswd'][0] === '/');
+        && chemin_absolu($env['config']['htpasswd']));
     check('installation : dossier de la base protege', is_file(dirname($env['config']['base']) . '/.htaccess'));
     $db = db_ouvrir($env['config']['base']);
     $tables = array_column(db_lignes($db, "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"), 'name');
@@ -992,7 +1005,7 @@ function test_rotation(): void
     check('rotation : kid 1 retire', (int)db_valeur($env['db'], 'SELECT retiree_le FROM cles_signature WHERE kid = 1') === T0 + 100);
     check('rotation : ancienne cle privee effacee', !is_file($env['config']['cles'] . '/signature_1.key'));
     $fichier = $env['config']['cles'] . '/signature_2.key';
-    check('rotation : nouvelle cle privee 0600', is_file($fichier) && (fileperms($fichier) & 0777) === 0600);
+    check('rotation : nouvelle cle privee 0600', droits_0600($fichier));
     $bulletin = json_decode((string)db_valeur($env['db'], 'SELECT bulletin FROM cles_signature WHERE kid = 2'), true);
     $annonce = verifier_enveloppe($bulletin, $kid1);
     check('bulletin signe par la cle precedente', $bulletin['kid'] === 1 && $annonce !== null);

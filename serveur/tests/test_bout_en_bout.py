@@ -174,8 +174,13 @@ def main():
             f.write("<?php\nreturn ['jeton_installation' => '%s'];\n" % JETON)
         port = port_libre()
         base = "http://127.0.0.1:%d/" % port
-        # sendmail_path=/bin/false : l'echec d'envoi est volontaire et doit etre journalise.
-        processus = subprocess.Popen(["php", "-d", "sendmail_path=/bin/false", "-S", "127.0.0.1:%d" % port,
+        # L'echec d'envoi est volontaire et doit etre journalise. Sous Windows, PHP
+        # passe par SMTP (port 9 ferme) ; sendmail_path y renverrait toujours succes.
+        if sys.platform == "win32":
+            sans_mail = ["-d", "SMTP=127.0.0.1", "-d", "smtp_port=9"]
+        else:
+            sans_mail = ["-d", "sendmail_path=/bin/false"]
+        processus = subprocess.Popen(["php"] + sans_mail + ["-S", "127.0.0.1:%d" % port,
                                       "-t", www, os.path.join(ICI, "routeur_banc.php")],
                                      cwd=www, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(100):

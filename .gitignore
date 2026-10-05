@@ -1,11 +1,13 @@
-# Secrets : jamais dans un commit
+# Secrets : jamais dans un commit (quel que soit l'emplacement de prive/)
 *.key
 prive/config.php
 prive/.htpasswd
-serveur/prive/config.php
-serveur/prive/.htpasswd
-serveur/prive/cles/
-serveur/prive/install.verrou
+**/prive/config.php
+**/prive/.htpasswd
+**/prive/cles/
+**/prive/data/
+**/prive/install.verrou
+**/prive/reinitialisation.utilisee
 *.db
 *.db-wal
 *.db-shm
@@ -17,10 +19,11 @@ __pycache__/
 build/
 dist/
 *.spec
-serveur/prive/reinitialisation.utilisee
 
 # PHP portable du banc d'essai local (Windows), jamais versionne
 /php/
 
-# Banc d'essai local : e-mails captures par serveur/tests/smtp_banc.py
+# Banc d'essai local : e-mails captures par serveur/tests/smtp_banc.py,
+# identifiants de test generes pour le banc
 serveur/tests/courriels/
+banc.local.txt

@@ -79,7 +79,7 @@
   // Controle d'exposition : aucun de ces fichiers ne doit etre telechargeable par URL.
   var liste = document.getElementById('exposition');
   if (liste && window.fetch) {
-    liste.getAttribute('data-chemins').split(' ').forEach(function (chemin) {
+    JSON.parse(liste.getAttribute('data-chemins') || '[]').forEach(function (chemin) {
       var ligne = document.createElement('li');
       ligne.textContent = chemin + ' : verification...';
       liste.appendChild(ligne);

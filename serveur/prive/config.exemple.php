@@ -9,6 +9,12 @@ return [
     // d'au moins 20 caracteres, inventee pour l'occasion.
     'jeton_installation' => '',
 
+    // Mot de passe de la console perdu (seulement dans ce cas) : inscrire ici une
+    // nouvelle chaine aleatoire d'au moins 20 caracteres, differente de la
+    // precedente, puis ouvrir install.php. Chaque jeton ne sert qu'une fois ;
+    // le remettre a vide ensuite.
+    'jeton_reinitialisation' => '',
+
     // Base SQLite et sauvegardes : hors du dossier www (dossier data/ a cote de prive/).
     'base' => dirname(__DIR__) . '/data/licenses.db',
     'dossier_sauvegardes' => dirname(__DIR__) . '/data/sauvegardes',

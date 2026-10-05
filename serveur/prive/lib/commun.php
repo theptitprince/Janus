@@ -32,6 +32,7 @@ function config_completer(array $config, string $prive): array
     $racine = dirname($prive);
     $config = array_merge([
         'jeton_installation' => '',
+        'jeton_reinitialisation' => '',
         'base' => $racine . '/data/licenses.db',
         'dossier_sauvegardes' => $racine . '/data/sauvegardes',
         'sauvegardes_conservees' => 30,

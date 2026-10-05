@@ -6,7 +6,7 @@ Système de licences pour les applications Python Windows signées ETDEL : un se
 |---|---|
 | `client/` | module `etdel_licence.py` (à copier tel quel dans chaque application) et ses tests |
 | `serveur/` | API, console d'administration, assistant d'installation, tests |
-| `docs/` | [intégration](docs/INTEGRATION.md), [modèle de brief d'intégration](docs/modele_brief_integration.md), déploiement, [décisions de réalisation](docs/DECISIONS.md) |
+| `docs/` | [intégration](docs/INTEGRATION.md), [modèle de brief d'intégration](docs/modele_brief_integration.md), [déploiement et exploitation du serveur](docs/LISEZ-MOI-SERVEUR.md), [décisions de réalisation](docs/DECISIONS.md) |
 
 ## Tests
 

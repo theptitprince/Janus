@@ -121,3 +121,57 @@ Choix faits pendant la réalisation, sur les points non couverts ou ambigus du c
 - **Question** : l'environnement de développement n'a Tkinter que pour Python 3.12.
 - **Décision** : les tests Tkinter s'exécutent sous Xvfb avec Python 3.12 ; le reste est aussi vérifié avec Python 3.10 et 3.11. Sans Tkinter, la suite échoue, sauf si `ETDEL_TESTS_SANS_TK=1` est positionné explicitement.
 - **Raison** : ne jamais déclarer verte une suite qui a sauté sa partie graphique sans le dire.
+
+## Serveur et installation
+
+### D22 — 2026-10-05 — Fichiers ajoutés à l'arborescence de l'annexe A
+- **Question** : certains éléments n'ont pas d'emplacement prévu.
+- **Décision** : `prive/lib/commun.php` (configuration et outils partagés), `prive/lib/installation.php` (logique de l'assistant, testable en CLI ; `www/install.php` n'en est que l'interface), `serveur/tests/test_bout_en_bout.py` (serveur PHP réel et client Python réel), `prive/.htaccess`.
+- **Raison** : garder les points d'entrée web minces et toute la logique testable hors navigateur.
+
+### D23 — 2026-10-05 — Secret de chiffrement des clés remises par une demande
+- **Question** : « secret dans config.php », alors qu'Etienne n'a aucun outil local pour générer 32 octets aléatoires.
+- **Décision** : `install.php` génère le secret dans `prive/cles/secret_demandes.key` (0600, à côté des clés privées) ; une valeur `secret_demandes` (base64) dans `config.php`, si elle existe, est prioritaire.
+- **Raison** : respecte « aucun utilitaire sur le poste d'Etienne » ; même protection que les clés de signature.
+
+### D24 — 2026-10-05 — Requête mal formée
+- **Question** : aucun code de refus pour une requête illisible ou hors bornes.
+- **Décision** : réponse HTTP 400, signée, code `requete_invalide`. Les champs reçus sont bornés (produit et distribution `[A-Za-z0-9_.-]{1,64}`, machine 64 hexadécimaux, poste 64, version 32, titulaire 120, e-mail 254, message 200, jeton 43) ; un champ trop long est refusé, jamais tronqué en silence. Le client traite ce code comme transitoire.
+- **Raison** : « réponses toujours signées » et « champs reçus bornés en taille ».
+
+### D25 — 2026-10-05 — Tolérance de 0 jour
+- **Question** : une tolérance de 0 jour rendrait le jeton périmé dès sa réception, donc l'application inutilisable même connectée.
+- **Décision** : la durée hors ligne diffusée ne descend jamais sous 7 heures (un cycle de contrôle de 6 h plus une heure).
+- **Raison** : « 0 » se lit alors « pas d'usage hors ligne au-delà du contrôle suivant ».
+
+### D26 — 2026-10-05 — Règles de contrôle côté serveur
+- **Question** : ordre des contrôles et cas limites.
+- **Décision** :
+  - activer et valider vérifient dans l'ordre : statut (révoquée, suspendue), poste (libéré → `poste_revoque` en validation ; autre poste → `cle_liee_autre_poste`), échéance, version ; la liaison au poste n'a lieu qu'après tous ces contrôles (une clé expirée ou une application trop ancienne ne lie jamais un poste) ;
+  - la liaison est atomique (`UPDATE … WHERE machine IS NULL`) : deux activations simultanées ne lient qu'un poste ;
+  - version minimale effective = la plus exigeante entre produit et distribution ; une demande venant d'une version trop ancienne est refusée ;
+  - une clé d'une autre distribution répond `cle_invalide` ;
+  - `ping` n'est pas limité ; l'adresse IP retenue est `REMOTE_ADDR` (les en-têtes de type X-Forwarded-For sont falsifiables) ;
+  - une seule demande en attente par poste et par distribution ; l'essai, lui, n'est accordé qu'une fois par poste et par produit, toutes distributions confondues ;
+  - le journal reçoit les activations, les refus « autre poste », les demandes, les e-mails, les actions de la console ; un `valider` réussi n'y est pas inscrit (`dernier_contact` suffit).
+- **Raison** : solutions les plus simples, sans trou de sécurité.
+
+### D27 — 2026-10-05 — Assistant d'installation
+- **Question** : comment protéger `/admin/` avec un chemin absolu inconnu à l'avance.
+- **Décision** : le `admin/.htaccess` livré ferme la console (`Require all denied`) ; `install.php` le remplace par la protection `AuthType Basic` avec le chemin absolu réel du `.htpasswd`. Une installation qui échoue retire la base partielle pour permettre un nouvel essai ; le verrou n'est posé qu'à la fin. `.htpasswd` en 0644 (lu par Apache, mots de passe hachés), clés en 0600. Le changement de mot de passe se fait dans l'écran Réglages de la console, avec la même fonction (`password_hash`).
+- **Raison** : la console n'est jamais ouverte sans mot de passe, même entre l'envoi FTP et l'installation.
+
+### D28 — 2026-10-05 — Redirection HTTPS et sauvegarde
+- **Question** : détection du HTTPS sur OVH mutualisé ; méthode de copie de la base en mode WAL.
+- **Décision** : redirection quand `SERVER_PORT` vaut 80 (méthode documentée par OVH) et que `X-Forwarded-Proto` ne vaut pas `https`. Copie par `VACUUM INTO` (cohérente même en WAL), fichiers `data/sauvegardes/licenses-AAAAMMJJ-HHMMSS.db`, 30 copies conservées (réglable dans `config.php`).
+- **Raison** : une simple copie du fichier pendant une écriture WAL peut être incohérente.
+
+### D29 — 2026-10-05 — Notification par e-mail
+- **Question** : détails d'envoi.
+- **Décision** : `mail()` sans paramètre d'enveloppe `-f` ; adresses invalides de la liste ignorées ; objet encodé en UTF-8 (RFC 2047) s'il contient des accents ; caractères de contrôle retirés des champs venant du client ; plafond de 50 par jour compté dans la table `limites` ; lien vers la console pris dans `url_console` (config.php) ou déduit de la première URL d'API active.
+- **Raison** : `-f` est refusé par certains hébergements ; pas d'injection d'en-tête possible.
+
+### D30 — 2026-10-05 — Heure dans le test de bout en bout
+- **Question** : « aucun test ne dépend de l'heure réelle », alors que `php -S` utilise l'horloge du système.
+- **Décision** : les tests unitaires (client et serveur) injectent l'heure ; le test de bout en bout fait tourner client et serveur sur l'heure du système, et aucune de ses vérifications ne dépend de sa valeur.
+- **Raison** : le serveur n'expose pas d'horloge réglable en production, volontairement.

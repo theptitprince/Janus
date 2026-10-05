@@ -201,6 +201,23 @@ function ip_client(): string
     return substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
 }
 
+/**
+ * Cle de comptage des limites : une adresse IPv4, ou le prefixe /64 d'une adresse
+ * IPv6 (un client dispose couramment de tout un /64 et pourrait sinon changer
+ * d'adresse a chaque requete). Une IPv4 notee en IPv6 (::ffff:a.b.c.d) reste une IPv4.
+ */
+function ip_limite(string $ip): string
+{
+    $octets = @inet_pton($ip);
+    if (!is_string($octets) || strlen($octets) !== 16) {
+        return $ip;
+    }
+    if (strncmp($octets, str_repeat("\0", 10) . "\xff\xff", 12) === 0) {
+        return (string)inet_ntop(substr($octets, 12));
+    }
+    return inet_ntop(substr($octets, 0, 8) . str_repeat("\0", 8)) . '/64';
+}
+
 /** Domaine de la premiere URL active (expediteur des e-mails, lien de la console). */
 function url_console(PDO $db, array $config): string
 {

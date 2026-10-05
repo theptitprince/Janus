@@ -64,7 +64,7 @@ REVOQUEE = "REVOQUEE"
 VERSION_REFUSEE = "VERSION_REFUSEE"
 
 STATUTS_UTILISABLES = (VALIDE, AVERTISSEMENT, ESSAI)
-_STATUTS_FENETRE = (A_ACTIVER, DEMANDE_EN_ATTENTE, DEMANDE_REFUSEE, EXPIREE)
+_STATUTS_FENETRE = (A_ACTIVER, DEMANDE_EN_ATTENTE, DEMANDE_REFUSEE, EXPIREE, VERSION_REFUSEE)
 # cle_invalide en validation : la cle n'existe plus sur le serveur, on la
 # traite comme une revocation plutot que de reessayer indefiniment.
 _CODES_REVOCATION = ("revoquee", "suspendue", "poste_revoque",
@@ -744,8 +744,30 @@ class Garde(object):
                 self._charger()
 
     def _charger(self):
+        self._installer_etat(self._stockage.lire() if self._stockage else None)
+
+    def _rafraichir(self):
+        """Relit l'etat si une autre instance de l'application l'a ecrit depuis.
+
+        Sans cela, deux instances ouvertes s'ecraseraient : la derniere fermee
+        effacerait par exemple la cle activee dans l'autre.
+        """
+        with self._verrou:
+            if self._stockage is None or self._local is None:
+                return
+            contenu = self._stockage.lire()
+            if (contenu is None or not _entier(contenu.get("seq"))
+                    or contenu["seq"] <= int(self._local.get("seq") or 0)):
+                return
+            heure = self._hm
+            self._installer_etat(contenu)
+            if heure is not None:
+                self._hm = max(heure, float(self._local["heure_max"]))
+                self._mono_prec = float(self._monotone())
+            self._log(logging.INFO, "etat relu (modifie par une autre instance)")
+
+    def _installer_etat(self, contenu):
         local = self._etat_vide()
-        contenu = self._stockage.lire() if self._stockage else None
         if contenu and contenu.get("v") == 1:
             for champ in local:
                 if champ in contenu:
@@ -810,15 +832,19 @@ class Garde(object):
 
     def _cles_candidates(self, kid, accepter_retirees):
         cles = self._local["cles"]
+        retirees = set()
+        if not accepter_retirees:
+            maintenant = self._maintenant()
+            retirees = set(v.get("cle") for v in cles.values() if isinstance(v, dict)
+                           and _entier(v.get("jusqu")) and maintenant >= v["jusqu"])
         candidates = []
         info = cles.get(str(kid))
-        if isinstance(info, dict):
-            jusqu = info.get("jusqu")
-            if accepter_retirees or jusqu is None or self._maintenant() < jusqu:
-                candidates.append(info.get("cle"))
-        # La cle embarquee n'a pas de kid connu tant qu'elle n'a rien verifie.
-        connues = [v.get("cle") for v in cles.values() if isinstance(v, dict)]
-        if self._cle_embarquee not in connues:
+        if isinstance(info, dict) and info.get("cle") not in retirees:
+            candidates.append(info.get("cle"))
+        # Le kid de l'enveloppe n'est pas signe : la cle embarquee est toujours
+        # essayee en dernier, pour qu'un kid falsifie ne l'ecarte jamais, sauf si
+        # elle a ete retiree (une cle retiree ne signe plus rien de neuf).
+        if self._cle_embarquee not in retirees and self._cle_embarquee not in candidates:
             candidates.append(self._cle_embarquee)
         sortie = []
         for cle in candidates:
@@ -1019,7 +1045,8 @@ class Garde(object):
             return True
         if code in _CODES_BLOCAGE:
             self._log(logging.WARNING, "licence bloquee par le serveur : %s", code)
-            local["refus"] = {"code": code, "t": reel}
+            # La version refusee est memorisee : une mise a jour de l'application leve le blocage.
+            local["refus"] = {"code": code, "t": reel, "version": self.version}
             local["dernier_controle"] = reel
             self._raison = code
             return True
@@ -1108,6 +1135,7 @@ class Garde(object):
             return False
         try:
             self._assurer_charge()
+            self._rafraichir()
             with self._verrou:
                 cle = self._local.get("cle")
                 demande = self._local.get("demande")
@@ -1168,6 +1196,9 @@ class Garde(object):
             return REVOQUEE, _MESSAGES.get(self._revoque, "Licence revoquee"), None
         if local.get("cle"):
             refus = local.get("refus")
+            if (isinstance(refus, dict) and refus.get("code") == "version_trop_ancienne"
+                    and refus.get("version") != self.version):
+                refus = None
             if isinstance(refus, dict):
                 code = refus.get("code")
                 if code == "version_trop_ancienne":
@@ -1190,7 +1221,11 @@ class Garde(object):
             if maintenant >= hors_ligne:
                 return EXPIREE, ("Licence non verifiee depuis trop longtemps : connectez "
                                  "l'ordinateur a Internet puis reessayez."), jours
-            alerte_tolerance = maintenant >= hors_ligne - int(p.get("preavis_j", 5)) * JOUR
+            # Preavis borne a la seconde moitie de la duree hors ligne : un preavis
+            # superieur a la tolerance afficherait le bandeau des la verification reussie.
+            debut_alerte = max(hors_ligne - int(p.get("preavis_j", 5)) * JOUR,
+                               p["emis"] + (hors_ligne - p["emis"]) // 2)
+            alerte_tolerance = maintenant >= debut_alerte
             alerte_echeance = bool(echeance) and echeance - maintenant < _PREAVIS_ECHEANCE_J * JOUR
             if alerte_tolerance and (not alerte_echeance or hors_ligne <= echeance):
                 ecart = max(0, (maintenant - p["emis"]) // JOUR)
@@ -1309,6 +1344,14 @@ class Garde(object):
         except Exception as exc:
             self._log(logging.ERROR, "controler_maintenant : %r", exc)
 
+    def _graver(self):
+        """Enregistre l'heure atteinte sans arreter le controle."""
+        with self._verrou:
+            if self._local is not None:
+                self._rafraichir()
+                self._maintenant()
+                self._sauver()
+
     def arreter(self):
         """A la fermeture : grave l'heure atteinte (garde anti-recul)."""
         try:
@@ -1317,10 +1360,7 @@ class Garde(object):
             self._arrete = True
             self._arret.set()
             self._reveil.set()
-            with self._verrou:
-                if self._local is not None:
-                    self._maintenant()
-                    self._sauver()
+            self._graver()
             self._log(logging.INFO, "arret")
         except Exception as exc:
             self._log(logging.ERROR, "arreter : %r", exc)
@@ -1339,6 +1379,7 @@ class Garde(object):
                         "message": "Cle invalide : verifiez la saisie (ETDEL-XXXX-XXXX-XXXX-XXXX)"}
             with self._verrou_reseau:
                 self._assurer_charge()
+                self._rafraichir()
                 payload, enveloppe, raison = self._envoyer("activer", {"cle": normalisee})
                 with self._verrou:
                     if payload is None:
@@ -1377,6 +1418,7 @@ class Garde(object):
                 return {"ok": False, "code": "titulaire", "message": "Le titulaire est obligatoire."}
             with self._verrou_reseau:
                 self._assurer_charge()
+                self._rafraichir()
                 with self._verrou:
                     # Jeton conserve avant l'envoi : si la reponse se perd, le
                     # renvoi reprend la meme demande au lieu d'etre refuse.
@@ -1769,7 +1811,8 @@ class _FenetreActivation(object):
     def page_version(self, e):
         self._nouvelle_page("version", "Mise a jour necessaire")
         self._label(e["message"])
-        self._boutons([("Quitter", self.integ.quitter)])
+        self.info = self._label("", couleur=self.pal["discret"])
+        self._boutons([("Reessayer", self._verifier), ("Quitter", self.integ.quitter)])
 
     # -- actions ------------------------------------------------------------
 
@@ -1921,7 +1964,13 @@ class _Integration(object):
         self._apres = [root.after(0, self._premier_affichage), root.after(_TICK_MS, self._tick)]
 
     def _sur_fermeture(self):
-        self.garde.arreter()
+        # L'application peut encore annuler la fermeture (modifications non
+        # enregistrees) : on grave l'heure sans arreter le controle ; l'arret a
+        # lieu a la destruction reelle de la fenetre (<Destroy>).
+        try:
+            self.garde._graver()
+        except Exception as exc:
+            self.garde._log(logging.ERROR, "fermeture : %r", exc)
         if self._origine:
             try:
                 self.root.tk.eval(self._origine)
@@ -1986,7 +2035,7 @@ class _Integration(object):
             e = self.garde.etat()
             if e["statut"] in _STATUTS_FENETRE:
                 self.ouvrir_activation()
-            elif e["statut"] in (VERSION_REFUSEE, REVOQUEE):
+            elif e["statut"] == REVOQUEE:
                 self._bloquer(e)
                 return
             self._maj_bandeau(e)
@@ -1997,6 +2046,7 @@ class _Integration(object):
         if self.termine:
             return
         try:
+            self.garde._rafraichir()
             e = self.garde.etat()
             statut = e["statut"]
             self._maj_bandeau(e)

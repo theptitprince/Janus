@@ -173,7 +173,7 @@ function api_operation(PDO $db, array $config, array $r, array $base, string $ip
             'version_serveur' => VERSION_SERVEUR];
     }
     [$max, $duree] = API_LIMITES[$r['op']];
-    if (limite_depassee($db, $ip, $r['op'], $max, $duree, $maintenant)) {
+    if (limite_depassee($db, ip_limite($ip), $r['op'], $max, $duree, $maintenant)) {
         return api_refus($base, 'trop_de_requetes');
     }
     $dist = distribution_trouver($db, $r['produit'], $r['distribution']);

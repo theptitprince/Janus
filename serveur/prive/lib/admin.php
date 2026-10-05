@@ -36,6 +36,7 @@ const ADMIN_ACTIONS = [
     'reglages_enregistrer' => 'Enregistrer les reglages',
     'email_test' => 'Envoyer un e-mail de test',
     'mot_de_passe' => 'Changer le mot de passe',
+    'cle_rotation' => 'Generer une nouvelle cle de signature (rotation, irreversible)',
 ];
 
 // Messages apres redirection : seul un code passe dans l'URL, jamais une donnee.
@@ -52,6 +53,7 @@ const ADMIN_MESSAGES = [
     'dupliquee' => 'Distribution dupliquee : verifiez ses reglages.',
     'url' => 'Liste des URL mise a jour.',
     'reglages' => 'Reglages enregistres.',
+    'rotation' => 'Nouvelle cle de signature active : les postes l\'adoptent a leur prochain controle.',
 ];
 
 const ADMIN_PAR_PAGE = 100;
@@ -220,6 +222,8 @@ function admin_get(array $ctx): array
             return admin_page($ctx, 'Sauvegarde', admin_ecran_sauvegarde($ctx));
         case 'reglages':
             return admin_page($ctx, 'Reglages', admin_ecran_reglages($ctx));
+        case 'cles':
+            return admin_page($ctx, 'Cles de signature', admin_ecran_cles($ctx));
         case 'export':
             return admin_export($ctx, (string)($ctx['get']['quoi'] ?? ''));
     }
@@ -272,9 +276,6 @@ function admin_page(array $ctx, string $titre, string $contenu, int $code = 200)
     $courante = (string)($ctx['get']['page'] ?? 'tableau');
     $nav = '';
     foreach ($liens as $page => $libelle) {
-        if ($page === 'cles' && !function_exists('admin_ecran_cles')) {
-            continue;
-        }
         $nav .= '<a href="index.php?page=' . $page . '"' . ($page === $courante ? ' class="actif"' : '') . '>' . $libelle . '</a>';
     }
     $bandeau = '';
@@ -1365,4 +1366,49 @@ function admin_action_mot_de_passe(array $ctx): string
     admin_journal($ctx, 'mot_de_passe', $ctx['utilisateur'], null);
     return '<p class="succes">Mot de passe change. Le navigateur va redemander l\'identifiant et le nouveau mot de passe.</p>'
         . '<p><a href="index.php">Tableau de bord</a></p>';
+}
+
+// ---------------------------------------------------------------------------
+// Cles de signature
+// ---------------------------------------------------------------------------
+
+function admin_ecran_cles(array $ctx): string
+{
+    $db = $ctx['db'];
+    $active = signature_active($db, $ctx['config']);
+    $urls = api_urls($db);
+    $lignes_module = 'LICENCE_URL = "' . ($urls[0] ?? '') . "\"\n"
+        . 'LICENCE_URL_SECOURS = "' . ($urls[1] ?? '') . "\"\n"
+        . 'LICENCE_CLE_PUBLIQUE = "' . $active['cle_publique'] . '"';
+    $html = '<h2>Cle publique active (kid ' . (int)$active['kid'] . ')</h2>'
+        . bloc_copie('cle_publique', (string)$active['cle_publique'])
+        . '<p>Lignes a reporter une fois en tete de <code>etdel_licence.py</code> :</p>'
+        . '<div class="copie"><pre id="lignes_module">' . h($lignes_module) . '</pre>'
+        . '<button type="button" data-copier="lignes_module">Copier</button></div>'
+        . '<p class="discret">Les applications deja livrees n\'ont pas besoin d\'etre recompilees apres une rotation : '
+        . 'elles adoptent la nouvelle cle par un bulletin signe par la precedente, diffuse pendant 12 mois. Les nouvelles '
+        . 'versions peuvent embarquer la cle active.</p>';
+    $lignes = [];
+    foreach (db_lignes($db, 'SELECT * FROM cles_signature ORDER BY kid DESC') as $cle) {
+        $lignes[] = [(int)$cle['kid'], '<code>' . h($cle['cle_publique']) . '</code>',
+            h(date_fr((int)$cle['active_depuis'], true)),
+            $cle['retiree_le'] === null ? etiquette('active') : h(date_fr((int)$cle['retiree_le'], true))
+                . ' <span class="discret">(acceptee par les postes jusqu\'au ' . h(date_fr((int)$cle['retiree_le'] + 90 * JOUR))
+                . ')</span>',
+            $cle['bulletin'] === null ? 'premiere cle' : 'signe par la cle precedente'];
+    }
+    $html .= '<h2>Historique</h2>' . tableau_html(['kid', 'Cle publique', 'Active depuis', 'Retiree le', 'Bulletin'], $lignes);
+    $html .= '<h2>Rotation</h2><p>Genere une nouvelle paire sur le serveur. La cle privee actuelle est effacee ; les postes '
+        . 'qui se connectent adoptent la nouvelle cle et acceptent encore l\'ancienne pendant 90 jours. Un poste reste hors '
+        . 'ligne plus de 12 mois apres une rotation devra etre mis a jour.</p>'
+        . f_formulaire($ctx, 'cle_rotation', f_bouton('Nouvelle cle de signature', 'danger'));
+    return $html;
+}
+
+function admin_action_cle_rotation(array $ctx): array
+{
+    $r = signature_rotation($ctx['db'], $ctx['config'], $ctx['maintenant']);
+    admin_journal($ctx, 'cle_rotation', 'kid ' . $r['kid'], 'remplace le kid ' . $r['ancien_kid'] . ', cle publique '
+        . $r['cle_publique']);
+    return admin_redirection('index.php?page=cles&ok=rotation');
 }

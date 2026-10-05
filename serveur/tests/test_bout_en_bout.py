@@ -195,6 +195,26 @@ def main():
         check("bout en bout : seconde demande sans essai",
               gc.demander("Armement C")["ok"] and gc.etat()["statut"] == L.DEMANDE_EN_ATTENTE)
 
+        # Rotation de la cle de signature : bulletin signe par la cle precedente.
+        rotation = php_cli(prive, "echo json_encode(signature_rotation($db, $config, time()));")
+        check("rotation : kid 2", rotation["kid"] == 2)
+        check("rotation : poste en service bascule sans mise a jour",
+              gb._controler() is True and gb.etat()["kid_actif"] == 2 and gb.etat()["statut"] == L.VALIDE)
+        gb.arreter()
+        relance = garde(url, publique, os.path.join(racine, "client_b"), hashlib.sha256(b"banc B").hexdigest(), "PC-B")
+        check("rotation : relance du poste", relance.etat()["statut"] == L.VALIDE and relance._controler() is True)
+        cle_neuve = generer_cle()
+        db.execute("INSERT INTO licences (distribution_id, cle_hash, cle_indice, titulaire, origine, cree_le, modifie_le) "
+                   "VALUES (1, ?, ?, 'Poste neuf', 'console', ?, ?)",
+                   (hashlib.sha256(cle_neuve.encode()).hexdigest(), cle_neuve[-4:], maintenant, maintenant))
+        db.commit()
+        neuf = garde(url, publique, os.path.join(racine, "client_n"), hashlib.sha256(b"banc N").hexdigest(), "PC-N")
+        check("rotation : application livree avec l'ancienne cle, poste neuf",
+              neuf.activer(cle_neuve)["ok"] and neuf.etat()["kid_actif"] == 2)
+        check("rotation : la nouvelle cle embarquee fonctionne aussi",
+              garde(url, rotation["cle_publique"], os.path.join(racine, "client_m"), hashlib.sha256(b"banc N").hexdigest())
+              .activer(cle_neuve)["ok"])
+
         # Revocation depuis la base.
         db.execute("UPDATE licences SET statut = 'revoquee' WHERE cle_hash = ?", (hashlib.sha256(cle.encode()).hexdigest(),))
         db.commit()

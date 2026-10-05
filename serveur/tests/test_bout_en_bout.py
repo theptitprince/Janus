@@ -233,6 +233,21 @@ def main():
         code, _entetes, page = console("admin/index.php?page=cles", MOT_DE_PASSE)
         check("console : ecran Cles", code == 200 and publique in page)
 
+        # Mot de passe perdu : jeton de reinitialisation depose dans config.php (acces FTP).
+        with open(os.path.join(prive, "config.php"), "w") as f:
+            f.write("<?php\nreturn ['jeton_installation' => '%s', 'jeton_reinitialisation' => "
+                    "'jeton-de-reinitialisation-e2e'];\n" % JETON)
+        code, page = http(base + "install.php")
+        check("reinitialisation : formulaire ouvert par config.php", code == 200 and "Reinitialiser" in page)
+        nouveau = "mot de passe retrouve par le banc"
+        code, page = http(base + "install.php", {"jeton": "jeton-de-reinitialisation-e2e", "utilisateur": "admin",
+                                                 "mot_de_passe": nouveau, "confirmation": nouveau})
+        check("reinitialisation : effectuee", code == 200 and "Mot de passe reinitialise" in page)
+        check("reinitialisation : ancien mot de passe refuse", console("admin/", MOT_DE_PASSE)[0] == 401)
+        check("reinitialisation : nouveau mot de passe accepte", console("admin/", nouveau)[0] == 200)
+        code, page = http(base + "install.php")
+        check("reinitialisation : jeton a usage unique, assistant verrouille", code == 403)
+
         # Donnees : produit DEMO, distribution DEMO-BANC, une cle.
         chemin_base = os.path.join(racine, "data", "licenses.db")
         maintenant = int(time.time())

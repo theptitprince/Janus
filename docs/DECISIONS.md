@@ -248,3 +248,10 @@ Choix faits pendant la réalisation, sur les points non couverts ou ambigus du c
 - **Question** : comment faire de l'application de démonstration un banc d'essai de bout en bout alors que les constantes du module sont vides dans le dépôt, et que `php -S` ne fait pas d'authentification Basic.
 - **Décision** : `client/demo_appli.py` accepte `--serveur` et `--cle-publique`, qui remplacent les constantes du module pour cette exécution seulement (banc d'essai, jamais dans une application livrée) ; `construire()` renvoie la fenêtre sans `mainloop` pour être pilotée par le test de bout en bout. `serveur/tests/routeur_banc.php` (non déployé) reproduit Apache : authentification Basic de `/admin/` contre le `.htpasswd` réel, puis `REMOTE_USER` ; refus des chemins protégés par les `.htaccess`. Le test de bout en bout active la démo par sa fenêtre contre le serveur PHP réel et consulte la console par HTTP.
 - **Raison** : le parcours complet (installation, console, application) se rejoue sur un poste de développement, sans hébergement.
+
+## Exploitation
+
+### D43 — 2026-10-05 — Mot de passe de la console perdu
+- **Question** : sans SSH ni outil local, et avec un assistant verrouillé, comment retrouver l'accès à la console si le mot de passe est perdu ? Le cahier des charges prévoit le « changement de mot de passe par la même voie » que la création du `.htpasswd`.
+- **Décision** : un jeton `jeton_reinitialisation` (20 caractères minimum, différent du jeton d'installation) déposé par FTP dans `config.php` ouvre, dans `install.php` toujours verrouillé, un formulaire qui ne fait que réécrire le `.htpasswd` (bcrypt). Chaque jeton ne sert qu'une fois (son SHA-256 est inscrit dans `prive/reinitialisation.utilisee`) ; l'opération est journalisée. Rien d'autre de l'installation n'est rejouable.
+- **Raison** : l'accès FTP est la seule preuve d'autorité disponible ; la portée est limitée au mot de passe.

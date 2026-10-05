@@ -45,6 +45,7 @@ Le dossier `serveur/tests/` ne s'envoie pas sur l'hébergement.
 7. **Vérifier.**
    - `https://licence.mondomaine.fr/install.php` répond « Installation deja effectuee » ;
    - `https://licence.mondomaine.fr/admin/` demande l'identifiant et le mot de passe ;
+   - `http://licence.mondomaine.fr/admin/` (sans « s ») répond « Console accessible uniquement en https:// » **sans** demander le mot de passe : il ne circule jamais en clair ;
    - dans le *Tableau de bord*, le « Contrôle d'exposition » affiche « protégé » sur chaque ligne ;
    - `http://licence.mondomaine.fr/` redirige vers `https://`.
 8. **Copie de secours des secrets.** Télécharger par FTP `prive/config.php`, `prive/.htpasswd`, le dossier `prive/cles/` et le fichier `licence/admin/.htaccess` généré, et les ranger hors ligne (clé USB chiffrée, coffre de mots de passe). Ils ne sont pas dans la base et ne doivent **jamais** entrer dans un dépôt Git.
@@ -88,6 +89,8 @@ Chaque exécution crée `data/sauvegardes/licenses-AAAAMMJJ-HHMMSS.db` (copie co
 1. Par FTP, renommer `data/licenses.db` (par sécurité) et supprimer `data/licenses.db-wal` et `data/licenses.db-shm` s'ils existent.
 2. Envoyer la copie choisie sous le nom `data/licenses.db`.
 3. Vérifier la console. Les licences créées après la date de la copie n'existent plus : les postes concernés seront refusés (`cle_invalide`) jusqu'à recréation.
+
+Une copie antérieure à une rotation de clé se restaure de la même façon : au premier appel, le serveur reprend les clés suivantes depuis les fiches `signature_N.json` rangées à côté des clés privées dans `prive/cles/` (journal : `cles_resynchronisees`). Ne jamais supprimer ces fiches.
 
 La base va avec les clés de signature : en cas de reconstruction complète de l'hébergement, remettre aussi `prive/cles/`, `prive/config.php` et `prive/.htpasswd` depuis la copie de secours (§ 3, étape 8).
 

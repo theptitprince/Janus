@@ -264,6 +264,11 @@ function test_installation(): void
     $htaccess = file_get_contents($env['tmp'] . '/www/admin/.htaccess');
     check('installation : admin/.htaccess AuthType Basic', strpos($htaccess, 'AuthType Basic') !== false
         && strpos($htaccess, 'Require valid-user') !== false);
+    $https_exige = implode("\n", ['<RequireAll>',
+        'Require expr "%{SERVER_PORT} != \'80\' || %{HTTP:X-Forwarded-Proto} == \'https\'"',
+        'Require valid-user', '</RequireAll>']);
+    check('installation : admin/.htaccess exige HTTPS avant l\'authentification',
+        strpos($htaccess, $https_exige) !== false);
     check('installation : AuthUserFile absolu', strpos($htaccess, 'AuthUserFile "' . $env['config']['htpasswd'] . '"') !== false
         && chemin_absolu($env['config']['htpasswd']));
     check('installation : dossier de la base protege', is_file(dirname($env['config']['base']) . '/.htaccess'));
@@ -493,6 +498,9 @@ function test_demandes(): void
     check('acceptation : cle liee au poste demandeur', $lic['machine'] === MACHINE_A && $lic['origine'] === 'demande'
         && $lic['id_poste'] === 'SHXT-2380' && $lic['titulaire'] === 'Armement Durand SA');
     check('acceptation : echeance 90 j', (int)$lic['echeance'] === T0 + 3600 + 90 * JOUR && $lic['options'] === null);
+    $session = [];
+    $fiche = console($env, $session, 'GET', ['page' => 'licence', 'id' => $resultat['licence_id']])['corps'];
+    check('licence obtenue par demande : avertissement avant suspension', strpos($fiche, 'jamais vu sa cle') !== false);
     check('acceptation : cle conservee chiffree', strpos((string)db_valeur($env['db'], 'SELECT cle_chiffree FROM demandes WHERE id = 1'),
         substr($resultat['cle'], 6)) === false);
     check('acceptation : journal', db_valeur($env['db'], "SELECT acteur FROM journal WHERE action = 'demande_acceptee'") === 'admin');
@@ -831,6 +839,9 @@ function test_console_licences(): void
         === '2030-01-31 23:59:59');
     check('prolonger : date passee refusee', action($env, $session, 'licence_prolonger', ['id' => $id, 'mode' => 'date',
         'date' => '2020-01-01'])['code'] === 400);
+    check('prolonger : date inexistante refusee (31 fevrier)', action($env, $session, 'licence_prolonger', ['id' => $id,
+        'mode' => 'date', 'date' => '2031-02-31'])['code'] === 400
+        && date('Y-m-d', (int)licence_lire($env['db'], $id)['echeance']) === '2030-01-31');
     $echue = creer_licence($env, 'APP-A', -10);
     $id_echue = (int)licence(['db' => $env['db']], $echue)['id'];
     action($env, $session, 'licence_prolonger', ['id' => $id_echue, 'mode' => '30']);
@@ -853,6 +864,9 @@ function test_console_licences(): void
         'tolerance_j' => '366'])['code'] === 400);
     check('modifier : option invalide', action($env, $session, 'licence_modifier', ['id' => $id, 'titulaire' => 'X',
         'options' => 'Export PDF'])['code'] === 400);
+    $fiche = console($env, $session, 'GET', ['page' => 'licence', 'id' => $id])['corps'];
+    check('suspendre : avertissement (cle a ressaisir)', strpos($fiche, 'saisit de nouveau la meme cle') !== false
+        && strpos($fiche, 'jamais vu sa cle') === false);
     action($env, $session, 'licence_suspendre', ['id' => $id]);
     check('suspendre : poste bloque', appel($env, 'valider', ['cle' => $cle])['p']['code'] === 'suspendue');
     action($env, $session, 'licence_reactiver', ['id' => $id]);
@@ -909,6 +923,8 @@ function test_console_produits_serveurs(): void
         === 'produit_inconnu');
     $r = console($env, $session, 'GET', ['page' => 'produits']);
     check('ecran produits', strpos($r['corps'], 'NAVIRE-CLIENTA') !== false && strpos($r['corps'], 'Suivi navire') !== false);
+    check('distribution desactivee : etiquette Inactive', strpos($r['corps'], 'etiquette inactive">Inactive') !== false
+        && strpos($r['corps'], '>Revoquee<') === false);
     // Serveurs.
     check('url : http distant refuse', action($env, $session, 'url_ajouter', ['url' => 'http://licence3.exemple.fr/api/v1/',
         'priorite' => 5])['code'] === 400);
@@ -941,7 +957,10 @@ function test_console_reglages_exports(): void
         && $mail['a'] === 'a@exemple.fr, b@exemple.fr');
     check('mot de passe trop court refuse', action($env, $session, 'mot_de_passe', ['nouveau' => 'court',
         'confirmation' => 'court'])['code'] === 400);
-    action($env, $session, 'mot_de_passe', ['nouveau' => 'un tout nouveau mot de passe 2026', 'confirmation' => 'un tout nouveau mot de passe 2026']);
+    // Sans JavaScript (confirme = 0) : pas de page de confirmation qui recopierait le mot de passe.
+    $r = console($env, $session, 'POST', [], ['action' => 'mot_de_passe', 'csrf' => csrf_jeton($session), 'confirme' => '0',
+        'nouveau' => 'un tout nouveau mot de passe 2026', 'confirmation' => 'un tout nouveau mot de passe 2026']);
+    check('mot de passe : jamais recopie dans la page', strpos($r['corps'], 'un tout nouveau mot de passe 2026') === false);
     $ligne = trim((string)file_get_contents($env['config']['htpasswd']));
     check('mot de passe change (.htpasswd bcrypt)', password_verify('un tout nouveau mot de passe 2026', substr($ligne, strlen('admin:'))));
     $cle = creer_licence($env, 'APP-A', 365, ['titulaire' => '=HYPERLINK("http://x")']);
@@ -950,6 +969,8 @@ function test_console_reglages_exports(): void
     check('export licences : CSV UTF-8', $r['entetes']['Content-Type'] === 'text/csv; charset=UTF-8'
         && strpos($r['corps'], "\xEF\xBB\xBF\"id\";\"titulaire\";") === 0);
     check('export : formule neutralisee', strpos($r['corps'], "\"'=HYPERLINK(\"\"http://x\"\")\"") !== false);
+    check('export : tabulation et retour chariot en tete neutralises', csv_cellule("\t=1+1") === "\"'\t=1+1\""
+        && csv_cellule("\r=1+1") === "\"'\r=1+1\"" && csv_cellule('PC-1') === '"PC-1"');
     check('export : jamais la cle', strpos($r['corps'], substr($cle, 6, 9)) === false);
     $r = console($env, $session, 'GET', ['page' => 'export', 'quoi' => 'demandes']);
     check('export demandes', $r['code'] === 200 && strpos($r['corps'], '"motif_refus"') !== false);
@@ -958,13 +979,19 @@ function test_console_reglages_exports(): void
     $r = console($env, $session, 'GET', ['page' => 'journal', 'action' => 'mot_de_passe']);
     check('journal filtre', strpos($r['corps'], '1 evenement(s).') !== false);
     $r = console($env, $session, 'GET', ['page' => 'sauvegarde', 'telecharger' => '1']);
+    check('telechargement : jamais par GET (aucune copie, rien au journal)', !isset($r['fichier'])
+        && strpos($r['corps'], 'name="action" value="sauvegarde_telecharger"') !== false
+        && db_valeur($env['db'], "SELECT COUNT(*) FROM journal WHERE action = 'sauvegarde_telechargee'") == 0);
+    $jeton = csrf_jeton($session);
+    $r = action($env, $session, 'sauvegarde_telecharger');
     check('telecharger une copie de la base', $r['code'] === 200 && is_file($r['fichier'])
         && strncmp((string)file_get_contents($r['fichier'], false, null, 0, 16), 'SQLite format 3', 15) === 0);
+    check('telechargement : formulaire de la page toujours valable', csrf_jeton($session) === $jeton);
     @unlink($r['fichier']);
     $reste = $env['config']['dossier_sauvegardes'] . '/telechargement-abandonne.db';
     file_put_contents($reste, 'copie interrompue');
     touch($reste, time() - 7200);
-    $r = console($env, $session, 'GET', ['page' => 'sauvegarde', 'telecharger' => '1']);
+    $r = action($env, $session, 'sauvegarde_telecharger');
     check('copie d\'un telechargement interrompu purgee', !is_file($reste));
     @unlink($r['fichier']);
     check('telechargement journalise', db_valeur($env['db'], "SELECT acteur FROM journal WHERE action = 'sauvegarde_telechargee'") === 'admin');
@@ -1032,10 +1059,66 @@ function test_rotation(): void
     check('navigation : ecran Cles', strpos($r['corps'], 'href="index.php?page=cles"') !== false);
 }
 
+function test_restauration_apres_rotation(): void
+{
+    $env = serveur();
+    $cle = creer_licence($env);
+    appel($env, 'activer', ['cle' => $cle]);
+    check('fiche publique de la premiere cle', is_file(signature_fiche($env['config'], 1)));
+    $copie = $env['tmp'] . '/sauvegarde-avant-rotation.db';
+    $env['db']->exec("VACUUM INTO '" . $copie . "'");
+    $r2 = signature_rotation($env['db'], $env['config'], T0 + 100);
+    $r3 = signature_rotation($env['db'], $env['config'], T0 + 200);
+    $bulletins = api_bulletins($env['db'], T0 + 300);
+    // Restauration de la sauvegarde de la veille : la base designe kid 1, dont la cle privee est effacee.
+    $env['db'] = null;
+    foreach (['', '-wal', '-shm'] as $suffixe) {
+        @unlink($env['config']['base'] . $suffixe);
+    }
+    copy($copie, $env['config']['base']);
+    $env['db'] = db_ouvrir($env['config']['base']);
+    check('restauration : base d\'avant la rotation', (int)db_valeur($env['db'], 'SELECT MAX(kid) FROM cles_signature') === 1);
+    $active = signature_active($env['db'], $env['config']);
+    check('restauration : rotations rattrapees depuis les fiches', $active['kid'] === 3
+        && $active['cle_publique'] === $r3['cle_publique']);
+    check('restauration : anciennes cles retirees aux bonnes dates',
+        (int)db_valeur($env['db'], 'SELECT retiree_le FROM cles_signature WHERE kid = 1') === T0 + 100
+        && (int)db_valeur($env['db'], 'SELECT retiree_le FROM cles_signature WHERE kid = 2') === T0 + 200);
+    check('restauration : bulletins identiques', api_bulletins($env['db'], T0 + 300) === $bulletins);
+    check('restauration : journalisee', db_valeur($env['db'], "SELECT COUNT(*) FROM journal WHERE action = 'cles_resynchronisees'") == 1);
+    [$code, $enveloppe] = api_traiter($env['db'], $env['config'], json_encode(['v' => 1, 'op' => 'valider', 'produit' => 'APP',
+        'distribution' => 'APP-A', 'machine' => MACHINE_A, 'poste' => 'PC', 'version' => '1.4.0', 'nonce' => 'nonce-restauration',
+        't' => T0 + 300, 'cle' => $cle]), '10.9.9.9', T0 + 300);
+    $p = verifier_enveloppe($enveloppe, $r3['cle_publique']);
+    check('restauration : l\'API signe de nouveau', $code === 200 && $enveloppe['kid'] === 3 && $p !== null && $p['ok'] === true);
+    // Chaine rompue (fiche intermediaire absente) : rien n'est invente, l'erreur reste visible.
+    $env2 = serveur();
+    $copie2 = $env2['tmp'] . '/avant.db';
+    $env2['db']->exec("VACUUM INTO '" . $copie2 . "'");
+    signature_rotation($env2['db'], $env2['config'], T0 + 100);
+    signature_rotation($env2['db'], $env2['config'], T0 + 200);
+    unlink(signature_fiche($env2['config'], 2));
+    $env2['db'] = null;
+    foreach (['', '-wal', '-shm'] as $suffixe) {
+        @unlink($env2['config']['base'] . $suffixe);
+    }
+    copy($copie2, $env2['config']['base']);
+    $env2['db'] = db_ouvrir($env2['config']['base']);
+    try {
+        signature_active($env2['db'], $env2['config']);
+        $leve = false;
+    } catch (RuntimeException $e) {
+        $leve = strpos($e->getMessage(), 'kid 1') !== false;
+    }
+    check('restauration : chaine rompue non rattrapee', $leve
+        && (int)db_valeur($env2['db'], 'SELECT MAX(kid) FROM cles_signature') === 1);
+}
+
 $tests = ['test_fichiers', 'test_formats', 'test_installation', 'test_ping_et_requetes_invalides', 'test_activer_valider',
     'test_statuts_versions_surcharges', 'test_demandes', 'test_notifications', 'test_limites', 'test_sauvegarde',
     'test_signature', 'test_console_acces', 'test_console_demandes', 'test_console_licences',
-    'test_console_produits_serveurs', 'test_console_reglages_exports', 'test_rotation'];
+    'test_console_produits_serveurs', 'test_console_reglages_exports', 'test_rotation',
+    'test_restauration_apres_rotation'];
 foreach ($tests as $test) {
     try {
         $test();

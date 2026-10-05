@@ -27,6 +27,7 @@ code { font-family: Consolas, "DejaVu Sans Mono", monospace; font-size: .92em; }
   border: 1px solid var(--ligne); text-decoration: none; color: var(--texte); font-size: 1.1rem; }
 .compteur strong { font-size: 2rem; margin-right: .4rem; }
 .compteur.alerte { border-color: var(--alerte); background: #fff4ec; }
+p.alerte { padding: .6rem .8rem; border-left: 3px solid var(--alerte); background: #fff4ec; }
 .cartes { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .6rem; }
 .carte { background: var(--panneau); border: 1px solid var(--ligne); border-radius: 6px; padding: .8rem; }
 .carte strong { display: block; font-size: 1.6rem; }

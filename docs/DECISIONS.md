@@ -308,3 +308,31 @@ La branche de travail a été relue (client en entier, serveur par une revue ind
 - **Question** : trois vérifications du serveur supposaient Linux (droits `0600`, chemin absolu commençant par `/`) et le test de bout en bout simulait l'échec d'envoi par `sendmail_path=/bin/false`, que PHP pour Windows ignore (il renvoie toujours succès).
 - **Décision** : sous Windows, les droits Unix ne sont pas vérifiés (NTFS n'en a pas) et un chemin `X:\` ou `X:/` est absolu ; l'échec d'envoi passe par un port SMTP fermé (`-d SMTP=127.0.0.1 -d smtp_port=9`).
 - **Raison** : les mêmes suites doivent passer sur le poste de développement Windows et sous Linux, sans affaiblir les vérifications faites sur l'hébergement réel.
+
+### D53 — 2026-10-05 — Restauration d'une base antérieure à une rotation
+- **Question** : la rotation efface l'ancienne clé privée (D38). Une base restaurée d'avant la rotation désigne donc une clé privée absente : l'API répondait 503 à tout, et la console ne pouvait rien réparer (elle passe par la même clé active).
+- **Décision** : chaque clé privée a sa « fiche » publique `prive/cles/signature_N.json` (kid, clé publique, bulletin, date). Quand la clé active de la base est introuvable, le serveur reprend dans l'ordre les fiches des kid suivants, sans trou, et l'inscrit au journal (`cles_resynchronisees`). Une chaîne incomplète n'est jamais complétée : l'erreur reste visible.
+- **Raison** : restaurer une sauvegarde ne doit demander ni accès SQL ni outil ; la fiche ne contient que des données publiques déjà diffusées aux postes.
+
+### D54 — 2026-10-05 — HTTPS exigé avant l'authentification de la console
+- **Question** : la redirection HTTPS de `www/.htaccess` (mod_rewrite) n'intervient qu'après l'authentification Basic : une première visite en `http://…/admin/` envoyait le mot de passe en clair.
+- **Décision** : le `admin/.htaccess` généré combine, dans un `<RequireAll>`, la même détection du HTTPS que la redirection (`SERVER_PORT` différent de 80 ou `X-Forwarded-Proto: https`) et `Require valid-user`. En HTTP, Apache répond 403 « Console accessible uniquement en https:// » sans demander d'identifiants.
+- **Raison** : « HTTPS forcé » doit valoir dès la première requête, HSTS ne protégeant qu'à partir de la deuxième.
+
+### D55 — 2026-10-05 — Suspension d'une licence obtenue par demande
+- **Question** : sur `suspendue`, le poste efface sa clé (annexe D). Pour une licence obtenue par demande, personne n'a jamais vu la clé et le serveur n'en garde que le hachage : « Réactiver » ne peut pas débloquer ce poste.
+- **Décision** : comportement de l'annexe D inchangé ; la fiche de la licence l'explique avant toute suspension (licence obtenue par demande : préférer une échéance proche pour une coupure temporaire, sinon créer ensuite une nouvelle clé).
+- **Raison** : l'annexe fait foi ; l'administrateur doit connaître la conséquence avant d'agir.
+
+### D56 — 2026-10-05 — Écritures de la console strictement en POST
+- **Question** : le téléchargement d'une copie de la base passait par un lien (GET) alors qu'il écrit un fichier et le journal ; une simple image sur un autre site suffisait à le déclencher. La page de confirmation sans JavaScript recopiait aussi le nouveau mot de passe dans des champs cachés.
+- **Décision** : le téléchargement est un formulaire POST (jeton CSRF, confirmation) dont le jeton n'est pas renouvelé, la page restant affichée après le téléchargement. Le changement de mot de passe ne passe pas par la page de confirmation sans JavaScript : la double saisie en tient lieu (la boîte de confirmation JavaScript reste).
+- **Raison** : « écritures en POST uniquement » ; un mot de passe ne doit jamais réapparaître dans une page.
+
+### D57 — 2026-10-05 — Détails de la console
+- **Question** : points relevés par la revue.
+- **Décision** :
+  - CSV : une cellule commençant par une tabulation ou un retour chariot est aussi préfixée d'une apostrophe ;
+  - date libre de prolongation : une date inexistante (31 février) est refusée au lieu d'être reportée au mois suivant ;
+  - une distribution désactivée porte l'étiquette « Inactive » (et non « Revoquee »).
+- **Raison** : corrections sans effet sur l'usage normal.

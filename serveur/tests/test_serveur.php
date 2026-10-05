@@ -269,6 +269,28 @@ function test_installation(): void
     } catch (RuntimeException $e) {
         check('seconde installation : refusee', strpos($e->getMessage(), 'deja') !== false);
     }
+    check('reinitialisation : fermee par defaut', !reinitialisation_ouverte($env['config']));
+    $config = $env['config'];
+    $config['jeton_reinitialisation'] = $config['jeton_installation'];
+    check('reinitialisation : jeton d\'installation refuse', !reinitialisation_ouverte($config));
+    $config['jeton_reinitialisation'] = 'jeton-de-reinitialisation-0001';
+    $config['prive'] = $env['tmp'] . '/prive';
+    check('reinitialisation : ouverte par config.php', reinitialisation_ouverte($config));
+    try {
+        reinitialisation_executer($config, 'mauvais', 'etienne', 'mot de passe retrouve 2026', 'mot de passe retrouve 2026', '', T0);
+        check('reinitialisation : mauvais jeton refuse', false);
+    } catch (RuntimeException $e) {
+        check('reinitialisation : mauvais jeton refuse', true);
+    }
+    reinitialisation_executer($config, 'jeton-de-reinitialisation-0001', 'etienne', 'mot de passe retrouve 2026',
+        'mot de passe retrouve 2026', '', T0);
+    check('reinitialisation : .htpasswd reecrit', password_verify('mot de passe retrouve 2026',
+        substr(trim((string)file_get_contents($config['htpasswd'])), 8)));
+    check('reinitialisation : jeton a usage unique', !reinitialisation_ouverte($config));
+    check('reinitialisation : journalisee', db_valeur(db_ouvrir($config['base']),
+        "SELECT COUNT(*) FROM journal WHERE action = 'mot_de_passe_reinitialise'") == 1);
+    $config['jeton_reinitialisation'] = 'jeton-de-reinitialisation-0002';
+    check('reinitialisation : nouveau jeton, nouvelle possibilite', reinitialisation_ouverte($config));
     htpasswd_ecrire($env['config']['htpasswd'], 'etienne', 'nouveau mot de passe bien plus long');
     $lignes = file($env['config']['htpasswd'], FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
     check('changement de mot de passe : une seule ligne', count($lignes) === 1

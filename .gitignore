@@ -17,3 +17,4 @@ __pycache__/
 build/
 dist/
 *.spec
+serveur/prive/reinitialisation.utilisee

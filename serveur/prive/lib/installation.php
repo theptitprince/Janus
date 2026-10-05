@@ -198,3 +198,50 @@ function installation_executer(array $config, array $p, string $dossier_admin, i
     }
     return ['kid' => 1, 'cle_publique' => $cle['cle_publique'], 'urls' => $urls];
 }
+
+/**
+ * Mot de passe de la console perdu : sans SSH ni outil local, la seule preuve
+ * d'autorite est l'acces FTP. Un jeton 'jeton_reinitialisation' depose dans
+ * config.php ouvre, dans install.php verrouille, un formulaire qui ne fait que
+ * reecrire le .htpasswd ; chaque jeton ne sert qu'une fois.
+ */
+function reinitialisation_fichier(array $config): string
+{
+    return $config['prive'] . '/reinitialisation.utilisee';
+}
+
+function reinitialisation_ouverte(array $config): bool
+{
+    $jeton = (string)($config['jeton_reinitialisation'] ?? '');
+    if (strlen($jeton) < JETON_INSTALLATION_MIN || hash_equals((string)$config['jeton_installation'], $jeton)
+        || !installation_verrouillee($config)) {
+        return false;
+    }
+    $utilises = @file(reinitialisation_fichier($config), FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    return !in_array(hash('sha256', $jeton), $utilises, true);
+}
+
+function reinitialisation_executer(array $config, string $jeton, string $utilisateur, string $mot_de_passe,
+                                   string $confirmation, string $ip, int $maintenant): void
+{
+    if (!reinitialisation_ouverte($config) || !hash_equals((string)$config['jeton_reinitialisation'], $jeton)) {
+        throw new RuntimeException('Jeton de reinitialisation incorrect ou deja utilise.');
+    }
+    if (!utilisateur_valide($utilisateur)) {
+        throw new InvalidArgumentException('Identifiant invalide (lettres, chiffres, . _ -, 32 caracteres maximum).');
+    }
+    $erreur = mot_de_passe_erreur($mot_de_passe, $confirmation);
+    if ($erreur !== null) {
+        throw new InvalidArgumentException($erreur);
+    }
+    htpasswd_ecrire((string)$config['htpasswd'], $utilisateur, $mot_de_passe);
+    if (file_put_contents(reinitialisation_fichier($config), hash('sha256', $jeton) . "\n", FILE_APPEND | LOCK_EX) === false) {
+        throw new RuntimeException('enregistrement du jeton utilise impossible');
+    }
+    try {
+        journal_ecrire(db_ouvrir((string)$config['base']), $utilisateur, 'mot_de_passe_reinitialise', $utilisateur,
+            'par install.php (jeton de reinitialisation)', $ip, $maintenant);
+    } catch (Throwable $e) {
+        error_log('etdel reinitialisation : ' . $e->getMessage());
+    }
+}

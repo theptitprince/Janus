@@ -49,9 +49,37 @@ try {
     install_page(500, 'Configuration illisible', '<p>' . h($e->getMessage()) . '</p>');
 }
 if (installation_verrouillee($config)) {
-    install_page(403, 'Installation deja effectuee',
-        '<p>Cet assistant est verrouille et refuse toute nouvelle execution.</p>'
-        . '<p>Console d\'administration : <a href="admin/">admin/</a></p>');
+    if (!reinitialisation_ouverte($config)) {
+        install_page(403, 'Installation deja effectuee',
+            '<p>Cet assistant est verrouille et refuse toute nouvelle execution.</p>'
+            . '<p>Console d\'administration : <a href="admin/">admin/</a></p>');
+    }
+    // Seule action possible une fois verrouille : reecrire le .htpasswd (mot de passe perdu).
+    $message = '';
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+        try {
+            reinitialisation_executer($config, (string)($_POST['jeton'] ?? ''), trim((string)($_POST['utilisateur'] ?? '')),
+                (string)($_POST['mot_de_passe'] ?? ''), (string)($_POST['confirmation'] ?? ''), ip_client(), time());
+            install_page(200, 'Mot de passe reinitialise',
+                '<p>Le mot de passe de la console est change. Remettre <code>jeton_reinitialisation</code> a vide dans '
+                . 'config.php.</p><p><a href="admin/">Console d\'administration</a></p>');
+        } catch (Throwable $e) {
+            $message = '<ul><li>' . h($e->getMessage()) . '</li></ul>';
+        }
+    }
+    install_page(200, 'Reinitialiser le mot de passe de la console', $message
+        . '<p>L\'installation est verrouillee. Ce formulaire, ouvert par <code>jeton_reinitialisation</code> dans '
+        . 'config.php, ne fait que remplacer le mot de passe de la console.</p>'
+        . '<form method="post" action="install.php">'
+        . '<p><label for="jeton">Jeton de reinitialisation (config.php)</label><br>'
+        . '<input id="jeton" name="jeton" type="password" size="50"></p>'
+        . '<p><label for="utilisateur">Identifiant</label><br>'
+        . '<input id="utilisateur" name="utilisateur" type="text" value="etienne" size="50"></p>'
+        . '<p><label for="mot_de_passe">Nouveau mot de passe (' . MOT_DE_PASSE_MIN . ' caracteres minimum)</label><br>'
+        . '<input id="mot_de_passe" name="mot_de_passe" type="password" autocomplete="new-password" size="50"></p>'
+        . '<p><label for="confirmation">Confirmation</label><br>'
+        . '<input id="confirmation" name="confirmation" type="password" autocomplete="new-password" size="50"></p>'
+        . '<p><button type="submit">Reinitialiser</button></p></form>');
 }
 $problemes = installation_prealables($config);
 if ($problemes !== []) {

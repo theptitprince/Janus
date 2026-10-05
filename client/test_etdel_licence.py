@@ -386,11 +386,34 @@ def test_fichier():
     check("module en ASCII pur", all(b < 128 for b in source))
     check("module : en-tete ETDEL (c) 2026", b"ETDEL (c) 2026" in source[:800])
     check("module : jamais time.sleep", b"time.sleep" not in source)
-    check("module : constantes vides dans le depot",
-          re.search(rb'^LICENCE_URL = ""$', source, re.M) is not None
-          and re.search(rb'^LICENCE_CLE_PUBLIQUE = ""$', source, re.M) is not None)
+    # Vides tant que le serveur n'est pas installe, puis renseignees une fois pour toutes.
+    vides = not (L.LICENCE_URL or L.LICENCE_URL_SECOURS or L.LICENCE_CLE_PUBLIQUE)
+    try:
+        cle_ok = len(L._deb64url(L.LICENCE_CLE_PUBLIQUE)) == 32
+    except ValueError:
+        cle_ok = False
+    renseignees = cle_ok and L._url_autorisee(L.LICENCE_URL) and L.LICENCE_URL.startswith("https://") and (
+        not L.LICENCE_URL_SECOURS or L.LICENCE_URL_SECOURS.startswith("https://"))
+    check("module : constantes vides, ou URL https et cle publique de 32 octets", vides or renseignees)
     with open(os.path.abspath(__file__), "rb") as f:
         check("tests en ASCII pur", all(b < 128 for b in f.read()))
+
+
+def test_publication():
+    # La version et l'empreinte publiees doivent suivre le module : sinon les
+    # tests d'integration des applications compareraient a une reference fausse.
+    with open(os.path.join(ICI, "etdel_licence.py"), "rb") as f:
+        empreinte = hashlib.sha256(f.read().replace(b"\r\n", b"\n")).hexdigest()
+    with open(os.path.join(os.path.dirname(ICI), "docs", "INTEGRATION.md"), "r", encoding="utf-8") as f:
+        doc = f.read()
+    with open(os.path.join(ICI, "test_licence_integration.py"), "r", encoding="ascii") as f:
+        integration = f.read()
+    check("INTEGRATION.md : empreinte publiee a jour", ("`%s`" % empreinte) in doc)
+    check("INTEGRATION.md : version publiee a jour", ("version **%s**" % L.MODULE_VERSION) in doc)
+    check("test_licence_integration.py : empreinte de reference a jour",
+          ('EMPREINTE_REFERENCE = "%s"' % empreinte) in integration)
+    check("test_licence_integration.py : version de reference a jour",
+          ('VERSION_REFERENCE = "%s"' % L.MODULE_VERSION) in integration)
 
 
 def test_non_configure():
@@ -409,8 +432,13 @@ def test_non_configure():
     check("non configure : aucun fichier cree", not any(os.path.exists(d) for d in dossiers))
     g = garde(serveur, dossiers, horloge, urls=[], cle_publique="")
     check("non configure : exiger rend la main", L.exiger("APP", "APP-A", "1.0", _garde=g) is g)
-    defaut = L.Garde("APP", "APP-A", "1.0", _fil=False)
-    check("constantes du depot vides : non configure", defaut.etat()["statut"] == L.NON_CONFIGURE)
+    sauvegarde = (L.LICENCE_URL, L.LICENCE_URL_SECOURS, L.LICENCE_CLE_PUBLIQUE)
+    L.LICENCE_URL = L.LICENCE_URL_SECOURS = L.LICENCE_CLE_PUBLIQUE = ""
+    try:
+        defaut = L.Garde("APP", "APP-A", "1.0", _fil=False)
+        check("constantes vides : non configure", defaut.etat()["statut"] == L.NON_CONFIGURE)
+    finally:
+        L.LICENCE_URL, L.LICENCE_URL_SECOURS, L.LICENCE_CLE_PUBLIQUE = sauvegarde
 
 
 def test_activation():
@@ -1299,7 +1327,7 @@ def tests_tk():
 
 
 def main():
-    tests = [test_ed25519, test_formats, test_fichier, test_non_configure, test_activation,
+    tests = [test_ed25519, test_formats, test_fichier, test_publication, test_non_configure, test_activation,
              test_donnees_transmises, test_tolerance, test_tolerance_par_licence, test_recul_horloge,
              test_avance_horloge_corrigee, test_revocation, test_autre_poste, test_renommage,
              test_demande_essai_acceptee, test_demande_refusee, test_essai_unique, test_essai_epuise,

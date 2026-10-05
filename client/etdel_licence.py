@@ -30,7 +30,6 @@ import hashlib
 import hmac
 import json
 import logging
-import logging.handlers
 import math
 import os
 import queue
@@ -44,7 +43,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-MODULE_VERSION = "1.0.0"
+MODULE_VERSION = "1.0.1"
 
 # Renseignees une fois le serveur installe (ecran Cles de la console).
 # Vides : aucun controle, aucun fichier, l'application ne parle jamais de licence.
@@ -595,6 +594,45 @@ _JOURNAUX = {}
 _VERROU_JOURNAUX = threading.Lock()
 
 
+class _FichierJournal(logging.Handler):
+    """Journal tournant qui ne garde jamais le fichier ouvert.
+
+    Sous Windows, un fichier ouvert ne peut etre ni renomme ni supprime : avec
+    RotatingFileHandler, une seconde instance de l'application faisait echouer
+    la rotation (trace "Logging error" sur stderr) et le dossier de licence
+    restait verrouille tant que l'application tournait.
+    """
+
+    def __init__(self, chemin, taille_max=1000000, archives=2):
+        logging.Handler.__init__(self)
+        self.chemin = chemin
+        self.taille_max = taille_max
+        self.archives = archives
+
+    def _tourner(self):
+        for n in range(self.archives, 0, -1):
+            source = self.chemin if n == 1 else "%s.%d" % (self.chemin, n - 1)
+            if os.path.exists(source):
+                os.replace(source, "%s.%d" % (self.chemin, n))
+
+    def emit(self, enregistrement):
+        try:
+            ligne = (self.format(enregistrement) + "\n").encode("utf-8", "replace")
+            with self.lock:
+                try:
+                    if os.path.getsize(self.chemin) + len(ligne) > self.taille_max:
+                        self._tourner()
+                except OSError:
+                    # Fichier absent, ou rotation impossible (autre instance en
+                    # train d'ecrire) : on ecrit quand meme, la rotation suivra.
+                    pass
+                with open(self.chemin, "ab") as fichier:
+                    fichier.write(ligne)
+        except Exception:
+            # Un journal en echec ne doit jamais rien afficher a l'utilisateur.
+            pass
+
+
 def _journal(dossier):
     chemin = os.path.join(dossier, "licence.log")
     with _VERROU_JOURNAUX:
@@ -605,8 +643,7 @@ def _journal(dossier):
             journal = logging.getLogger("etdel_licence." + hashlib.sha256(chemin.encode("utf-8")).hexdigest()[:12])
             journal.propagate = False
             journal.setLevel(logging.INFO)
-            gestionnaire = logging.handlers.RotatingFileHandler(
-                chemin, maxBytes=1000000, backupCount=2, encoding="utf-8", delay=True)
+            gestionnaire = _FichierJournal(chemin)
             gestionnaire.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
             journal.addHandler(gestionnaire)
             _JOURNAUX[chemin] = journal
@@ -893,8 +930,12 @@ class Garde(object):
                         continue
                 except (ValueError, KeyError, TypeError, AttributeError):
                     continue
-                if str(kid) in cles:
+                connue = cles.get(str(kid))
+                if isinstance(connue, dict) and connue.get("cle") == cle:
                     continue
+                # Un kid deja associe a une autre cle ne peut venir que d'une
+                # enveloppe dont le kid (hors signature) a ete altere : le
+                # bulletin, lui, est signe et fait foi.
                 cles[str(kid)] = {"cle": cle, "jusqu": None}
                 ancienne = cles.get(str(signataire))
                 if isinstance(ancienne, dict) and ancienne.get("jusqu") is None:

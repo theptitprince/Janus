@@ -289,3 +289,22 @@ Une revue indépendante (lecture du code et scénarios rejoués contre le vrai m
 - **Question** : limites contournables en changeant d'adresse IPv6 ; copie de la base laissée sur le serveur après un téléchargement interrompu ; réinitialisation du mot de passe capable de créer un second compte.
 - **Décision** : les limites comptent par adresse IPv4 et par préfixe /64 en IPv6 (une IPv4 notée en IPv6 reste une IPv4) ; la copie téléchargée est supprimée même si le téléchargement est interrompu (et toute copie de plus d'une heure est purgée) ; la réinitialisation n'accepte qu'un compte existant (D43).
 - **Raison** : fermer les contournements relevés sans changer l'usage normal.
+
+## Reprise sur le poste de développement Windows
+
+La branche de travail a été relue (client en entier, serveur par une revue indépendante) puis reprise sur `main` ; toutes les suites ont été exécutées sous Windows 11 avec Python 3.14 et PHP 8.3 portable.
+
+### D50 — 2026-10-05 — Journal du module sous Windows
+- **Question** : sous Windows, `RotatingFileHandler` garde `licence.log` ouvert ; le fichier ne peut alors être ni renommé ni supprimé. Une seconde instance de l'application faisait échouer la rotation (trace « Logging error » sur la sortie d'erreur) et le dossier de licence restait verrouillé.
+- **Décision** : gestionnaire `_FichierJournal` qui ouvre le fichier, ajoute la ligne et le referme à chaque écriture ; rotation à 1 Mo, 2 archives (annexe D), tentée sans bloquer si une autre instance écrit. Module en version 1.0.1.
+- **Raison** : mêmes règles que l'annexe D, sans verrou sur le fichier ; le coût d'une ouverture par ligne est négligeable pour quelques lignes par contrôle.
+
+### D51 — 2026-10-05 — Bulletin et kid déjà connu
+- **Question** : après une réponse dont le `kid` (hors signature) a été altéré en route, la clé embarquée restait classée sous ce faux numéro ; le bulletin authentique annonçant plus tard ce même numéro était ignoré et le poste ne pouvait plus vérifier la nouvelle clé.
+- **Décision** : un bulletin valide (signé par une clé connue) remplace l'association d'un `kid` à une autre clé.
+- **Raison** : le bulletin est signé, le `kid` d'une enveloppe ne l'est pas : le premier fait foi.
+
+### D52 — 2026-10-05 — Tests sur poste Windows
+- **Question** : trois vérifications du serveur supposaient Linux (droits `0600`, chemin absolu commençant par `/`) et le test de bout en bout simulait l'échec d'envoi par `sendmail_path=/bin/false`, que PHP pour Windows ignore (il renvoie toujours succès).
+- **Décision** : sous Windows, les droits Unix ne sont pas vérifiés (NTFS n'en a pas) et un chemin `X:\` ou `X:/` est absolu ; l'échec d'envoi passe par un port SMTP fermé (`-d SMTP=127.0.0.1 -d smtp_port=9`).
+- **Raison** : les mêmes suites doivent passer sur le poste de développement Windows et sous Linux, sans affaiblir les vérifications faites sur l'hébergement réel.

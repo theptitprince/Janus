@@ -18,3 +18,9 @@ build/
 dist/
 *.spec
 serveur/prive/reinitialisation.utilisee
+
+# PHP portable du banc d'essai local (Windows), jamais versionne
+/php/
+
+# Banc d'essai local : e-mails captures par serveur/tests/smtp_banc.py
+serveur/tests/courriels/

@@ -4,9 +4,11 @@
 #        acceptee ou refusee, revocation, signature Ed25519 PHP verifiee en Python.
 #        Le serveur et le client partagent l'heure du systeme ; aucune
 #        verification ne depend de sa valeur. Aucun reseau hors boucle locale.
-#        Lancement : python3 serveur/tests/test_bout_en_bout.py
+#        L'application de demonstration est pilotee sous Xvfb.
+#        Lancement : xvfb-run -a python3 serveur/tests/test_bout_en_bout.py
 # ETDEL (c) 2026
 
+import base64
 import hashlib
 import json
 import os
@@ -83,6 +85,79 @@ def garde(url, publique, dossier, machine, poste="PC-BANC"):
                    _machine=machine, _poste=poste, _fil=False)
 
 
+def tests_demo(url, publique, db, maintenant, racine):
+    """Application de demonstration reelle (Tkinter) contre le serveur PHP reel."""
+    try:
+        import tkinter as tk
+        tk.Tk().destroy()
+    except Exception as exc:
+        if os.environ.get("ETDEL_TESTS_SANS_TK") == "1":
+            print("(application de demonstration sautee a la demande : ETDEL_TESTS_SANS_TK=1)")
+        else:
+            check("Tkinter indisponible (%r) : lancer sous xvfb-run ou ETDEL_TESTS_SANS_TK=1" % (exc,), False)
+        return
+    import demo_appli
+    cle = generer_cle()
+    db.execute("INSERT INTO licences (distribution_id, cle_hash, cle_indice, titulaire, echeance, origine, cree_le, "
+               "modifie_le) VALUES (1, ?, ?, 'Armement Demo', ?, 'console', ?, ?)",
+               (hashlib.sha256(cle.encode()).hexdigest(), cle[-4:], maintenant + 30 * 86400, maintenant, maintenant))
+    db.commit()
+    environnement = dict(os.environ)
+    constantes = (L.LICENCE_URL, L.LICENCE_URL_SECOURS, L.LICENCE_CLE_PUBLIQUE)
+    for variable in ("APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "HOME"):
+        os.environ[variable] = os.path.join(racine, "demo", variable)
+    root = None
+
+    def pomper(secondes, condition=lambda: False):
+        fin = time.time() + secondes
+        while time.time() < fin and not condition():
+            root.update()
+            time.sleep(0.02)
+        return condition()
+
+    def boutons(fenetre):
+        trouves, pile = {}, [fenetre]
+        while pile:
+            w = pile.pop()
+            pile.extend(w.winfo_children())
+            if isinstance(w, tk.Button):
+                trouves[w.cget("text")] = w
+        return trouves
+
+    try:
+        root, garde = demo_appli.construire(["--serveur", url, "--cle-publique", publique])
+        pomper(0.5)
+        integration = garde._integration
+        check("demo : fenetre d'activation au premier lancement", integration.fenetre is not None
+              and root.state() == "withdrawn")
+        boutons(integration.fenetre.win)["J'ai une cle"].invoke()
+        integration.fenetre.entree_cle.insert(0, cle.lower())
+        boutons(integration.fenetre.win)["Activer"].invoke()
+        check("demo : activation par la fenetre", pomper(15, lambda: integration.fenetre is None))
+        check("demo : application affichee", root.state() == "normal" and garde.etat()["statut"] == L.VALIDE)
+        pomper(1.5)
+        check("demo : option export_pdf de la distribution",
+              str(boutons(root)["Exporter en PDF (option export_pdf)"].cget("state")) == "normal")
+        integration.ouvrir_licence()
+        pomper(0.5)
+        check("demo : fenetre Licence (Ctrl+Maj+L)", integration.fenetre_licence is not None)
+        lignes = db.execute("SELECT nom_ordinateur, version_appli FROM licences WHERE cle_hash = ?",
+                            (hashlib.sha256(cle.encode()).hexdigest(),)).fetchone()
+        check("demo : poste et version vus par le serveur", lignes[1] == demo_appli.APP_VERSION and lignes[0])
+        root.tk.eval(root.protocol("WM_DELETE_WINDOW"))
+        check("demo : fermeture propre", integration.termine and garde._arrete)
+        root = None
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:
+                pass
+        L.LICENCE_URL, L.LICENCE_URL_SECOURS, L.LICENCE_CLE_PUBLIQUE = constantes
+        os.environ.clear()
+        os.environ.update(environnement)
+
+
 def main():
     if shutil.which("php") is None:
         check("php disponible", False)
@@ -101,7 +176,8 @@ def main():
         base = "http://127.0.0.1:%d/" % port
         # sendmail_path=/bin/false : l'echec d'envoi est volontaire et doit etre journalise.
         processus = subprocess.Popen(["php", "-d", "sendmail_path=/bin/false", "-S", "127.0.0.1:%d" % port,
-                                      "-t", www], cwd=www, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                      "-t", www, os.path.join(ICI, "routeur_banc.php")],
+                                     cwd=www, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(100):
             try:
                 socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
@@ -136,6 +212,26 @@ def main():
             check("install.php : console protegee", "AuthType Basic" in f.read())
         code, _page = http(url)
         check("API : GET refuse (405)", code == 405)
+
+        # Console par HTTP (authentification Basic reproduite par le routeur du banc).
+        def console(chemin, mot_de_passe):
+            jeton = base64.b64encode(("admin:%s" % mot_de_passe).encode()).decode()
+            requete = urllib.request.Request(base + chemin, headers={"Authorization": "Basic " + jeton})
+            try:
+                with urllib.request.urlopen(requete, timeout=10) as reponse:
+                    return reponse.status, dict(reponse.headers), reponse.read().decode("utf-8")
+            except urllib.error.HTTPError as erreur:
+                return erreur.code, dict(erreur.headers), ""
+        code, entetes, _page = console("admin/", "mauvais mot de passe")
+        check("console : mauvais mot de passe, 401", code == 401 and "Basic" in entetes.get("WWW-Authenticate", ""))
+        code, entetes, page = console("admin/", MOT_DE_PASSE)
+        check("console : tableau de bord par HTTP", code == 200 and "Tableau de bord" in page)
+        check("console : en-tetes CSP et X-Frame-Options", "default-src 'none'" in entetes.get("Content-Security-Policy", "")
+              and entetes.get("X-Frame-Options") == "DENY")
+        check("console : cookie de session HttpOnly SameSite=Strict",
+              "HttpOnly" in entetes.get("Set-Cookie", "") and "SameSite=Strict" in entetes.get("Set-Cookie", ""))
+        code, _entetes, page = console("admin/index.php?page=cles", MOT_DE_PASSE)
+        check("console : ecran Cles", code == 200 and publique in page)
 
         # Donnees : produit DEMO, distribution DEMO-BANC, une cle.
         chemin_base = os.path.join(racine, "data", "licenses.db")
@@ -220,6 +316,7 @@ def main():
         db.commit()
         ga._controler()
         check("bout en bout : revocation a la connexion suivante", ga.etat()["statut"] == L.REVOQUEE)
+        tests_demo(url, publique, db, maintenant, racine)
         db.close()
     finally:
         if processus is not None:

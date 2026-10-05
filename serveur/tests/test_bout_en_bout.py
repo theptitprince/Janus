@@ -165,11 +165,12 @@ def main():
     racine = tempfile.mkdtemp(prefix="etdel_e2e_")
     processus = None
     try:
+        # Disposition du depot : prive/ (et sa base prive/data/) dans le dossier servi.
         www = os.path.join(racine, "www")
-        prive = os.path.join(racine, "prive")
-        shutil.copytree(os.path.join(SERVEUR, "www"), www)
-        shutil.copytree(os.path.join(SERVEUR, "prive"), prive,
-                        ignore=shutil.ignore_patterns("config.php", ".htpasswd", "cles", "install.verrou"))
+        prive = os.path.join(www, "prive")
+        shutil.copytree(os.path.join(SERVEUR, "www"), www,
+                        ignore=shutil.ignore_patterns("config.php", ".htpasswd", "cles", "data", "install.verrou",
+                                                      "reinitialisation.utilisee"))
         with open(os.path.join(prive, "config.php"), "w") as f:
             f.write("<?php\nreturn ['jeton_installation' => '%s'];\n" % JETON)
         port = port_libre()
@@ -200,7 +201,7 @@ def main():
                   "email_notification": "admin@exemple.invalid"}
         code, page = http(base + "install.php", champs)
         check("install.php : mauvais jeton refuse", "Jeton d&#039;installation incorrect" in page)
-        check("install.php : rien cree avec un mauvais jeton", not os.path.exists(os.path.join(racine, "data")))
+        check("install.php : rien cree avec un mauvais jeton", not os.path.exists(os.path.join(prive, "data")))
         champs["jeton"] = JETON
         code, page = http(base + "install.php", champs)
         check("install.php : installation terminee", code == 200 and "Installation terminee" in page)
@@ -217,6 +218,15 @@ def main():
             check("install.php : console protegee", "AuthType Basic" in f.read())
         code, _page = http(url)
         check("API : GET refuse (405)", code == 405)
+
+        # Annexe A : prive/ dans le dossier servi, rien n'y est telechargeable
+        # (le routeur du banc reproduit les .htaccess, variantes Windows comprises).
+        for chemin in ("prive/data/licenses.db", "prive/config.php", "prive/.htpasswd", "prive/cles/signature_1.key",
+                       "prive/cles/signature_1.json", "prive/cles/secret_demandes.key", "prive/schema.sql",
+                       "prive/lib/commun.php", "prive/data/", "PRIVE/Data/Licenses.DB", "prive./config.php",
+                       "pr%69ve/config.php", "pr%2569ve/config.php", "prive%2fconfig.php", "admin/../prive/config.php"):
+            code, _page = http(base + chemin)
+            check("HTTP 403 sur %s" % chemin, code == 403)
 
         # Console par HTTP (authentification Basic reproduite par le routeur du banc).
         def console(chemin, mot_de_passe):
@@ -254,7 +264,7 @@ def main():
         check("reinitialisation : jeton a usage unique, assistant verrouille", code == 403)
 
         # Donnees : produit DEMO, distribution DEMO-BANC, une cle.
-        chemin_base = os.path.join(racine, "data", "licenses.db")
+        chemin_base = os.path.join(prive, "data", "licenses.db")
         maintenant = int(time.time())
         db = sqlite3.connect(chemin_base)
         db.execute("INSERT INTO produits (code, nom, cree_le) VALUES ('DEMO', 'Demo', ?)", (maintenant,))

@@ -15,9 +15,10 @@ return [
     // le remettre a vide ensuite.
     'jeton_reinitialisation' => '',
 
-    // Base SQLite et sauvegardes : hors du dossier www (dossier data/ a cote de prive/).
-    'base' => dirname(__DIR__) . '/data/licenses.db',
-    'dossier_sauvegardes' => dirname(__DIR__) . '/data/sauvegardes',
+    // Base SQLite et sauvegardes : dans prive/data/, protege comme tout prive/
+    // (Require all denied), que prive/ soit dans le dossier servi ou a cote.
+    'base' => __DIR__ . '/data/licenses.db',
+    'dossier_sauvegardes' => __DIR__ . '/data/sauvegardes',
     'sauvegardes_conservees' => 30,
 
     // Cles privees de signature et .htpasswd de la console : crees par install.php.

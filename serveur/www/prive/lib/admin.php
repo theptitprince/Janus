@@ -541,9 +541,37 @@ function admin_ecran_tableau(array $ctx): string
     $html .= tableau_html(['Titulaire', 'Distribution', 'Echeance', 'Reste', 'Poste'], $lignes, 'Aucune.');
     $html .= '<h2>Controle d\'exposition</h2><p class="discret">Le navigateur tente de telecharger la base, les cles et '
         . 'la configuration par leur URL : chaque ligne doit indiquer "protege".</p>'
-        . '<ul id="exposition" data-chemins="../prive/config.php ../prive/.htpasswd ../prive/cles/signature_1.key '
-        . '../prive/cles/secret_demandes.key ../data/licenses.db ../prive/schema.sql ../prive/lib/commun.php"></ul>';
+        . '<ul id="exposition" data-chemins="' . h(json_encode(exposition_chemins($ctx['config'], $db), JSON_UNESCAPED_SLASHES))
+        . '"></ul>';
     return $html;
+}
+
+/**
+ * URL (relatives a admin/) des fichiers sensibles, calculees depuis les chemins
+ * reels : cle de signature active (et non kid 1, efface apres une rotation),
+ * journal WAL de la base, dossier des sauvegardes. Le dossier parent de prive/
+ * est suppose servi : si prive/ est a cote du dossier servi, ces URL tombent
+ * hors de tout fichier et le controle conclut "protege", a juste titre.
+ */
+function exposition_chemins(array $config, PDO $db): array
+{
+    $normaliser = static function (string $chemin): string {
+        return str_replace('\\', '/', $chemin);
+    };
+    $racine = rtrim($normaliser(dirname((string)$config['prive'])), '/') . '/';
+    $kid = (int)db_valeur($db, 'SELECT COALESCE(MAX(kid), 1) FROM cles_signature WHERE retiree_le IS NULL');
+    $fichiers = [$config['prive'] . '/config.php', $config['htpasswd'], signature_fichier($config, $kid),
+        secret_fichier($config), $config['base'], $config['base'] . '-wal',
+        rtrim((string)$config['dossier_sauvegardes'], '/') . '/', $config['prive'] . '/schema.sql',
+        $config['prive'] . '/lib/commun.php'];
+    $chemins = [];
+    foreach ($fichiers as $fichier) {
+        $fichier = $normaliser((string)$fichier);
+        if (strncmp($fichier, $racine, strlen($racine)) === 0) {
+            $chemins[] = '../' . substr($fichier, strlen($racine));
+        }
+    }
+    return array_values(array_unique($chemins));
 }
 
 // ---------------------------------------------------------------------------

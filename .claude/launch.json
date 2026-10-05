@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "banc-licences",
+      "runtimeExecutable": "php/php.exe",
+      "runtimeArgs": ["-d", "SMTP=127.0.0.1", "-d", "smtp_port=2525",
+                      "-S", "127.0.0.1:8080", "-t", "serveur/www", "serveur/tests/routeur_banc.php"],
+      "port": 8080
+    }
+  ]
+}

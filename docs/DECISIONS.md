@@ -336,3 +336,13 @@ La branche de travail a été relue (client en entier, serveur par une revue ind
   - date libre de prolongation : une date inexistante (31 février) est refusée au lieu d'être reportée au mois suivant ;
   - une distribution désactivée porte l'étiquette « Inactive » (et non « Revoquee »).
 - **Raison** : corrections sans effet sur l'usage normal.
+
+### D58 — 2026-10-05 — Tout le serveur dans `www/`
+- **Question** : Le propriétaire du projet demande, pour faciliter les essais, de regrouper tout le serveur dans le dossier servi ; l'annexe A prévoit ce repli (`prive/` dans `www/` avec `Require all denied`, et un test HTTP qui vérifie le 403 sur la base).
+- **Décision** : le dépôt range `prive/` dans `serveur/www/prive/` ; la base et les sauvegardes passent par défaut dans `prive/data/` (un seul dossier à protéger, au lieu de `data/` à côté de `prive/`). Les points d'entrée cherchent toujours `prive/` d'abord à côté du dossier servi : déplacer `prive/` d'un bloc hors de `www/` reste possible, sans autre changement (variante documentée dans `LISEZ-MOI-SERVEUR.md`). Le contrôle d'exposition de la console calcule ses URL à partir des chemins réels (clé de signature active et non plus `signature_1.key`, journal WAL, dossier des sauvegardes). Le test de bout en bout installe le serveur dans cette disposition et vérifie le 403 sur la base, les clés, la configuration et le `.htpasswd`, y compris sous des variantes de casse, de points finaux et d'encodage.
+- **Raison** : un seul dossier à envoyer et à essayer ; la protection reste double (`prive/.htaccess` et règles de `www/.htaccess`) et vérifiable sur l'hébergement réel.
+
+### D59 — 2026-10-05 — Banc d'essai sur le poste Windows
+- **Question** : comment essayer le serveur complet sur le poste de développement, navigateur compris, sans rien installer dans le système ni rien envoyer sur Internet.
+- **Décision** : PHP 8.3 portable dans `php/` (ignoré par Git) ; `php -S` directement sur `serveur/www/` avec `routeur_banc.php`, configuration `banc-licences` dans `.claude/launch.json`. Le routeur décode l'URL et la normalise comme le système de fichiers Windows (casse, antislash, points et espaces finaux, flux `:`) avant de refuser `prive/`, `data/`, `.ht*` et les extensions sensibles : sans cela, `/PRIVE/Data/Licenses.DB` aurait été servi. `serveur/tests/smtp_banc.py` reçoit les e-mails de PHP (SMTP sur 127.0.0.1:2525) et les range dans `serveur/tests/courriels/` (ignoré par Git).
+- **Raison** : le parcours complet (installation, console, notification, application) se rejoue sur le poste, au plus près de l'hébergement.

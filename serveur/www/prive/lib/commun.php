@@ -29,12 +29,13 @@ function config_charger(string $prive): array
 
 function config_completer(array $config, string $prive): array
 {
-    $racine = dirname($prive);
+    // Base et sauvegardes dans prive/data/ : un seul dossier a proteger, que
+    // prive/ soit dans le dossier servi (disposition du depot) ou a cote.
     $config = array_merge([
         'jeton_installation' => '',
         'jeton_reinitialisation' => '',
-        'base' => $racine . '/data/licenses.db',
-        'dossier_sauvegardes' => $racine . '/data/sauvegardes',
+        'base' => $prive . '/data/licenses.db',
+        'dossier_sauvegardes' => $prive . '/data/sauvegardes',
         'sauvegardes_conservees' => 30,
         'cles' => $prive . '/cles',
         'htpasswd' => $prive . '/.htpasswd',

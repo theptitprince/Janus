@@ -9,9 +9,29 @@
 declare(strict_types=1);
 
 $racine = rtrim((string)$_SERVER['DOCUMENT_ROOT'], '/');
-$chemin = (string)parse_url((string)$_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$brut = (string)parse_url((string)$_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
-if (preg_match('#(^|/)(\.ht|prive/|data/)|\.(db|key|sql|verrou)$#', $chemin) === 1) {
+// Chemin tel que le systeme de fichiers le resoudra : sous Windows, casse
+// indifferente, antislash, points et espaces finaux ignores (/PRIVE./x) ;
+// l'encodage %xx est decode jusqu'a stabilite.
+do {
+    $avant = $brut;
+    $brut = rawurldecode($brut);
+} while ($brut !== $avant);
+$segments = [];
+foreach (explode('/', strtolower(str_replace('\\', '/', $brut))) as $segment) {
+    $segments[] = rtrim($segment, '. ');
+}
+$chemin = implode('/', $segments);
+
+$interdit = strpos($chemin, ':') !== false
+    || preg_match('#\.(db|db-wal|db-shm|key|sql|verrou|json|log|bak)$#', $chemin) === 1;
+foreach ($segments as $segment) {
+    if ($segment === 'prive' || $segment === 'data' || strncmp($segment, '.ht', 3) === 0) {
+        $interdit = true;
+    }
+}
+if ($interdit) {
     http_response_code(403);
     echo "Interdit\n";
     return true;

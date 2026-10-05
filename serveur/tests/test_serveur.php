@@ -20,9 +20,9 @@ define('MACHINE_A', hash('sha256', 'poste A'));
 define('MACHINE_B', hash('sha256', 'poste B'));
 define('MACHINE_C', hash('sha256', 'poste C'));
 
-require RACINE . '/prive/lib/api.php';
-require RACINE . '/prive/lib/installation.php';
-require RACINE . '/prive/lib/admin.php';
+require RACINE . '/www/prive/lib/api.php';
+require RACINE . '/www/prive/lib/installation.php';
+require RACINE . '/www/prive/lib/admin.php';
 
 $failures = [];
 $verifications = 0;
@@ -85,7 +85,7 @@ function environnement(array $surcharges = []): array
             $mails[] = ['a' => $a, 'sujet' => $sujet, 'corps' => $corps, 'entetes' => $entetes];
             return true;
         },
-    ], $surcharges), realpath(RACINE . '/prive'));
+    ], $surcharges), realpath(RACINE . '/www/prive'));
     return ['tmp' => $tmp, 'config' => $config, 'mails' => $mails];
 }
 
@@ -182,10 +182,12 @@ function test_fichiers(): void
         $nom = basename($fichier->getPathname());
         check('ASCII pur : ' . $nom, preg_match('/[^\x00-\x7F]/', $contenu) === 0);
         check('en-tete ETDEL (c) 2026 : ' . $nom, strpos(substr($contenu, 0, 600), 'ETDEL (c) 2026') !== false);
-        check('strict_types : ' . $nom, $nom === 'config.exemple.php' || strpos($contenu, 'declare(strict_types=1);') !== false);
+        // config.php : copie locale de config.exemple.php (banc d'essai), jamais versionnee.
+        check('strict_types : ' . $nom, in_array($nom, ['config.exemple.php', 'config.php'], true)
+            || strpos($contenu, 'declare(strict_types=1);') !== false);
     }
     check('fichiers PHP trouves', $php >= 10);
-    $prive = file_get_contents(RACINE . '/prive/.htaccess');
+    $prive = file_get_contents(RACINE . '/www/prive/.htaccess');
     check('prive/.htaccess : Require all denied', strpos($prive, 'Require all denied') !== false);
     $admin = file_get_contents(RACINE . '/www/admin/.htaccess');
     check('admin/.htaccess du depot : console fermee avant installation', strpos($admin, 'Require all denied') !== false);
@@ -1057,6 +1059,19 @@ function test_rotation(): void
     check('ecran Cles : historique', substr_count($r['corps'], 'signe par la cle precedente') === 2
         && strpos($r['corps'], 'premiere cle') !== false);
     check('navigation : ecran Cles', strpos($r['corps'], 'href="index.php?page=cles"') !== false);
+    // Controle d'exposition : chemins reels, cle active (kid 3) et non kid 1 efface.
+    $chemins = exposition_chemins(['prive' => '/h/www/prive', 'htpasswd' => '/h/www/prive/.htpasswd',
+        'cles' => '/h/www/prive/cles', 'base' => '/h/www/prive/data/licenses.db',
+        'dossier_sauvegardes' => '/h/www/prive/data/sauvegardes'], $env['db']);
+    check('exposition : cle de signature active', in_array('../prive/cles/signature_3.key', $chemins, true)
+        && !in_array('../prive/cles/signature_1.key', $chemins, true));
+    check('exposition : base, WAL et sauvegardes', in_array('../prive/data/licenses.db', $chemins, true)
+        && in_array('../prive/data/licenses.db-wal', $chemins, true) && in_array('../prive/data/sauvegardes/', $chemins, true)
+        && in_array('../prive/config.php', $chemins, true) && in_array('../prive/.htpasswd', $chemins, true));
+    $chemins = exposition_chemins(['prive' => '/h/www/prive', 'htpasswd' => '/h/www/prive/.htpasswd',
+        'cles' => '/h/www/prive/cles', 'base' => '/ailleurs/licenses.db', 'dossier_sauvegardes' => '/ailleurs/s'], $env['db']);
+    check('exposition : base hors du dossier servi non testee', !in_array('../prive/data/licenses.db', $chemins, true)
+        && preg_grep('#ailleurs#', $chemins) === []);
 }
 
 function test_restauration_apres_rotation(): void

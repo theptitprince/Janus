@@ -1,7 +1,7 @@
 # Intégrer la licence ETDEL dans une application
 
-Module de référence : `client/etdel_licence.py`, version **1.1.0**.
-Empreinte SHA-256 (fins de ligne normalisées en LF) : `bbee20f18a76c94072e72c623a948c3319e04a305c446df3b69aaf3d01751139`
+Module de référence : `client/etdel_licence.py`, version **1.2.0**.
+Empreinte SHA-256 (fins de ligne normalisées en LF) : `49257495fcf9b660f9d286c59ae9f16e6f93bdd2f79dc017f845610b112e4f74`
 
 Le module est **le même pour toutes les applications** : on le copie tel quel, sans aucune modification, à côté du script principal. Il n'a pas de fichier de configuration. Tout ce qui est propre à une application (produit, distribution, version) passe en paramètres.
 
@@ -88,7 +88,7 @@ if garde.option("export_pdf"):
     menu_fichier.add_command(label="Exporter en PDF", command=exporter_pdf)
 ```
 
-`option()` lit la liste d'options du jeton signé par le serveur (réglée par distribution dans la console, surchargeable par licence). Une option absente vaut `False`, de même que tant que la licence n'est pas utilisable. Pendant une période d'essai, ce sont les options de la distribution demandée. Une même base de code peut ainsi livrer une édition démo ou réduite sans construction séparée.
+`option()` lit la liste d'options du jeton signé par le serveur (réglée par distribution dans la console, surchargeable par licence). Une option absente vaut `False`, de même que tant que la licence n'est pas utilisable. Pendant une période d'essai, ce sont les options de la distribution demandée. Une même base de code peut ainsi livrer une édition démo ou réduite sans construction séparée. Dans la console, le joker `*` (seul dans le champ Options) active toutes les options, y compris celles qu'une version future de l'application ajoutera : `option()` renvoie alors `True` pour tout code (module 1.2.0 et suivants).
 
 ## Distribution fixée à la construction de l'exécutable
 

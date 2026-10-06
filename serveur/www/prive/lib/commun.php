@@ -180,7 +180,10 @@ function options_lire(?string $json): array
     return array_values(array_filter($liste, 'is_string'));
 }
 
-/** Codes d'options saisis dans la console : "export_pdf, multi_navire". */
+// Joker : toutes les options, presentes et futures (D65).
+const OPTION_TOUTES = '*';
+
+/** Codes d'options saisis dans la console : "export_pdf, multi_navire", ou "*" pour toutes. */
 function options_depuis_texte(string $texte): ?array
 {
     $codes = [];
@@ -188,12 +191,22 @@ function options_depuis_texte(string $texte): ?array
         if ($code === '') {
             continue;
         }
-        if (preg_match('/^[a-z0-9_]{1,40}$/', $code) !== 1) {
+        if ($code !== OPTION_TOUTES && preg_match('/^[a-z0-9_]{1,40}$/', $code) !== 1) {
             return null;
         }
         $codes[$code] = true;
     }
-    return array_keys($codes);
+    // Le joker englobe tout : inutile de garder les autres codes a cote.
+    return isset($codes[OPTION_TOUTES]) ? [OPTION_TOUTES] : array_keys($codes);
+}
+
+/** Texte affiche dans la console pour une liste d'options. */
+function options_affichees(array $options, string $vide = 'aucune'): string
+{
+    if (in_array(OPTION_TOUTES, $options, true)) {
+        return 'toutes (*)';
+    }
+    return $options === [] ? $vide : implode(', ', $options);
 }
 
 function ip_client(): string

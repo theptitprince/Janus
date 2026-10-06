@@ -854,6 +854,19 @@ def test_options_distributions():
     gc = garde(serveur, dossiers_temporaires(), horloge, distribution="APP-A", machine=hashlib.sha256(b"c").hexdigest())
     gc.activer(cle)
     check("options surchargees par licence", gc.option("special") and not gc.option("export_pdf"))
+    # Joker "*" (D65) : toutes les options, y compris celles inconnues aujourd'hui.
+    gt = garde(serveur, dossiers_temporaires(), horloge, distribution="APP-A", machine=hashlib.sha256(b"t").hexdigest())
+    gt.activer(serveur.creer_cle("APP-A", options=["*"]))
+    check("joker * : toutes les options", gt.option("export_pdf") and gt.option("multi_navire")
+          and gt.option("fonction_future"))
+    serveur.licences[list(serveur.licences)[-1]]["statut"] = "revoquee"
+    gt._controler()
+    check("joker * : rien hors licence utilisable", gt.option("export_pdf") is False)
+    serveur.distributions["APP-B"]["options"] = ["*"]
+    ge = garde(serveur, dossiers_temporaires(), horloge, distribution="APP-B", machine=hashlib.sha256(b"e").hexdigest())
+    ge.demander("Essai joker")
+    check("joker * pendant l'essai", ge.etat()["statut"] == L.ESSAI and ge.option("n_importe_laquelle"))
+    serveur.distributions["APP-B"]["options"] = ["multi_navire"]
     check("cle d'une autre distribution : invalide",
           garde(serveur, dossiers_temporaires(), horloge, distribution="APP-B", machine=hashlib.sha256(b"d").hexdigest())
           .activer(serveur.creer_cle("APP-A"))["code"] == "cle_invalide")

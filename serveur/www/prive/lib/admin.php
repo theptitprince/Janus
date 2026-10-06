@@ -499,7 +499,8 @@ function options_saisies($valeur): array
 {
     $options = options_depuis_texte(is_string($valeur) ? $valeur : '');
     if ($options === null) {
-        throw new AdminErreur('Options : codes en minuscules, chiffres et _ separes par des virgules (ex. export_pdf).');
+        throw new AdminErreur('Options : codes en minuscules, chiffres et _ separes par des virgules (ex. export_pdf), '
+            . 'ou * pour toutes les options.');
     }
     return $options;
 }
@@ -648,7 +649,7 @@ function admin_ecran_demande(array $ctx, int $id): string
     $accepter = f_formulaire($ctx, 'demande_accepter',
         f_champ('duree_j', 'Duree en jours (vide = perpetuelle)', $d['duree_defaut_j'] ?? '', 'number', 'min="1" max="36500"')
         . f_champ('titulaire', 'Titulaire', $d['titulaire'], 'text', 'maxlength="120" required')
-        . f_champ('options', 'Options (codes separes par des virgules)', implode(', ', options_lire($d['distribution_options'])))
+        . f_champ('options', 'Options (codes separes par des virgules, * = toutes)', implode(', ', options_lire($d['distribution_options'])))
         . f_bouton('Accepter', 'principal'), ['id' => $id]);
     $refuser = f_formulaire($ctx, 'demande_refuser',
         f_zone('motif', 'Motif (facultatif, renvoye tel quel a l\'application)', '', MOTIF_REFUS_MAX)
@@ -755,7 +756,7 @@ function admin_ecran_licence(array $ctx, int $id): string
             . (int)jours_restants((int)$lic['echeance'], $n) . ' j restants)',
         'Tolerance hors ligne' => $lic['tolerance_j'] === null ? 'distribution (' . (int)$lic['distribution_tolerance'] . ' j)'
             : (int)$lic['tolerance_j'] . ' j (surcharge)',
-        'Options' => h(implode(', ', $options) ?: 'aucune') . ($lic['options'] === null ? ' (distribution)' : ' (surcharge)'),
+        'Options' => h(options_affichees($options)) . ($lic['options'] === null ? ' (distribution)' : ' (surcharge)'),
         'Poste lie' => $lic['machine'] === null ? 'aucun (la premiere activation liera la cle)'
             : '<code>' . h($lic['id_poste']) . '</code> ' . h($lic['nom_ordinateur']) . ' <span class="discret">empreinte '
             . h(substr((string)$lic['machine'], 0, 12)) . '...</span>',
@@ -785,7 +786,7 @@ function admin_ecran_licence(array $ctx, int $id): string
             . f_champ('tolerance_j', 'Tolerance hors ligne en jours (vide = distribution)', $lic['tolerance_j'] ?? '', 'number',
                 'min="0" max="365"')
             . f_case('options_distribution', 'Options de la distribution', $lic['options'] === null)
-            . f_champ('options', 'Options propres a la licence', implode(', ', $options))
+            . f_champ('options', 'Options propres a la licence (* = toutes)', implode(', ', $options))
             . f_bouton('Enregistrer'), ['id' => $id]) . '</section>';
         $etat = '';
         if ($lic['statut'] === 'active') {
@@ -1025,7 +1026,7 @@ function admin_ecran_produits(array $ctx): string
                 . ((int)$d['actif'] === 1 ? '' : ' ' . etiquette('inactive')),
                 h($d['libelle']), h($d['client']), (int)$d['tolerance_j'] . ' / ' . (int)$d['preavis_j'] . ' j',
                 $d['duree_defaut_j'] === null ? 'perpetuelle' : (int)$d['duree_defaut_j'] . ' j',
-                (int)$d['essai_j'] . ' j', h($d['version_min'] ?: '-'), h(implode(', ', options_lire($d['options'])) ?: '-'),
+                (int)$d['essai_j'] . ' j', h($d['version_min'] ?: '-'), h(options_affichees(options_lire($d['options']), '-')),
                 (int)$d['nb']];
         }
         $html .= tableau_html(['Code', 'Libelle', 'Client ou canal', 'Tolerance / preavis', 'Duree par defaut', 'Essai',
@@ -1110,7 +1111,7 @@ function admin_ecran_distribution(array $ctx, int $id): string
             'number', 'min="1" max="36500"')
         . f_champ('essai_j', 'Essai pendant une demande (jours, 0 = aucun)', $d['essai_j'] ?? 15, 'number', 'min="0" max="365" required')
         . f_champ('version_min', 'Version minimale (facultative)', $d['version_min'] ?? '', 'text', 'maxlength="32"')
-        . f_champ('options', 'Options activees (codes separes par des virgules)',
+        . f_champ('options', 'Options activees (codes separes par des virgules, * = toutes)',
             implode(', ', options_lire($d['options'] ?? '[]')))
         . f_zone('message', 'Message d\'accueil (facultatif)', $d['message'] ?? '', MESSAGE_ACCUEIL_MAX)
         . f_case('actif', 'Active', $d === null || (int)$d['actif'] === 1)

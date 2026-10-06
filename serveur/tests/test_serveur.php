@@ -863,6 +863,17 @@ function test_console_licences(): void
         'tolerance_j' => '366'])['code'] === 400);
     check('modifier : option invalide', action($env, $session, 'licence_modifier', ['id' => $id, 'titulaire' => 'X',
         'options' => 'Export PDF'])['code'] === 400);
+    // Joker * (D65) : toutes les options ; il absorbe les autres codes saisis.
+    check('options : joker seul', options_depuis_texte('*') === ['*'] && options_depuis_texte('export_pdf, *') === ['*']);
+    check('options : joker colle a un code refuse', options_depuis_texte('export_*') === null);
+    action($env, $session, 'licence_modifier', ['id' => $id, 'titulaire' => 'Armement Martin SA', 'tolerance_j' => '',
+        'options' => '*']);
+    check('options : joker enregistre', licence_lire($env['db'], $id)['options'] === '["*"]');
+    check('options : joker diffuse dans le jeton signe', appel($env, 'valider', ['cle' => $cle])['p']['options'] === ['*']);
+    check('options : joker affiche "toutes"', strpos(console($env, $session, 'GET', ['page' => 'licence', 'id' => $id])['corps'],
+        'toutes (*) (surcharge)') !== false);
+    action($env, $session, 'licence_modifier', ['id' => $id, 'titulaire' => 'Armement Martin SA', 'tolerance_j' => '',
+        'options_distribution' => '1', 'options' => '']);
     $fiche = console($env, $session, 'GET', ['page' => 'licence', 'id' => $id])['corps'];
     check('suspendre : explication (cle conservee, revocation definitive)',
         strpos($fiche, 'sans effacer sa cle') !== false && strpos($fiche, 'Revoquer est definitif') !== false

@@ -32,11 +32,11 @@ Le serveur complet tourne sur le poste de développement, directement depuis `se
 2. Démarrer la boîte aux lettres : `python serveur/tests/smtp_banc.py` (e-mails rangés dans `serveur/tests/courriels/`).
 3. Démarrer le serveur (configuration `banc-licences` de `.claude/launch.json`) :
    ```
-   php\php.exe -d SMTP=127.0.0.1 -d smtp_port=2525 -S 127.0.0.1:8080 -t serveur/www serveur/tests/routeur_banc.php
+   php\php.exe -d SMTP=127.0.0.1 -d smtp_port=2525 -S 127.0.0.1:8090 -t serveur/www serveur/tests/routeur_banc.php
    ```
-4. `http://127.0.0.1:8080/install.php` : installation (l'URL proposée est `http://127.0.0.1:8080/api/v1/`) ; noter la clé publique affichée.
-5. `http://127.0.0.1:8080/admin/` : créer le produit `DEMO` et la distribution `DEMO-BANC` (option `export_pdf` par exemple), puis une clé.
-6. `python client/demo_appli.py --serveur http://127.0.0.1:8080/api/v1/ --cle-publique <clé publique>` : activer la clé, ou envoyer une demande et la traiter dans la console.
+4. `http://127.0.0.1:8090/install.php` : installation (l'URL proposée est `http://127.0.0.1:8090/api/v1/`) ; noter la clé publique affichée.
+5. `http://127.0.0.1:8090/admin/` : créer le produit `DEMO` et la distribution `DEMO-BANC` (option `export_pdf` par exemple), puis une clé.
+6. `python client/demo_appli.py --serveur http://127.0.0.1:8090/api/v1/ --cle-publique <clé publique>` : activer la clé, ou envoyer une demande et la traiter dans la console.
 
 Pour repartir de zéro : arrêter le serveur, supprimer `serveur/www/prive/data/`, `serveur/www/prive/cles/`, `serveur/www/prive/.htpasswd`, `serveur/www/prive/install.verrou`, et remettre `serveur/www/admin/.htaccess` depuis Git (`git checkout serveur/www/admin/.htaccess`).
 

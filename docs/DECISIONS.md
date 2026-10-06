@@ -346,3 +346,8 @@ La branche de travail a été relue (client en entier, serveur par une revue ind
 - **Question** : comment essayer le serveur complet sur le poste de développement, navigateur compris, sans rien installer dans le système ni rien envoyer sur Internet.
 - **Décision** : PHP 8.3 portable dans `php/` (ignoré par Git) ; `php -S` directement sur `serveur/www/` avec `routeur_banc.php`, configuration `banc-licences` dans `.claude/launch.json`. Le routeur décode l'URL et la normalise comme le système de fichiers Windows (casse, antislash, points et espaces finaux, flux `:`) avant de refuser `prive/`, `data/`, `.ht*` et les extensions sensibles : sans cela, `/PRIVE/Data/Licenses.DB` aurait été servi. `serveur/tests/smtp_banc.py` reçoit les e-mails de PHP (SMTP sur 127.0.0.1:2525) et les range dans `serveur/tests/courriels/` (ignoré par Git).
 - **Raison** : le parcours complet (installation, console, notification, application) se rejoue sur le poste, au plus près de l'hébergement.
+
+### D60 — 2026-10-06 — Contrôle d'exposition : seule une réponse prouve la protection
+- **Question** : essayé dans le navigateur, le contrôle affichait « protégé » quand la requête n'aboutissait pas du tout (erreur réseau, redirection, ou page ouverte par une adresse contenant les identifiants, que `fetch` refuse).
+- **Décision** : « protégé » uniquement sur une réponse 401, 403 ou 404 ; « DANGER » sur 200 ; tout autre cas est affiché « non vérifié, à contrôler à la main ». Les URL testées sont rebâties sans identifiants.
+- **Raison** : un contrôle de sécurité ne doit jamais conclure à la sécurité faute de réponse.

@@ -598,11 +598,13 @@ function aide_section_application(): string
         peut pas etre utilisee ; la fenetre principale reste alors cachee. La fermer par la croix quitte l'application.</li>
         <li><strong>Bandeau</strong> en haut de la fenetre principale, sur toute la largeur, sans bouton de fermeture :
         seulement pendant un essai ou un avertissement.</li>
-        <li><strong>Fenetre Licence (Ctrl+Maj+L)</strong>, a tout moment : Identifiant du poste, Nom de l'ordinateur,
-        Titulaire, Echeance, Statut, Dernier controle, le message d'accueil de la distribution, le bouton "Verifier
-        maintenant" et la zone "Diagnostic". Elle se ferme par "Fermer", Echap ou la croix. La cle n'y figure jamais.
-        Certaines applications affichent le meme cadre dans leurs reglages. Rien n'y est modifiable : on ne peut pas y
-        saisir de cle.</li>
+        <li><strong>Fenetre Licence (Ctrl+Maj+L)</strong>, a tout moment : Identifiant du poste, Cle, Nom de
+        l'ordinateur, Titulaire, Echeance, Statut, Dernier controle, le message d'accueil de la distribution, le bouton
+        "Verifier maintenant" et la zone "Diagnostic". Elle se ferme par "Fermer", Echap ou la croix. La cle s'affiche
+        masquee comme dans la console (ETDEL-****-****-****-ZS95) ; le bouton "Afficher la cle" la montre en entier
+        ("Masquer la cle" la cache de nouveau), pour que l'utilisateur la note avant une reinstallation de Windows. Pendant
+        une demande, la ligne Cle affiche "-". La ligne de diagnostic ne contient jamais la cle. Certaines applications
+        affichent le meme cadre dans leurs reglages. Rien n'y est modifiable : on ne peut pas y saisir de cle.</li>
         <li><strong>Page "J'ai une cle"</strong> (bouton present dans les fenetres "Licence requise", "Demande en attente",
         "Demande refusee", "Licence a verifier" et "Licence suspendue") : champ "Cle de licence fournie par ETDEL :",
         boutons "Activer" (ou touche Entree) et "Retour". Pendant l'envoi : "Connexion au serveur...". Une faute de frappe
@@ -630,6 +632,11 @@ function aide_section_application(): string
         <a href="#codes">les codes de refus</a>.</p>
         <h3>Ce que l'utilisateur peut vous dicter</h3>
         <ul>
+        <li><strong>Fin de sa cle</strong> : la ligne Cle de la fenetre Licence (ETDEL-****-****-****-ZS95). Les 4 derniers
+        caracteres sont ceux de la colonne Cle (...ZS95) des Licences et de la fiche ; taper ces 4 caracteres dans
+        "Recherche" retrouve la licence. La console ne connait que ces 4 caracteres : elle ne garde jamais la cle entiere
+        (seulement son empreinte, pour qu'une copie volee de la base ne donne aucune cle utilisable). Une cle perdue ne se
+        retrouve donc pas : en creer une nouvelle et revoquer l'ancienne.</li>
         <li><strong>Identifiant du poste</strong> (XXXX-XXXX) : dans la fenetre Licence (Ctrl+Maj+L) ou sur les pages
         "Licence requise", "Demande en attente", "Demande refusee", "Licence a verifier" et "Licence suspendue" (pas sur
         "Mise a jour necessaire"). Il ne contient jamais les lettres I, L, O ni U. Il est different pour chaque produit sur

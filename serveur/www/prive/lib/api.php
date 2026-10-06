@@ -191,14 +191,16 @@ function api_operation(PDO $db, array $config, array $r, array $base, string $ip
     }
 }
 
-/** Distribution active d'un produit actif, avec les champs du produit ; null sinon. */
+/**
+ * Distribution active, si son produit est bien celui qu'envoie l'application ; null sinon
+ * (produit_inconnu). Le produit ne sert qu'a ranger les distributions (D68) : ni son etat
+ * (produits.actif) ni sa version minimale n'ont d'effet, seuls ceux de la distribution comptent.
+ */
 function distribution_trouver(PDO $db, string $produit, string $code): ?array
 {
-    $dist = db_ligne($db, 'SELECT d.*, p.code AS produit_code, p.nom AS produit_nom, '
-        . 'p.version_min AS produit_version_min, p.actif AS produit_actif '
+    $dist = db_ligne($db, 'SELECT d.*, p.code AS produit_code, p.nom AS produit_nom '
         . 'FROM distributions d JOIN produits p ON p.id = d.produit_id WHERE d.code = ?', [$code]);
-    if ($dist === null || $dist['produit_code'] !== $produit || (int)$dist['actif'] !== 1
-        || (int)$dist['produit_actif'] !== 1) {
+    if ($dist === null || $dist['produit_code'] !== $produit || (int)$dist['actif'] !== 1) {
         return null;
     }
     return $dist;
@@ -206,7 +208,7 @@ function distribution_trouver(PDO $db, string $produit, string $code): ?array
 
 function api_version_refusee(array $dist, string $version): bool
 {
-    $minimum = version_min_effective($dist['produit_version_min'], $dist['version_min']);
+    $minimum = version_min_normalisee($dist['version_min']);
     return $minimum !== null && version_comparer($version, $minimum) < 0;
 }
 
@@ -257,12 +259,30 @@ function api_jeton(array $lic, array $dist, array $base, int $maintenant): array
         'hors_ligne_jusqu' => $maintenant + max($tolerance * JOUR, TOLERANCE_MIN_S),
         'preavis_j' => (int)$dist['preavis_j'],
         'options' => $options,
-        'version_min' => version_min_effective($dist['produit_version_min'], $dist['version_min']),
+        'version_min' => version_min_normalisee($dist['version_min']),
         'message' => ($message === null || $message === '') ? null : (string)$message,
     ];
 }
 
+/**
+ * activer / valider, en une transaction immediate : un remplacement de cle depuis la console
+ * (D67) ne peut pas s'intercaler entre la lecture de la licence par son hash et sa liaison ou
+ * l'envoi du jeton ; l'ancienne cle ne recoit plus rien une fois remplacee.
+ */
 function api_licence(PDO $db, array $r, array $dist, array $base, string $ip, int $maintenant): array
+{
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        $reponse = api_licence_traiter($db, $r, $dist, $base, $ip, $maintenant);
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        $db->exec('ROLLBACK');
+        throw $e;
+    }
+    return $reponse;
+}
+
+function api_licence_traiter(PDO $db, array $r, array $dist, array $base, string $ip, int $maintenant): array
 {
     $cle = cle_normaliser($r['cle']);
     $lic = $cle === null ? null : db_ligne($db, 'SELECT * FROM licences WHERE cle_hash = ?', [cle_hash($cle)]);

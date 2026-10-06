@@ -140,18 +140,13 @@ function version_comparer(string $a, string $b): int
     return 0;
 }
 
-/** Version minimale effective : la plus exigeante du produit et de la distribution. */
-function version_min_effective(?string $produit, ?string $distribution): ?string
+/**
+ * Version minimale d'une distribution, ou null si aucune. Seule celle de la distribution compte :
+ * la colonne produits.version_min (annexe B) est conservee mais sans effet (D68).
+ */
+function version_min_normalisee(?string $version): ?string
 {
-    $produit = ($produit === null || trim($produit) === '') ? null : trim($produit);
-    $distribution = ($distribution === null || trim($distribution) === '') ? null : trim($distribution);
-    if ($produit === null) {
-        return $distribution;
-    }
-    if ($distribution === null) {
-        return $produit;
-    }
-    return version_comparer($produit, $distribution) >= 0 ? $produit : $distribution;
+    return ($version === null || trim($version) === '') ? null : trim($version);
 }
 
 function date_fr(?int $ts, bool $heure = false): string

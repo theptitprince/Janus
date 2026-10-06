@@ -10,6 +10,7 @@
 
 import base64
 import hashlib
+import http.cookiejar as cookiejar  # le nom http est pris par la fonction http() ci-dessous
 import json
 import os
 import random
@@ -59,6 +60,37 @@ def http(url, donnees=None, methode=None):
             return reponse.status, reponse.read().decode("utf-8")
     except urllib.error.HTTPError as erreur:
         return erreur.code, erreur.read().decode("utf-8", "replace")
+
+
+class Console:
+    """Console par HTTP comme un navigateur : authentification Basic, cookie de session, jeton CSRF."""
+
+    def __init__(self, base, mot_de_passe):
+        self.base = base
+        self.autorisation = "Basic " + base64.b64encode(("admin:%s" % mot_de_passe).encode()).decode()
+        self.ouvreur = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookiejar.CookieJar()))
+
+    def requete(self, chemin, donnees=None):
+        corps = urllib.parse.urlencode(donnees).encode() if donnees is not None else None
+        requete = urllib.request.Request(self.base + chemin, data=corps, headers={
+            "Authorization": self.autorisation, "Origin": self.base.rstrip("/")})
+        try:
+            with self.ouvreur.open(requete, timeout=10) as reponse:
+                return reponse.status, reponse.geturl(), reponse.read().decode("utf-8")
+        except urllib.error.HTTPError as erreur:
+            return erreur.code, erreur.geturl(), erreur.read().decode("utf-8", "replace")
+
+    def ecrire(self, page, action, champs):
+        """Ouvre la page (jeton CSRF de son formulaire), puis envoie l'action confirmee."""
+        _code, _url, html = self.requete("admin/index.php?" + page)
+        trouve = re.search(r'name="csrf" value="([^"]+)"', html)
+        donnees = dict(champs, action=action, csrf=trouve.group(1) if trouve else "", confirme="1")
+        return self.requete("admin/index.php", donnees)
+
+
+def cle_affichee(page):
+    trouve = re.search(r'<code id="cle">(ETDEL(?:-[0-9A-Z]{4}){4})</code>', page)
+    return trouve.group(1) if trouve else None
 
 
 def generer_cle():
@@ -244,13 +276,22 @@ def main():
         code, entetes, _page = console("admin/", "mauvais mot de passe")
         check("console : mauvais mot de passe, 401", code == 401 and "Basic" in entetes.get("WWW-Authenticate", ""))
         code, entetes, page = console("admin/", MOT_DE_PASSE)
-        check("console : tableau de bord par HTTP", code == 200 and "Tableau de bord" in page)
+        check("console : accueil par HTTP", code == 200 and "<h1>Accueil</h1>" in page)
+        check("console : menu reduit (Distributions, Administration)", 'href="index.php?page=administration"' in page
+              and 'href="index.php?page=distributions"' in page and 'href="index.php?page=serveurs"' not in page
+              and 'href="index.php?page=produits"' not in page)
+        check("console : accueil, boutons Nouvelle licence et Nouvelle distribution",
+              'href="index.php?page=licence_nouvelle">Nouvelle licence</a>' in page
+              and 'href="index.php?page=distribution">Nouvelle distribution</a>' in page)
         check("console : en-tetes CSP et X-Frame-Options", "default-src 'none'" in entetes.get("Content-Security-Policy", "")
               and entetes.get("X-Frame-Options") == "DENY")
         check("console : cookie de session HttpOnly SameSite=Strict",
               "HttpOnly" in entetes.get("Set-Cookie", "") and "SameSite=Strict" in entetes.get("Set-Cookie", ""))
         code, _entetes, page = console("admin/index.php?page=cles", MOT_DE_PASSE)
         check("console : ecran Cles", code == 200 and publique in page)
+        code, _entetes, page = console("admin/index.php?page=administration", MOT_DE_PASSE)
+        check("console : ecran Administration avec le controle d'exposition",
+              code == 200 and "<h1>Administration</h1>" in page and 'id="exposition"' in page)
 
         # Mot de passe perdu : jeton de reinitialisation depose dans config.php (acces FTP).
         with open(os.path.join(prive, "config.php"), "w") as f:
@@ -267,13 +308,26 @@ def main():
         code, page = http(base + "install.php")
         check("reinitialisation : jeton a usage unique, assistant verrouille", code == 403)
 
-        # Donnees : produit DEMO, distribution DEMO-BANC, une cle.
+        # Donnees, comme au banc : Distributions > Nouvelle distribution, produit DEMO (cree avec elle,
+        # pour le classement) et distribution DEMO-BANC ; puis une cle.
+        adm = Console(base, nouveau)
+        code, url_finale, page = adm.ecrire("page=distribution", "distribution_enregistrer", {
+            "id": "0", "produit_id": "0", "produit_code": "DEMO", "produit_nom": "Demo", "code": "DEMO-BANC",
+            "libelle": "Banc", "client": "", "duree_defaut_j": "365", "essai_j": "15", "options": "export_pdf",
+            "tolerance_j": "15", "preavis_j": "5", "version_min": "", "message": "", "actif": "1"})
+        check("console : nouvelle distribution DEMO-BANC et son produit DEMO (POST, CSRF, confirmation)",
+              code == 200 and "ok=creee" in url_finale and "<h1>Distribution DEMO-BANC</h1>" in page
+              and "installer(root, produit=&quot;DEMO&quot;, distribution=&quot;DEMO-BANC&quot;" in page)
+        code, _url, page = adm.requete("admin/index.php?page=distributions")
+        check("console : ecran Distributions", code == 200 and "<h2>DEMO - Demo</h2>" in page
+              and "Licence 365 jours, essai 15 jours, options : export_pdf, hors ligne 15 jours" in page)
         chemin_base = os.path.join(prive, "data", "licenses.db")
         maintenant = int(time.time())
         db = sqlite3.connect(chemin_base)
-        db.execute("INSERT INTO produits (code, nom, cree_le) VALUES ('DEMO', 'Demo', ?)", (maintenant,))
-        db.execute("INSERT INTO distributions (produit_id, code, libelle, options, duree_defaut_j, cree_le) "
-                   "VALUES (1, 'DEMO-BANC', 'Banc', '[\"export_pdf\"]', 365, ?)", (maintenant,))
+        check("console : distribution enregistree en base", db.execute(
+            "SELECT p.code, p.nom, d.id, d.code, d.options, d.duree_defaut_j, d.essai_j, d.tolerance_j, d.actif "
+            "FROM distributions d JOIN produits p ON p.id = d.produit_id").fetchall()
+              == [("DEMO", "Demo", 1, "DEMO-BANC", '["export_pdf"]', 365, 15, 15, 1)])
         cle = generer_cle()
         db.execute("INSERT INTO licences (distribution_id, cle_hash, cle_indice, titulaire, echeance, origine, "
                    "cree_le, modifie_le) VALUES (1, ?, ?, 'Armement Banc', ?, 'console', ?, ?)",
@@ -344,6 +398,35 @@ def main():
         check("rotation : la nouvelle cle embarquee fonctionne aussi",
               garde(url, rotation["cle_publique"], os.path.join(racine, "client_m"), hashlib.sha256(b"banc N").hexdigest())
               .activer(cle_neuve)["ok"])
+
+        # Nouvelle cle depuis la console (D67) : l'ancienne est refusee et effacee du poste qui l'utilisait,
+        # la nouvelle s'active sur le premier ordinateur ou elle est saisie.
+        code, _url, page = adm.ecrire("page=licence_nouvelle&distribution=1", "licence_creer", {
+            "distribution_id": "1", "titulaire": "Armement D", "email": "", "note": "", "duree_j": "30"})
+        cle_d = cle_affichee(page)
+        check("console : nouvelle licence, cle affichee", code == 200 and cle_d is not None)
+        gd = garde(url, publique, os.path.join(racine, "client_d"), hashlib.sha256(b"banc D").hexdigest(), "PC-D")
+        check("nouvelle cle : premiere cle activee", cle_d is not None and gd.activer(cle_d)["ok"])
+        id_d = db.execute("SELECT id FROM licences WHERE titulaire = 'Armement D'").fetchone()[0]
+        code, _url, page = adm.ecrire("page=licence&id=%d" % id_d, "licence_nouvelle_cle", {"id": str(id_d)})
+        nouvelle_d = cle_affichee(page)
+        check("console : nouvelle cle affichee une fois", code == 200 and "<h1>Nouvelle cle</h1>" in page
+              and nouvelle_d is not None and nouvelle_d != cle_d and page.count(nouvelle_d or "-") == 1)
+        gd._controler()
+        check("nouvelle cle : ancienne cle refusee et effacee du poste", gd._local.get("cle") is None
+              and gd.etat()["statut"] == L.REVOQUEE)
+        # Cas le plus courant (cle perdue) : le client ressaisit la nouvelle cle sur le meme ordinateur, comme la
+        # console le lui annonce ; elle s'y lie, et un autre ordinateur ne peut plus l'utiliser.
+        gd.arreter()
+        relance_d = garde(url, publique, os.path.join(racine, "client_d"), hashlib.sha256(b"banc D").hexdigest(), "PC-D")
+        check("nouvelle cle : ordinateur relance, licence a activer", relance_d.etat()["statut"] == L.A_ACTIVER)
+        check("nouvelle cle : ressaisie sur le meme ordinateur", nouvelle_d is not None
+              and relance_d.activer(nouvelle_d)["ok"] and relance_d.etat()["statut"] == L.VALIDE)
+        ge = garde(url, publique, os.path.join(racine, "client_e"), hashlib.sha256(b"banc E").hexdigest(), "PC-E")
+        check("nouvelle cle : refusee sur un autre ordinateur", nouvelle_d is not None
+              and ge.activer(nouvelle_d)["code"] == "cle_liee_autre_poste")
+        check("nouvelle cle : journalisee", db.execute("SELECT COUNT(*) FROM journal WHERE action = 'cle_remplacee' "
+                                                      "AND acteur = 'admin'").fetchone()[0] == 1)
 
         # Revocation depuis la base.
         db.execute("UPDATE licences SET statut = 'revoquee' WHERE cle_hash = ?", (hashlib.sha256(cle.encode()).hexdigest(),))

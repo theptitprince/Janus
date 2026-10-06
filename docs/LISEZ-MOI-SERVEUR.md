@@ -32,7 +32,7 @@ Tout le serveur tient dans le dossier `serveur/www/` du dépôt, qui s'envoie te
         └── lib/ …
 ```
 
-`prive/` est protégé par son propre `.htaccess` (`Require all denied`) et, en double, par les règles de `licence/.htaccess` qui refusent bases, clés et fichiers cachés. Le « Contrôle d'exposition » du tableau de bord le vérifie sur l'hébergement réel (§ 4).
+`prive/` est protégé par son propre `.htaccess` (`Require all denied`) et, en double, par les règles de `licence/.htaccess` qui refusent bases, clés et fichiers cachés. Le « Contrôle d'exposition » de l'écran *Administration* de la console le vérifie sur l'hébergement réel (§ 4).
 
 **Variante plus sûre, si l'on veut :** déplacer `licence/prive/` à la racine du compte, **à côté** de `licence/` (et non dedans). Le code le cherche d'abord à cet endroit ; rien d'autre ne change. Une erreur de configuration d'Apache ne pourrait alors plus exposer la base. À faire de préférence avant l'installation, ou en déplaçant tout le dossier `prive/` d'un bloc.
 
@@ -45,41 +45,43 @@ Le dossier `serveur/tests/` ne s'envoie pas sur l'hébergement.
 3. **Configuration.** Sur le poste, copier `serveur/www/prive/config.exemple.php` en `config.php` (même dossier) et inscrire dans `jeton_installation` une chaîne aléatoire d'au moins 20 caractères (un générateur de mots de passe convient). Les autres valeurs conviennent telles quelles.
 4. **Envoi FTP.** Envoyer le contenu de `serveur/www/` (dont `prive/` avec `config.php`) dans `licence/`. Ne pas oublier les fichiers cachés `.htaccess`.
 5. **Assistant.** Ouvrir `https://licence.mondomaine.fr/install.php` et remplir : jeton d'installation, identifiant et mot de passe de la console (20 caractères minimum), URL de l'API (proposée), URL de secours (`https://<domaine de secours>/api/v1/`), adresse(s) de notification. L'assistant crée la base, la paire de clés de signature, le secret des demandes et le `.htpasswd`, protège `/admin/`, puis se verrouille.
-6. **Noter le résultat.** La page finale affiche la clé publique et les trois lignes à reporter dans `client/etdel_licence.py` (voir `docs/INTEGRATION.md`, « Après l'installation du serveur »). Ces lignes restent consultables dans la console, écran *Clés*.
+6. **Noter le résultat.** La page finale affiche la clé publique et les trois lignes à reporter dans `client/etdel_licence.py` (voir `docs/INTEGRATION.md`, « Après l'installation du serveur »). Ces lignes restent consultables dans la console, *Administration* › *Clés de signature*.
 7. **Vérifier.**
    - `https://licence.mondomaine.fr/install.php` répond « Installation deja effectuee » ;
    - `https://licence.mondomaine.fr/admin/` demande l'identifiant et le mot de passe ;
    - `http://licence.mondomaine.fr/admin/` (sans « s ») répond « Console accessible uniquement en https:// » **sans** demander le mot de passe : il ne circule jamais en clair ;
-   - dans le *Tableau de bord*, le « Contrôle d'exposition » affiche « protégé » sur chaque ligne ;
+   - dans *Administration*, le « Contrôle d'exposition » affiche « protégé » sur chaque ligne ;
    - `http://licence.mondomaine.fr/` redirige vers `https://`.
 8. **Copie de secours des secrets.** Télécharger par FTP `licence/prive/config.php`, `licence/prive/.htpasswd`, le dossier `licence/prive/cles/` et le fichier `licence/admin/.htaccess` généré, et les ranger hors ligne (clé USB chiffrée, coffre de mots de passe). Ils ne sont pas dans la base et ne doivent **jamais** entrer dans un dépôt Git.
-9. **Réglages.** Console › *Réglages* : adresses de notification et adresse expéditrice (sur le domaine du serveur, par exemple `licences@licence.mondomaine.fr`), puis **« Envoyer un e-mail de test »**.
-10. **Produits.** Console › *Produits* : créer chaque produit et ses distributions (tolérance, préavis, durée par défaut, essai, options, message d'accueil). L'écran de chaque distribution donne la ligne `installer(...)` à copier dans l'application.
+9. **Réglages.** Console › *Administration* › *Réglages* : adresses de notification et adresse expéditrice (sur le domaine du serveur, par exemple `licences@licence.mondomaine.fr`), puis **« Envoyer un e-mail de test »**.
+10. **Distributions.** Une distribution = une application livrée (un exécutable) avec ses règles, ses licences et ses demandes ; le produit sert seulement à ranger les distributions. Console › *Distributions* › **« Nouvelle distribution »**, pour chaque exécutable livré : produit pour le classement (un produit existant, ou « Nouveau produit » avec son code définitif et son nom, tous deux obligatoires, créé en même temps ; un code déjà pris, même avec d'autres majuscules, est refusé), code de la distribution (définitif : avec celui du produit, il est inscrit dans l'application) et règles (durée de licence par défaut, essai, options ; tolérance hors ligne, préavis, version minimale, message d'accueil et case « Active » sous « Reglages avances »). Les valeurs proposées conviennent dans la plupart des cas. La page de la distribution donne la ligne `installer(...)` à copier dans l'application. Pour livrer la même application à un autre client avec d'autres règles : une autre distribution (« Dupliquer » sur la page de la première, en saisissant le code de la copie ; elle reprend les règles, sans licence, demande ni client).
 11. **Sauvegarde quotidienne** (§ 5).
 
 ## 4. La console d'administration
 
-`https://licence.mondomaine.fr/admin/` — utilisable sur téléphone.
+`https://licence.mondomaine.fr/admin/` — utilisable sur téléphone. Le menu compte six entrées : Accueil, Demandes, Licences, Distributions, Aide et Administration (écrans techniques).
 
 | Écran | Usage |
 |---|---|
-| Tableau de bord | demandes en attente, licences actives, expirées, suspendues, révoquées, postes vus sur 7 jours, licences expirant sous 30 jours, contrôle d'exposition des fichiers |
-| Demandes | accepter (durée, titulaire, options) ou refuser (motif facultatif, renvoyé tel quel à l'application) ; historique ; export CSV |
-| Licences | créer une clé (affichée une seule fois), rechercher, prolonger (+30 j, +1 an, date libre), modifier tolérance et options, suspendre (avec date de fin facultative : réactivation automatique), réactiver, révoquer (définitif), libérer le poste ; export CSV |
-| Produits | produits et distributions, duplication, ligne `installer(...)` |
-| Serveurs | liste des URL diffusées aux postes (priorité, diffusion), suivi d'une migration |
-| Clés | clé publique active (bouton « Copier »), historique, rotation |
-| Journal | toutes les actions (API et console), filtre, export CSV |
-| Sauvegarde | téléchargement d'une copie de la base, dernières sauvegardes |
-| Réglages | notification, e-mail de test, mot de passe de la console |
+| Accueil | demandes en attente (bouton « Traiter »), boutons « Nouvelle licence » et « Nouvelle distribution », compteurs (licences actives, expirées, suspendues, révoquées : chacun ouvre la liste filtrée ; ordinateurs vus sur 7 jours), licences expirant sous 30 jours |
+| Demandes | accepter (durée, client titulaire de la licence, options) ou refuser (motif facultatif, renvoyé tel quel à l'application) ; historique ; export CSV |
+| Licences | « Nouvelle licence » (choisir la distribution ; clé affichée une seule fois), rechercher, filtrer par statut ou par distribution ; sur la fiche d'une licence : sa distribution (lien), prolonger (+30 j, +1 an, date libre), nouvelle clé, changer d'ordinateur, suspendre (avec date de fin facultative : réactivation automatique), réactiver, révoquer (définitif), et sous « Reglages avances » tolérance et options ; export CSV |
+| Distributions | une distribution = une application livrée (un exécutable) avec ses règles, ses licences et ses demandes, gérée seule ; liste rangée par produit (simple classement, filtre, « Renommer »), état et règles de chacune en une ligne, licences, demandes en attente. « Nouvelle distribution » (avec, au besoin, un nouveau produit) ; sur sa page : ligne `installer(...)`, « Voir ses licences », « Nouvelle licence pour cette distribution » (distribution active), règles, « Dupliquer » |
+| Aide | mode d'emploi de chaque écran ; chaque écran porte un lien « Aide sur cet ecran » |
+| Administration | accès aux écrans ci-dessous et contrôle d'exposition des fichiers |
+| › Serveurs | liste des URL diffusées aux postes (priorité, diffusion), suivi d'une migration |
+| › Clés de signature | clé publique active (bouton « Copier »), historique, rotation |
+| › Journal | toutes les actions (API et console), filtre, export CSV |
+| › Sauvegarde | téléchargement d'une copie de la base, dernières sauvegardes |
+| › Réglages | notification, e-mail de test, mot de passe de la console |
 
 Toute action d'écriture demande une confirmation et est inscrite au journal avec l'identifiant de connexion. Une notification par e-mail part à chaque nouvelle demande (50 au plus par jour) ; un échec d'envoi est inscrit au journal et n'empêche jamais l'enregistrement de la demande.
 
-Changer d'ordinateur pour un client : *Licences* › la licence › **« Liberer le poste »**, puis saisie de la même clé sur le nouvel ordinateur.
+Changer d'ordinateur pour un client : *Licences* › la licence › **« Changer d'ordinateur »** › « Liberer cette cle », puis saisie de la même clé sur le nouvel ordinateur. Clé perdue ou transmise par erreur : **« Nouvelle cle »** (l'ancienne clé cesse de fonctionner, la nouvelle s'affiche une seule fois).
 
 **Suspendre ou révoquer ?**
 - **Suspendre** : coupure temporaire. Le poste reste bloqué mais garde sa clé ; il se débloque tout seul à son contrôle suivant quand la licence est réactivée (« Reactiver ») ou à la date de fin choisie (« Suspendre jusqu'au »). Rien à ressaisir, même pour une licence obtenue par demande.
-- **Révoquer** : définitif. Le poste efface sa clé et la licence ne peut plus être réactivée. Pour remettre le poste en service : créer une nouvelle clé et la transmettre, ou laisser l'utilisateur envoyer une nouvelle demande depuis l'application (pas de nouvel essai si ce poste en a déjà eu un pour ce produit).
+- **Révoquer** : définitif. Le poste efface sa clé et la licence ne peut plus être réactivée. Pour remettre le poste en service : « Nouvelle licence pour ce client » sur la fiche révoquée (création d'une clé pré-remplie ; la fiche révoquée indique ensuite « Deja remplacee par la licence n. … ») et transmettre la clé, ou laisser l'utilisateur envoyer une nouvelle demande depuis l'application (pas de nouvel essai si ce poste en a déjà eu un pour cette distribution).
 
 L'écran **Aide** de la console détaille chaque écran, chaque réglage et chaque action.
 
@@ -93,7 +95,7 @@ L'écran **Aide** de la console détaille chaque écran, chaque réglage et chaq
 
 Chaque exécution crée `prive/data/sauvegardes/licenses-AAAAMMJJ-HHMMSS.db` (copie cohérente faite par SQLite, même pendant une écriture) et garde les 30 plus récentes (`sauvegardes_conservees` dans `config.php`). Le journal de la console mentionne chaque sauvegarde.
 
-**Copie hors de l'hébergement.** Une fois par semaine au moins : console › *Sauvegarde* › « Telecharger une copie de la base ». Les copies ne contiennent ni clé de licence en clair ni clé privée.
+**Copie hors de l'hébergement.** Une fois par semaine au moins : console › *Administration* › *Sauvegarde* › « Telecharger une copie de la base ». Les copies ne contiennent ni clé de licence en clair ni clé privée.
 
 **Restauration.**
 1. Par FTP, renommer `prive/data/licenses.db` (par sécurité) et supprimer `prive/data/licenses.db-wal` et `prive/data/licenses.db-shm` s'ils existent.
@@ -109,7 +111,7 @@ La base va avec les clés de signature : en cas de reconstruction complète de l
 Les applications ne dépendent jamais d'une seule URL : chaque réponse du serveur contient la liste signée des URL, que le poste mémorise dans son état local (hors de l'exe) et utilise en priorité. Changer d'URL ne demande donc ni recompilation ni redistribution.
 
 1. Faire pointer le nouveau domaine vers l'hébergement (*Multisite*, même dossier `licence`, SSL coché) et vérifier `https://<nouveau>/install.php` (doit répondre « Installation deja effectuee »).
-2. Console › *Serveurs* › ajouter `https://<nouveau>/api/v1/` avec une priorité plus petite que l'actuelle (la plus petite passe en premier).
+2. Console › *Administration* › *Serveurs* › ajouter `https://<nouveau>/api/v1/` avec une priorité plus petite que l'actuelle (la plus petite passe en premier).
 3. Attendre que les postes se soient connectés : *Serveurs* affiche les postes vus depuis 24 h, 7 et 30 jours ; *Licences* donne le dernier contact de chacun. Attendre au moins la durée de tolérance (15 jours par défaut), pour les postes restés hors ligne.
 4. Décocher « Diffusée » pour l'ancienne URL. Laisser l'ancien domaine en service encore un moment : il répond toujours, avec la nouvelle liste signée.
 5. Couper l'ancien domaine.
@@ -122,11 +124,11 @@ Changer d'**hébergeur** suit la même procédure, à condition d'emporter tout 
 
 À faire en cas de doute sur la confidentialité de l'hébergement (mot de passe FTP divulgué, accès suspect), après avoir repris la main (mots de passe OVH et FTP changés).
 
-1. Console › *Clés* › **« Nouvelle cle de signature »** › confirmer.
+1. Console › *Administration* › *Clés de signature* › **« Nouvelle cle de signature »** › confirmer.
 2. Le serveur génère la nouvelle paire, signe un bulletin d'annonce avec l'ancienne clé, signe désormais avec la nouvelle et efface l'ancienne clé privée.
 3. Chaque poste adopte la nouvelle clé à sa connexion suivante, grâce au bulletin, sans mise à jour de l'application ; il accepte encore l'ancienne pendant 90 jours. Les bulletins sont diffusés pendant 12 mois : un poste resté hors ligne plus longtemps devra recevoir une version à jour de l'application.
 4. Refaire la copie de secours de `prive/cles/` (§ 3, étape 8).
-5. Facultatif : les nouvelles versions des applications peuvent embarquer la nouvelle clé publique (écran *Clés*), en suivant `docs/INTEGRATION.md`.
+5. Facultatif : les nouvelles versions des applications peuvent embarquer la nouvelle clé publique (écran *Clés de signature*), en suivant `docs/INTEGRATION.md`.
 
 Limite assumée : qui contrôle l'hébergement peut signer. La sécurité du système repose sur celle du compte OVH (mot de passe fort, double authentification sur l'espace client).
 
@@ -155,9 +157,9 @@ Si `admin/.htaccess` a été écrasé par erreur, la console répond « accès r
 |---|---|
 | Les postes affichent « serveur injoignable » | certificat SSL du sous-domaine, URL de l'API, horloge du poste (écart > 10 min refusé) ; ligne de diagnostic Ctrl+Maj+L |
 | L'API répond 503 | base absente ou clé privée illisible : vérifier `prive/data/` et `prive/cles/` (droits d'écriture du compte) ; journaux d'erreurs PHP dans l'espace client OVH |
-| Aucun e-mail reçu | *Réglages* › e-mail de test ; *Journal*, actions `email_echec` et `email_plafond` ; dossier des indésirables ; adresse expéditrice sur le domaine du serveur |
+| Aucun e-mail reçu | *Administration* › *Réglages* › e-mail de test ; *Administration* › *Journal*, actions `email_echec` et `email_plafond` ; dossier des indésirables ; adresse expéditrice sur le domaine du serveur |
 | « Formulaire expiré » dans la console | recharger la page (le jeton change après chaque écriture) |
-| Ligne « DANGER » dans le contrôle d'exposition | `prive/` est servi par le web : vérifier que `licence/.htaccess` et `licence/prive/.htaccess` ont bien été envoyés, ou déplacer `prive/` à côté de `licence/` (§ 2) |
+| Ligne « DANGER » dans le contrôle d'exposition (*Administration*) | `prive/` est servi par le web : vérifier que `licence/.htaccess` et `licence/prive/.htaccess` ont bien été envoyés, ou déplacer `prive/` à côté de `licence/` (§ 2) |
 | Mot de passe de la console perdu | voir ci-dessous |
 
 **Mot de passe de la console perdu.** Par FTP, inscrire dans `prive/config.php` une nouvelle chaîne aléatoire d'au moins 20 caractères dans `jeton_reinitialisation` (différente du jeton d'installation et de tout jeton déjà utilisé), puis ouvrir `https://licence.mondomaine.fr/install.php` : l'assistant, toujours verrouillé, ne propose alors que le remplacement du mot de passe d'un compte existant de la console. Chaque jeton ne sert qu'une fois ; remettre ensuite `jeton_reinitialisation` à vide.

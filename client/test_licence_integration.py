@@ -23,8 +23,8 @@ sys.path.insert(0, ICI)
 import etdel_licence  # noqa: E402
 
 # --- Reference publiee du module (docs/INTEGRATION.md du depot Janus) --------
-VERSION_REFERENCE = "1.3.0"
-EMPREINTE_REFERENCE = "abccf569500527af038903843a89ce50d847c2154ed5e41014cc184fffd7ab1e"
+VERSION_REFERENCE = "1.4.0"
+EMPREINTE_REFERENCE = "86ac7b191d28dec162fe86e981629cacb36ea59626a8123e5ef14e9de89196cb"
 
 # --- A ADAPTER pour chaque application ---------------------------------------
 PRODUIT = "MONAPPLI"

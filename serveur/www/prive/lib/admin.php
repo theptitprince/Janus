@@ -28,8 +28,9 @@ const ADMIN_ACTIONS = [
     'licence_suspendre' => 'Suspendre la licence',
     'licence_reactiver' => 'Reactiver la licence',
     'licence_revoquer' => 'Revoquer definitivement la licence',
-    'licence_liberer' => 'Liberer le poste (changement d\'ordinateur)',
-    'produit_enregistrer' => 'Enregistrer le produit',
+    'licence_liberer' => 'Changer d\'ordinateur (liberer la cle)',
+    'licence_nouvelle_cle' => 'Remplacer la cle (l\'ancienne cle ne fonctionnera plus)',
+    'produit_enregistrer' => 'Renommer le produit',
     'distribution_enregistrer' => 'Enregistrer la distribution',
     'distribution_dupliquer' => 'Dupliquer la distribution',
     'url_ajouter' => 'Ajouter l\'URL',
@@ -53,17 +54,52 @@ const ADMIN_MESSAGES = [
     'suspendue' => 'Licence suspendue.',
     'reactivee' => 'Licence reactivee.',
     'revoquee' => 'Licence revoquee.',
-    'liberee' => 'Poste libere : la cle peut etre activee sur un autre ordinateur.',
-    'produit' => 'Produit enregistre.',
+    'liberee' => 'Cle liberee : elle peut etre saisie sur le nouvel ordinateur.',
+    'produit' => 'Produit renomme.',
+    'creee' => 'Distribution creee. Copiez la ligne ci-dessous dans l\'application.',
     'distribution' => 'Distribution enregistree.',
     'dupliquee' => 'Distribution dupliquee : verifiez ses reglages.',
     'url' => 'Liste des URL mise a jour.',
     'reglages' => 'Reglages enregistres.',
-    'rotation' => 'Nouvelle cle de signature active : les postes l\'adoptent a leur prochain controle.',
+    'rotation' => 'Nouvelle cle de signature active : les ordinateurs l\'adoptent a leur prochain controle.',
 ];
+
+// Menu reduit (D68) : entree mise en evidence pour chaque ecran qui n'a pas la sienne.
+const ADMIN_MENU_PARENT = [
+    'demande' => 'demandes',
+    'licence' => 'licences',
+    'licence_nouvelle' => 'licences',
+    'produits' => 'distributions',
+    'produit' => 'distributions',
+    'distribution' => 'distributions',
+    'serveurs' => 'administration',
+    'cles' => 'administration',
+    'journal' => 'administration',
+    'sauvegarde' => 'administration',
+    'reglages' => 'administration',
+];
+
+// Page affichee en reponse a une action (POST) : entree du menu d'apres le debut du nom de l'action ;
+// les autres actions sont celles des ecrans de l'Administration.
+const ADMIN_MENU_ACTIONS = ['demande_' => 'demandes', 'licence_' => 'licences', 'distribution_' => 'distributions',
+    'produit_' => 'distributions'];
+
+// Lien "Aide sur cet ecran" des ecrans que AIDE_ANCRES (aide.php) ne connait pas encore.
+const ADMIN_AIDE_ANCRES = ['administration' => 'securite', 'distributions' => 'produits'];
 
 const ADMIN_PAR_PAGE = 100;
 const MESSAGE_ACCUEIL_MAX = 500;
+// Regles proposees pour une nouvelle distribution (D68).
+const REGLES_DEFAUT = ['duree_defaut_j' => 365, 'essai_j' => 15, 'tolerance_j' => 15, 'preavis_j' => 5];
+// Phrase en tete des ecrans Distributions et Nouvelle distribution (D68).
+const DISTRIBUTIONS_EXPLICATION = 'Une distribution = une application livree (un executable) avec ses regles, ses '
+    . 'licences et ses demandes. Le produit sert seulement a ranger les distributions.';
+// Un seul mot pour la personne ou l'entreprise a qui appartient une licence : "Client" ; les formulaires
+// rappellent qu'il s'agit du titulaire, nom affiche par l'application.
+const LIBELLE_TITULAIRE = 'Client (titulaire de la licence)';
+// Libelle et client d'une distribution (formulaires de creation et de modification).
+const LIBELLE_DISTRIBUTION = 'Libelle (ex. Edition cabinet, Demo)';
+const CLIENT_DISTRIBUTION = 'Client de cette distribution (facultatif, pour memoire)';
 
 // ---------------------------------------------------------------------------
 // Point d'entree et reponses
@@ -208,7 +244,7 @@ function admin_get(array $ctx): array
     $id = (int)($ctx['get']['id'] ?? 0);
     switch ($page) {
         case 'tableau':
-            return admin_page($ctx, 'Tableau de bord', admin_ecran_tableau($ctx));
+            return admin_page($ctx, 'Accueil', admin_ecran_tableau($ctx));
         case 'demandes':
             return admin_page($ctx, 'Demandes', admin_ecran_demandes($ctx));
         case 'demande':
@@ -218,13 +254,20 @@ function admin_get(array $ctx): array
         case 'licence':
             return admin_page($ctx, 'Licence n. ' . $id, admin_ecran_licence($ctx, $id));
         case 'licence_nouvelle':
-            return admin_page($ctx, 'Nouvelle cle', admin_ecran_licence_nouvelle($ctx));
-        case 'produits':
-            return admin_page($ctx, 'Produits et distributions', admin_ecran_produits($ctx));
+            return admin_page($ctx, 'Nouvelle licence', admin_ecran_licence_nouvelle($ctx));
         case 'produit':
-            return admin_page($ctx, $id ? 'Produit' : 'Nouveau produit', admin_ecran_produit($ctx, $id));
+            // Ancienne page d'un produit (D68) : la liste des distributions de ce produit.
+            $ctx['get']['produit'] = $ctx['get']['produit'] ?? $id;
+            return admin_page($ctx, 'Distributions', admin_ecran_distributions($ctx));
+        case 'distributions':
+        case 'produits':
+            return admin_page($ctx, 'Distributions', admin_ecran_distributions($ctx));
         case 'distribution':
-            return admin_page($ctx, $id ? 'Distribution' : 'Nouvelle distribution', admin_ecran_distribution($ctx, $id));
+            $code = $id ? db_valeur($ctx['db'], 'SELECT code FROM distributions WHERE id = ?', [$id]) : null;
+            return admin_page($ctx, $id ? 'Distribution ' . (string)$code : 'Nouvelle distribution',
+                admin_ecran_distribution($ctx, $id));
+        case 'administration':
+            return admin_page($ctx, 'Administration', admin_ecran_administration($ctx));
         case 'serveurs':
             return admin_page($ctx, 'Serveurs', admin_ecran_serveurs($ctx));
         case 'journal':
@@ -281,18 +324,14 @@ function admin_page(array $ctx, string $titre, string $contenu, int $code = 200)
 {
     $attente = (int)db_valeur($ctx['db'], "SELECT COUNT(*) FROM demandes WHERE statut = 'en_attente'");
     $liens = [
-        'tableau' => 'Tableau de bord',
+        'tableau' => 'Accueil',
         'demandes' => 'Demandes' . ($attente > 0 ? ' <span class="pastille">' . $attente . '</span>' : ''),
         'licences' => 'Licences',
-        'produits' => 'Produits',
-        'serveurs' => 'Serveurs',
-        'cles' => 'Cles',
-        'journal' => 'Journal',
-        'sauvegarde' => 'Sauvegarde',
-        'reglages' => 'Reglages',
+        'distributions' => 'Distributions',
         'aide' => 'Aide',
+        'administration' => 'Administration',
     ];
-    $courante = (string)($ctx['get']['page'] ?? 'tableau');
+    $courante = admin_menu_courant($ctx);
     $nav = '';
     foreach ($liens as $page => $libelle) {
         $nav .= '<a href="index.php?page=' . $page . '"' . ($page === $courante ? ' class="actif"' : '') . '>' . $libelle . '</a>';
@@ -306,10 +345,44 @@ function admin_page(array $ctx, string $titre, string $contenu, int $code = 200)
         . '<meta name="viewport" content="width=device-width, initial-scale=1">'
         . '<title>' . h($titre) . ' - Licences ETDEL</title>'
         . '<link rel="stylesheet" href="style.css"><script src="app.js" defer></script></head><body>'
-        . '<header><a class="marque" href="index.php">Licences ETDEL</a><nav>' . $nav . '</nav>'
+        . '<header><a class="marque" href="index.php?page=tableau">Licences ETDEL</a><nav>' . $nav . '</nav>'
         . '<span class="utilisateur">' . h($ctx['utilisateur']) . '</span></header>'
-        . '<main><h1>' . h($titre) . '</h1>' . aide_lien($ctx) . $bandeau . $contenu . '</main></body></html>';
+        . '<main><h1>' . h($titre) . '</h1>' . admin_aide_lien($ctx) . $bandeau . $contenu . '</main></body></html>';
     return ['code' => $code, 'entetes' => admin_entetes() + ['Content-Type' => 'text/html; charset=UTF-8'], 'corps' => $html];
+}
+
+/**
+ * Entree du menu en evidence : celle de l'ecran consulte (GET), ou celle de l'action envoyee (POST :
+ * cle affichee, erreur, confirmation sans JavaScript), jamais Accueil par defaut.
+ */
+function admin_menu_courant(array $ctx): string
+{
+    if ($ctx['methode'] === 'POST') {
+        $action = $ctx['post']['action'] ?? '';
+        if (!is_string($action) || !isset(ADMIN_ACTIONS[$action])) {
+            return '';
+        }
+        foreach (ADMIN_MENU_ACTIONS as $prefixe => $page) {
+            if (strncmp($action, $prefixe, strlen($prefixe)) === 0) {
+                return $page;
+            }
+        }
+        return 'administration';
+    }
+    $page = $ctx['get']['page'] ?? 'tableau';
+    $page = is_string($page) ? $page : '';
+    return ADMIN_MENU_PARENT[$page] ?? $page;
+}
+
+/** Lien "Aide sur cet ecran" : celui de aide.php, sinon ADMIN_AIDE_ANCRES (meme regle : ecran consulte en GET). */
+function admin_aide_lien(array $ctx): string
+{
+    $lien = aide_lien($ctx);
+    $page = $ctx['get']['page'] ?? 'tableau';
+    if ($lien === '' && $ctx['methode'] === 'GET' && is_string($page) && isset(ADMIN_AIDE_ANCRES[$page])) {
+        $lien = '<a class="aide-lien" href="index.php?page=aide#' . ADMIN_AIDE_ANCRES[$page] . '">Aide sur cet ecran</a>';
+    }
+    return $lien;
 }
 
 function f_formulaire(array $ctx, string $action, string $contenu, array $caches = [], string $classe = 'formulaire'): string
@@ -447,11 +520,18 @@ function licence_lire(PDO $db, int $id): array
     return $lic;
 }
 
+/** Lien vers la page d'une distribution : "CODE - Libelle". */
+function lien_distribution(int $id, string $code, string $libelle): string
+{
+    return '<a href="index.php?page=distribution&amp;id=' . $id . '">' . h($code . ' - ' . $libelle) . '</a>';
+}
+
+/** Distributions pour une liste de choix, rangees par produit ; seul l'etat de la distribution compte (D68). */
 function distributions_choix(PDO $db, bool $actives_seulement): array
 {
     $choix = [];
     $sql = 'SELECT d.id, d.code, d.libelle, d.duree_defaut_j FROM distributions d JOIN produits p ON p.id = d.produit_id '
-        . ($actives_seulement ? 'WHERE d.actif = 1 AND p.actif = 1 ' : '') . 'ORDER BY p.code, d.code';
+        . ($actives_seulement ? 'WHERE d.actif = 1 ' : '') . 'ORDER BY p.code, d.code';
     foreach (db_lignes($db, $sql) as $d) {
         $choix[(int)$d['id']] = [$d['code'] . ' - ' . $d['libelle'],
             ' data-duree="' . h($d['duree_defaut_j'] === null ? '' : (string)$d['duree_defaut_j']) . '"'];
@@ -515,26 +595,40 @@ function code_saisi($valeur, string $nom): string
 }
 
 // ---------------------------------------------------------------------------
-// Tableau de bord
+// Accueil et Administration
 // ---------------------------------------------------------------------------
 
+/** Accueil : demandes a traiter, raccourcis, compteurs, licences qui expirent bientot. */
 function admin_ecran_tableau(array $ctx): string
 {
     $db = $ctx['db'];
     $n = $ctx['maintenant'];
-    $attente = (int)db_valeur($db, "SELECT COUNT(*) FROM demandes WHERE statut = 'en_attente'");
+    $lignes = [];
+    foreach (db_lignes($db, "SELECT dm.id, dm.cree_le, dm.titulaire, dm.nom_ordinateur, d.code AS distribution_code "
+        . "FROM demandes dm JOIN distributions d ON d.id = dm.distribution_id "
+        . "WHERE dm.statut = 'en_attente' ORDER BY dm.cree_le, dm.id") as $d) {
+        $lignes[] = [h(date_fr((int)$d['cree_le'], true)), h($d['titulaire']), h($d['nom_ordinateur']),
+            h($d['distribution_code']),
+            '<a class="bouton principal" href="index.php?page=demande&amp;id=' . (int)$d['id'] . '">Traiter</a>'];
+    }
+    $html = '<h2>Demandes en attente</h2>' . tableau_html(['Date', 'Client', 'Ordinateur', 'Distribution', ''], $lignes,
+        'Aucune demande en attente.');
+    $html .= '<p class="raccourcis"><a class="bouton principal" href="index.php?page=licence_nouvelle">Nouvelle licence</a>'
+        . '<a class="bouton" href="index.php?page=distribution">Nouvelle distribution</a></p>';
     $c = db_ligne($db, "SELECT "
         . "COALESCE(SUM(statut = 'active' AND (echeance IS NULL OR echeance > ?)), 0) AS actives, "
         . "COALESCE(SUM(statut = 'active' AND echeance IS NOT NULL AND echeance <= ?), 0) AS expirees, "
         . "COALESCE(SUM(statut = 'suspendue'), 0) AS suspendues, "
         . "COALESCE(SUM(statut = 'revoquee'), 0) AS revoquees, "
         . "COALESCE(SUM(dernier_contact >= ?), 0) AS vus FROM licences", [$n, $n, $n - 7 * JOUR]);
-    $html = '<a class="compteur' . ($attente > 0 ? ' alerte' : '') . '" href="index.php?page=demandes">'
-        . '<strong>' . $attente . '</strong> demande(s) en attente</a>';
-    $html .= '<div class="cartes">';
-    foreach (['actives' => 'Licences actives', 'expirees' => 'Licences expirees', 'suspendues' => 'Licences suspendues',
-              'revoquees' => 'Licences revoquees', 'vus' => 'Postes vus sur 7 jours'] as $cle => $libelle) {
-        $html .= '<div class="carte"><strong>' . (int)$c[$cle] . '</strong><span>' . h($libelle) . '</span></div>';
+    $html .= '<h2>En chiffres</h2><div class="cartes">';
+    // Chaque compteur de licences ouvre la liste filtree correspondante.
+    foreach (['actives' => ['Licences actives', 'active'], 'expirees' => ['Licences expirees', 'expiree'],
+              'suspendues' => ['Licences suspendues', 'suspendue'], 'revoquees' => ['Licences revoquees', 'revoquee'],
+              'vus' => ['Ordinateurs vus sur 7 jours', '']] as $cle => [$libelle, $statut]) {
+        $carte = '<strong>' . (int)$c[$cle] . '</strong><span>' . h($libelle) . '</span>';
+        $html .= $statut === '' ? '<div class="carte">' . $carte . '</div>'
+            : '<a class="carte" href="index.php?page=licences&amp;statut=' . $statut . '">' . $carte . '</a>';
     }
     $html .= '</div><h2>Licences expirant sous 30 jours</h2>';
     $lignes = [];
@@ -545,12 +639,33 @@ function admin_ecran_tableau(array $ctx): string
             h($l['distribution_code']), h(date_fr((int)$l['echeance'])), (int)jours_restants((int)$l['echeance'], $n) . ' j',
             h(($l['id_poste'] ?? '') . ' ' . ($l['nom_ordinateur'] ?? ''))];
     }
-    $html .= tableau_html(['Titulaire', 'Distribution', 'Echeance', 'Reste', 'Poste'], $lignes, 'Aucune.');
-    $html .= '<h2>Controle d\'exposition</h2><p class="discret">Le navigateur tente de telecharger la base, les cles et '
-        . 'la configuration par leur URL : chaque ligne doit indiquer "protege".</p>'
-        . '<ul id="exposition" data-chemins="' . h(json_encode(exposition_chemins($ctx['config'], $db), JSON_UNESCAPED_SLASHES))
-        . '"></ul>';
-    return $html;
+    return $html . tableau_html(['Client', 'Distribution', 'Echeance', 'Reste', 'Ordinateur'], $lignes, 'Aucune.');
+}
+
+/** Administration : ecrans techniques (une phrase chacun) et controle d'exposition. */
+function admin_ecran_administration(array $ctx): string
+{
+    $ecrans = [
+        'serveurs' => ['Serveurs', 'Adresses de l\'API diffusees aux applications : en ajouter une, changer d\'adresse '
+            . 'sans recompiler les applications.'],
+        'cles' => ['Cles de signature', 'Cle publique a inscrire dans les applications ; nouvelle cle en cas de doute '
+            . 'sur la securite de l\'hebergement.'],
+        'journal' => ['Journal', 'Tout ce qui a ete fait, depuis la console et par les applications ; recherche et '
+            . 'export CSV.'],
+        'sauvegarde' => ['Sauvegarde', 'Telecharger une copie de la base ; liste des sauvegardes quotidiennes.'],
+        'reglages' => ['Reglages', 'E-mails de notification des nouvelles demandes (et e-mail de test), mot de passe de '
+            . 'la console.'],
+    ];
+    $html = '<p>Ecrans techniques, utiles a l\'installation et de temps en temps, rarement au quotidien.</p>'
+        . '<div class="menu-admin">';
+    foreach ($ecrans as $page => [$titre, $texte]) {
+        $html .= '<a class="carte lien" href="index.php?page=' . $page . '"><strong>' . h($titre) . '</strong><span>'
+            . h($texte) . '</span></a>';
+    }
+    return $html . '</div><h2>Controle d\'exposition</h2><p class="discret">Le navigateur tente de telecharger la base, '
+        . 'les cles et la configuration par leur URL : chaque ligne doit indiquer "protege".</p>'
+        . '<ul id="exposition" data-chemins="'
+        . h(json_encode(exposition_chemins($ctx['config'], $ctx['db']), JSON_UNESCAPED_SLASHES)) . '"></ul>';
 }
 
 /**
@@ -599,7 +714,7 @@ function admin_ecran_demandes(array $ctx): string
             '<a class="bouton" href="index.php?page=demande&amp;id=' . (int)$d['id'] . '">Traiter</a>'];
     }
     $html = '<h2>En attente</h2>' . tableau_html(['Date', 'Produit', 'Distribution', 'Ordinateur', 'Identifiant',
-            'Titulaire', 'E-mail', 'Message', 'IP', 'Essai jusqu\'au', ''], $lignes, 'Aucune demande en attente.');
+            'Client', 'E-mail', 'Message', 'IP', 'Essai jusqu\'au', ''], $lignes, 'Aucune demande en attente.');
     $lignes = [];
     foreach (db_lignes($db, "SELECT dm.*, d.code AS distribution_code FROM demandes dm "
         . "JOIN distributions d ON d.id = dm.distribution_id WHERE dm.statut <> 'en_attente' "
@@ -612,7 +727,7 @@ function admin_ecran_demandes(array $ctx): string
             '<a href="index.php?page=demande&amp;id=' . (int)$d['id'] . '">n. ' . (int)$d['id'] . '</a>', $suite];
     }
     $html .= '<h2>Historique</h2>' . tableau_html(['Demandee le', 'Traitee le', 'Statut', 'Distribution', 'Ordinateur',
-            'Titulaire', 'Demande', 'Licence ou motif'], $lignes, 'Aucune demande traitee.');
+            'Client', 'Demande', 'Licence ou motif'], $lignes, 'Aucune demande traitee.');
     return $html . '<p><a href="index.php?page=export&amp;quoi=demandes">Exporter les demandes (CSV)</a></p>';
 }
 
@@ -628,10 +743,10 @@ function admin_ecran_demande(array $ctx, int $id): string
         'Statut' => etiquette($d['statut']),
         'Date' => h(date_fr((int)$d['cree_le'], true)),
         'Produit' => h($d['produit_code']),
-        'Distribution' => h($d['distribution_code'] . ' - ' . $d['distribution_libelle']),
+        'Distribution' => lien_distribution((int)$d['distribution_id'], $d['distribution_code'], $d['distribution_libelle']),
         'Ordinateur' => h($d['nom_ordinateur']),
-        'Identifiant de poste' => '<code>' . h($d['id_poste']) . '</code>',
-        'Titulaire' => h($d['titulaire']),
+        'Identifiant du poste' => '<code>' . h($d['id_poste']) . '</code>',
+        'Client' => h($d['titulaire']),
         'E-mail' => h($d['email']),
         'Mot du client' => '<span class="message">' . h($d['message']) . '</span>',
         'Version de l\'application' => h($d['version_appli']),
@@ -648,7 +763,7 @@ function admin_ecran_demande(array $ctx, int $id): string
     }
     $accepter = f_formulaire($ctx, 'demande_accepter',
         f_champ('duree_j', 'Duree en jours (vide = perpetuelle)', $d['duree_defaut_j'] ?? '', 'number', 'min="1" max="36500"')
-        . f_champ('titulaire', 'Titulaire', $d['titulaire'], 'text', 'maxlength="120" required')
+        . f_champ('titulaire', LIBELLE_TITULAIRE, $d['titulaire'], 'text', 'maxlength="120" required')
         . f_champ('options', 'Options (codes separes par des virgules, * = toutes)', implode(', ', options_lire($d['distribution_options'])))
         . f_bouton('Accepter', 'principal'), ['id' => $id]);
     $refuser = f_formulaire($ctx, 'demande_refuser',
@@ -662,7 +777,7 @@ function admin_action_demande_accepter(array $ctx)
 {
     $id = (int)($ctx['post']['id'] ?? 0);
     $duree = entier_saisi($ctx['post']['duree_j'] ?? '', 1, 36500, 'Duree', true);
-    $titulaire = (string)texte_saisi($ctx['post']['titulaire'] ?? '', 120, 'Titulaire', true);
+    $titulaire = (string)texte_saisi($ctx['post']['titulaire'] ?? '', 120, 'Client', true);
     $options = options_saisies($ctx['post']['options'] ?? '');
     $r = demande_accepter($ctx['db'], $ctx['config'], $id, $duree, $titulaire, $options, $ctx['utilisateur'], $ctx['ip'],
         $ctx['maintenant']);
@@ -727,117 +842,236 @@ function admin_ecran_licences(array $ctx): string
             h(date_fr($l['dernier_contact'] === null ? null
                 : (int)$l['dernier_contact'], true))];
     }
+    $distributions = distributions_choix($db, false);
     $filtres = '<form method="get" action="index.php" class="filtres"><input type="hidden" name="page" value="licences">'
-        . f_champ('q', 'Recherche', $q, 'search', 'placeholder="titulaire, e-mail, fin de cle, poste"')
+        . f_champ('q', 'Recherche', $q, 'search', 'placeholder="client, e-mail, fin de cle, ordinateur"')
         . f_choix('statut', 'Statut', ['' => 'tous', 'active' => 'actives', 'expiree' => 'expirees',
             'suspendue' => 'suspendues', 'revoquee' => 'revoquees'], $statut)
-        . f_choix('distribution', 'Distribution', [0 => 'toutes'] + distributions_choix($db, false), $distribution)
+        . f_choix('distribution', 'Distribution', [0 => 'toutes'] + $distributions, $distribution)
         . '<button type="submit">Filtrer</button></form>';
-    return '<p><a class="bouton principal" href="index.php?page=licence_nouvelle">Creer une cle</a></p>' . $filtres
-        . tableau_html(['Titulaire', 'Distribution', 'Cle', 'Poste lie', 'Echeance', 'Statut', 'Dernier contact'],
+    // Arrive par "Voir ses licences" : la nouvelle licence est pour cette distribution (si elle est active),
+    // et on peut revenir a sa page.
+    if (isset($distributions[$distribution])) {
+        $boutons = '<p class="raccourcis">' . (isset(distributions_choix($db, true)[$distribution])
+                ? '<a class="bouton principal" href="index.php?page=licence_nouvelle&amp;distribution=' . $distribution
+                    . '">Nouvelle licence pour cette distribution</a>' : '')
+            . '<a class="bouton" href="index.php?page=distribution&amp;id=' . $distribution . '">Retour a la distribution</a></p>';
+    } else {
+        $boutons = '<p><a class="bouton principal" href="index.php?page=licence_nouvelle">Nouvelle licence</a></p>';
+    }
+    return $boutons . $filtres
+        . tableau_html(['Client', 'Distribution', 'Cle', 'Ordinateur', 'Echeance', 'Statut', 'Dernier contact'],
             $lignes, 'Aucune licence.')
         . '<p><a href="index.php?page=export&amp;quoi=licences">Exporter les licences (CSV)</a></p>';
 }
 
+/**
+ * Fiche d'une licence, pour un debutant : resume en tete, puis un bouton par action
+ * (il deplie une explication et son formulaire), puis les reglages avances replies.
+ */
 function admin_ecran_licence(array $ctx, int $id): string
 {
     $lic = licence_lire($ctx['db'], $id);
     $n = $ctx['maintenant'];
-    $statut = licence_statut_affiche($lic, $n);
-    $options = $lic['options'] === null ? options_lire($lic['distribution_options']) : options_lire($lic['options']);
+    if ($lic['echeance'] === null) {
+        $echeance = 'perpetuelle';
+    } elseif ($lic['statut'] === 'revoquee') {
+        // Jours restants sans objet : la licence ne sert plus, quelle que soit son echeance.
+        $echeance = h(date_fr((int)$lic['echeance'])) . ' (sans objet : licence revoquee)';
+    } elseif ((int)$lic['echeance'] <= $n) {
+        $echeance = h(date_fr((int)$lic['echeance'])) . ' (depassee)';
+    } else {
+        $jours = (int)jours_restants((int)$lic['echeance'], $n);
+        $echeance = h(date_fr((int)$lic['echeance'])) . ' (' . $jours . ($jours > 1 ? ' jours restants)' : ' jour restant)');
+    }
     $html = fiche_html([
-        'Statut' => etiquette($statut) . suspension_detail($lic),
-        'Titulaire' => h($lic['titulaire']),
-        'E-mail' => h($lic['email']),
-        'Note' => h($lic['note']),
-        'Distribution' => h($lic['produit_code'] . ' / ' . $lic['distribution_code'] . ' - ' . $lic['distribution_libelle']),
-        'Cle' => '<code>ETDEL-****-****-****-' . h($lic['cle_indice']) . '</code> (seule la fin est conservee)',
-        'Echeance' => $lic['echeance'] === null ? 'perpetuelle' : h(date_fr((int)$lic['echeance'])) . ' ('
-            . (int)jours_restants((int)$lic['echeance'], $n) . ' j restants)',
-        'Tolerance hors ligne' => $lic['tolerance_j'] === null ? 'distribution (' . (int)$lic['distribution_tolerance'] . ' j)'
-            : (int)$lic['tolerance_j'] . ' j (surcharge)',
-        'Options' => h(options_affichees($options)) . ($lic['options'] === null ? ' (distribution)' : ' (surcharge)'),
-        'Poste lie' => $lic['machine'] === null ? 'aucun (la premiere activation liera la cle)'
-            : '<code>' . h($lic['id_poste']) . '</code> ' . h($lic['nom_ordinateur']) . ' <span class="discret">empreinte '
-            . h(substr((string)$lic['machine'], 0, 12)) . '...</span>',
-        'Lie le' => h(date_fr($lic['lie_le'] === null ? null : (int)$lic['lie_le'], true)),
-        'Version de l\'application' => h($lic['version_appli']),
-        'Dernier contact' => h(date_fr($lic['dernier_contact'] === null ? null : (int)$lic['dernier_contact'], true)),
-        'Derniere IP' => h($lic['derniere_ip']),
-        'Origine' => h($lic['origine']),
-        'Creee le' => h(date_fr((int)$lic['cree_le'], true)),
-        'Modifiee le' => h(date_fr((int)$lic['modifie_le'], true)),
+        'Statut' => etiquette(licence_statut_affiche($lic, $n)) . suspension_detail($lic),
+        'Client' => h($lic['titulaire']),
+        'Distribution' => lien_distribution((int)$lic['distribution_id'], $lic['distribution_code'],
+            $lic['distribution_libelle']),
+        'Cle' => '<code>ETDEL-****-****-****-' . h($lic['cle_indice']) . '</code>',
+        'Ordinateur' => $lic['machine'] === null ? 'aucun : la cle s\'activera sur le premier ordinateur ou elle sera saisie'
+            : '<code>' . h($lic['id_poste']) . '</code> ' . h($lic['nom_ordinateur']),
+        'Echeance' => $echeance,
+        'Dernier contact' => $lic['dernier_contact'] === null ? 'jamais' : h(date_fr((int)$lic['dernier_contact'], true)),
     ]);
-    $actions = '';
+    return $html . '<h2>Que voulez-vous faire ?</h2>' . admin_licence_actions($ctx, $lic)
+        . '<details class="avance"><summary>Reglages avances</summary>' . admin_licence_avance($ctx, $lic) . '</details>';
+}
+
+/** Une action de la fiche licence : bouton (summary) qui deplie une explication et son formulaire. */
+function action_depliable(string $titre, string $explication, string $formulaire, string $classe = 'action'): string
+{
+    return '<details class="' . $classe . '"><summary>' . h($titre) . '</summary><div class="panneau"><p>'
+        . h($explication) . '</p>' . $formulaire . '</div></details>';
+}
+
+function admin_licence_actions(array $ctx, array $lic): string
+{
+    $id = (int)$lic['id'];
+    if ($lic['statut'] === 'revoquee') {
+        // Revocation definitive (D61) : on sert de nouveau le client par une nouvelle licence (D67). Deja
+        // remplacee : la remplacante est indiquee et le bouton passe au second plan (pas de doublon par megarde).
+        $remplacantes = array_map(static function (int $autre): string {
+            return 'la <a href="index.php?page=licence&amp;id=' . $autre . '">licence n. ' . $autre . '</a>';
+        }, licence_remplacantes($ctx['db'], $id));
+        return '<p>Cette licence est revoquee : c\'est definitif, elle ne peut plus etre reactivee. Pour servir de '
+            . 'nouveau ce client, creez-lui une nouvelle licence, avec une nouvelle cle a lui transmettre.</p>'
+            . ($remplacantes === [] ? '' : '<p><strong>Deja remplacee par ' . implode(', ', $remplacantes) . '.</strong></p>')
+            . '<p><a class="bouton' . ($remplacantes === [] ? ' principal' : '') . '" href="index.php?page=licence_nouvelle'
+            . '&amp;modele=' . $id . '">Nouvelle licence pour ce client</a></p>';
+    }
+    $html = '';
+    if ($lic['echeance'] !== null) {
+        $html .= action_depliable('Prolonger', 'Ajoute du temps a partir de l\'echeance actuelle (ou d\'aujourd\'hui si '
+            . 'elle est deja passee). Le client n\'a rien a faire : l\'application recoit la nouvelle date a son prochain '
+            . 'controle.',
+            '<div class="rangee">'
+            . f_formulaire($ctx, 'licence_prolonger', f_bouton('+30 jours', 'principal'), ['id' => $id, 'mode' => '30'],
+                'en-ligne')
+            . f_formulaire($ctx, 'licence_prolonger', f_bouton('+1 an', 'principal'), ['id' => $id, 'mode' => '365'],
+                'en-ligne')
+            . '</div>'
+            . f_formulaire($ctx, 'licence_prolonger', f_champ('date', 'Ou choisir la nouvelle echeance', '', 'date',
+                'required') . f_bouton('Fixer la date'), ['id' => $id, 'mode' => 'date']));
+    }
+    $html .= action_depliable('Nouvelle cle', 'Pour une cle perdue ou transmise par erreur : une nouvelle cle remplace '
+        . 'l\'ancienne, qui ne fonctionnera plus. Elle s\'affiche une seule fois ; le client la saisit dans l\'application '
+        . 'et elle s\'active sur le premier ordinateur ou elle est saisie.',
+        f_formulaire($ctx, 'licence_nouvelle_cle', f_bouton('Creer une nouvelle cle', 'principal'), ['id' => $id],
+            'en-ligne'));
+    if ($lic['machine'] !== null) {
+        $html .= action_depliable('Changer d\'ordinateur', 'Quand le client passe sur un autre ordinateur : la cle est '
+            . 'detachee de l\'ordinateur actuel (' . $lic['id_poste'] . ' ' . $lic['nom_ordinateur'] . '), puis le client '
+            . 'saisit la meme cle sur le nouveau. L\'ancien ordinateur perd la licence a son prochain controle.',
+            f_formulaire($ctx, 'licence_liberer', f_bouton('Liberer cette cle', 'principal'), ['id' => $id], 'en-ligne'));
+    }
+    if ($lic['statut'] === 'active') {
+        $html .= action_depliable('Suspendre', 'Bloque l\'application du client a son prochain controle, sans effacer sa '
+            . 'cle. Sans date, elle reste bloquee jusqu\'a ce que vous cliquiez sur "Reactiver" ; avec une date, elle se '
+            . 'debloque toute seule a la fin de ce jour-la.',
+            f_formulaire($ctx, 'licence_suspendre', f_champ('jusqu', 'Jusqu\'au (facultatif)', '', 'date')
+                . f_bouton('Suspendre', 'principal'), ['id' => $id]));
+    } else {
+        $html .= action_depliable('Reactiver', 'Met fin a la suspension : l\'application du client se debloque a son '
+            . 'prochain controle, sans rien ressaisir.',
+            f_formulaire($ctx, 'licence_reactiver', f_bouton('Reactiver', 'principal'), ['id' => $id], 'en-ligne'));
+        // Date de fin actuelle pre-remplie : valider sans y toucher ne supprime pas la reactivation automatique.
+        $fin = $lic['suspendue_jusqu'] === null ? '' : date('Y-m-d', (int)$lic['suspendue_jusqu']);
+        $html .= action_depliable('Changer la date de fin', 'La licence reste suspendue jusqu\'a cette date, puis se '
+            . 'reactive toute seule. Effacer la date pour une suspension sans fin prevue.',
+            f_formulaire($ctx, 'licence_suspendre', f_champ('jusqu', 'Nouvelle date de fin (vide = sans date)', $fin, 'date')
+                . f_bouton('Changer la date de fin', 'principal'), ['id' => $id]));
+    }
+    $html .= action_depliable('Revoquer', 'Definitif : la licence ne pourra plus etre reactivee et l\'ordinateur du '
+        . 'client efface sa cle a son prochain controle. Pour servir de nouveau ce client ensuite, utilisez le bouton '
+        . '"Nouvelle licence pour ce client" qui apparaitra sur cette page.',
+        f_formulaire($ctx, 'licence_revoquer', f_bouton('Revoquer definitivement', 'danger'), ['id' => $id], 'en-ligne'),
+        'action action-danger');
+    return '<div class="actions">' . $html . '</div>';
+}
+
+/** Reglages avances de la fiche licence : modification, informations techniques, historique. */
+function admin_licence_avance(array $ctx, array $lic): string
+{
+    $id = (int)$lic['id'];
+    $options = $lic['options'] === null ? options_lire($lic['distribution_options']) : options_lire($lic['options']);
+    $html = '';
     if ($lic['statut'] !== 'revoquee') {
-        if ($lic['echeance'] !== null) {
-            $actions .= '<section><h2>Prolonger</h2><div class="rangee">'
-                . f_formulaire($ctx, 'licence_prolonger', f_bouton('+30 jours'), ['id' => $id, 'mode' => '30'], 'en-ligne')
-                . f_formulaire($ctx, 'licence_prolonger', f_bouton('+1 an'), ['id' => $id, 'mode' => '365'], 'en-ligne')
-                . '</div>'
-                . f_formulaire($ctx, 'licence_prolonger', f_champ('date', 'Nouvelle echeance', '', 'date', 'required')
-                    . f_bouton('Fixer la date'), ['id' => $id, 'mode' => 'date'])
-                . '</section>';
-        }
-        $actions .= '<section><h2>Modifier</h2>' . f_formulaire($ctx, 'licence_modifier',
-            f_champ('titulaire', 'Titulaire', $lic['titulaire'], 'text', 'maxlength="120" required')
+        $html .= '<h2>Modifier</h2>' . f_formulaire($ctx, 'licence_modifier',
+            f_champ('titulaire', LIBELLE_TITULAIRE, $lic['titulaire'], 'text', 'maxlength="120" required')
             . f_champ('email', 'E-mail', $lic['email'] ?? '', 'email')
             . f_zone('note', 'Note interne', $lic['note'] ?? '', 500)
             . f_champ('tolerance_j', 'Tolerance hors ligne en jours (vide = distribution)', $lic['tolerance_j'] ?? '', 'number',
                 'min="0" max="365"')
             . f_case('options_distribution', 'Options de la distribution', $lic['options'] === null)
             . f_champ('options', 'Options propres a la licence (* = toutes)', implode(', ', $options))
-            . f_bouton('Enregistrer'), ['id' => $id]) . '</section>';
-        $etat = '';
-        if ($lic['statut'] === 'active') {
-            $etat .= f_formulaire($ctx, 'licence_suspendre', f_champ('jusqu', 'Jusqu\'au (facultatif)', '', 'date')
-                . f_bouton('Suspendre'), ['id' => $id]);
-        } else {
-            $etat .= f_formulaire($ctx, 'licence_reactiver', f_bouton('Reactiver'), ['id' => $id], 'en-ligne');
-            $etat .= f_formulaire($ctx, 'licence_suspendre', f_champ('jusqu', 'Nouvelle date de fin (vide = sans date)',
-                '', 'date') . f_bouton('Changer la date de fin'), ['id' => $id]);
-        }
-        $etat .= '<div class="rangee">' . f_formulaire($ctx, 'licence_revoquer', f_bouton('Revoquer', 'danger'), ['id' => $id],
-            'en-ligne');
-        if ($lic['machine'] !== null) {
-            $etat .= f_formulaire($ctx, 'licence_liberer', f_bouton('Liberer le poste'), ['id' => $id], 'en-ligne');
-        }
-        $etat .= '</div>';
-        // D61 : la suspension garde la cle du poste (il se debloque seul), la
-        // revocation l'efface definitivement.
-        $actions .= '<section><h2>Etat</h2>' . $etat . '<p class="discret">Suspendre bloque le poste a sa connexion '
-            . 'suivante sans effacer sa cle : il se debloque tout seul quand la licence est reactivee ou a la date de fin '
-            . 'choisie (sans date : jusqu\'a "Reactiver"). Revoquer est definitif : le poste efface sa cle ; pour le '
-            . 'remettre en service, creer une nouvelle cle ou laisser l\'utilisateur refaire une demande (pas de nouvel '
-            . 'essai si ce poste en a deja eu un pour ce produit). Liberer le poste permet d\'activer la meme cle sur un '
-            . 'autre ordinateur.</p></section>';
+            . f_bouton('Enregistrer'), ['id' => $id]);
     }
+    $html .= '<h2>Informations techniques</h2>' . fiche_html([
+        'Distribution' => h($lic['produit_code'] . ' / ' . $lic['distribution_code'] . ' - ' . $lic['distribution_libelle']),
+        'E-mail' => h($lic['email']),
+        'Note' => '<span class="message">' . h($lic['note']) . '</span>',
+        'Tolerance hors ligne' => $lic['tolerance_j'] === null ? 'distribution (' . (int)$lic['distribution_tolerance'] . ' j)'
+            : (int)$lic['tolerance_j'] . ' j (surcharge)',
+        'Options' => h(options_affichees($options)) . ($lic['options'] === null ? ' (distribution)' : ' (surcharge)'),
+        'Empreinte de l\'ordinateur' => $lic['machine'] === null ? ''
+            : '<code>' . h(substr((string)$lic['machine'], 0, 12)) . '...</code>',
+        'Version de l\'application' => h($lic['version_appli']),
+        'Derniere IP' => h($lic['derniere_ip']),
+        'Origine' => h($lic['origine']),
+        'Lie le' => h(date_fr($lic['lie_le'] === null ? null : (int)$lic['lie_le'], true)),
+        'Creee le' => h(date_fr((int)$lic['cree_le'], true)),
+        'Modifiee le' => h(date_fr((int)$lic['modifie_le'], true)),
+    ]);
     $lignes = [];
     foreach (db_lignes($ctx['db'], 'SELECT * FROM journal WHERE cible = ? ORDER BY id DESC LIMIT 50', ['licence ' . $id]) as $j) {
         $lignes[] = [h(date_fr((int)$j['date'], true)), h($j['acteur']), h($j['action']), h($j['detail'])];
     }
-    return $html . '<div class="colonnes">' . $actions . '</div><h2>Historique</h2>'
-        . tableau_html(['Date', 'Acteur', 'Action', 'Detail'], $lignes, 'Aucun evenement.');
+    return $html . '<h2>Historique</h2>' . tableau_html(['Date', 'Acteur', 'Action', 'Detail'], $lignes, 'Aucun evenement.');
 }
 
+/**
+ * Formulaire de creation d'une cle. Rien n'est choisi a la place de l'administrateur : une distribution
+ * n'est preselectionnee que si elle est demandee (distribution=<id>, page d'une distribution, D68), si
+ * c'est celle du modele (modele=<id>, licence revoquee, D67 : pre-rempli pour le meme client) ou si
+ * c'est la seule active ; sinon "-- choisir une distribution --", a choisir avant l'envoi.
+ */
 function admin_ecran_licence_nouvelle(array $ctx): string
 {
     $choix = distributions_choix($ctx['db'], true);
     if ($choix === []) {
-        return '<p>Aucune distribution active : <a href="index.php?page=produits">creer d\'abord un produit et une '
-            . 'distribution</a>.</p>';
+        return '<p>Aucune distribution active : <a href="index.php?page=distribution">creer d\'abord une '
+            . 'distribution</a> (ou en reactiver une, sur l\'ecran <a href="index.php?page=distributions">'
+            . 'Distributions</a>).</p>';
     }
-    $premiere = (int)array_key_first($choix);
-    $duree = db_valeur($ctx['db'], 'SELECT duree_defaut_j FROM distributions WHERE id = ?', [$premiere]);
-    return f_formulaire($ctx, 'licence_creer',
-        f_choix('distribution_id', 'Distribution', $choix, $premiere, 'data-durees')
-        . f_champ('titulaire', 'Titulaire', '', 'text', 'maxlength="120" required')
-        . f_champ('email', 'E-mail du client (facultatif)', '', 'email')
-        . f_zone('note', 'Note interne (facultative)', '', 500)
+    $distribution = count($choix) === 1 ? (int)array_key_first($choix) : 0;
+    $id_modele = (int)($ctx['get']['modele'] ?? 0);
+    $modele = $id_modele > 0 ? licence_lire($ctx['db'], $id_modele) : null;
+    $intro = '';
+    if ($modele !== null) {
+        $intro = '<p>Nouvelle licence pour <strong>' . h($modele['titulaire']) . '</strong>, en remplacement de la '
+            . '<a href="index.php?page=licence&amp;id=' . $id_modele . '">licence n. ' . $id_modele . '</a> : verifiez '
+            . 'les informations ci-dessous, puis cliquez sur "Creer la cle".</p>';
+    }
+    $voulue = $modele !== null ? (int)$modele['distribution_id'] : (int)($ctx['get']['distribution'] ?? 0);
+    if ($voulue > 0 && isset($choix[$voulue])) {
+        $distribution = $voulue;
+    } elseif ($voulue > 0) {
+        // Distribution inactive : aucune autre n'est choisie a sa place.
+        $distribution = 0;
+        $intro .= '<p class="alerte">' . ($modele !== null ? 'La distribution de cette licence n\'est plus active'
+            : 'Cette distribution n\'est pas active') . ' : choisissez-en une autre, ou reactivez-la sur sa page '
+            . '(Reglages avances, case Active).</p>';
+    }
+    $duree = $distribution > 0
+        ? db_valeur($ctx['db'], 'SELECT duree_defaut_j FROM distributions WHERE id = ?', [$distribution]) : null;
+    if ($distribution === 0) {
+        $choix = ['' => '-- choisir une distribution --'] + $choix;
+    }
+    return $intro . f_formulaire($ctx, 'licence_creer',
+        f_choix('distribution_id', 'Distribution', $choix, $distribution === 0 ? '' : $distribution, 'data-durees required')
+        . f_champ('titulaire', LIBELLE_TITULAIRE, $modele['titulaire'] ?? '', 'text', 'maxlength="120" required')
+        . f_champ('email', 'E-mail du client (facultatif)', $modele['email'] ?? '', 'email')
+        . f_zone('note', 'Note interne (facultative)', $modele === null ? '' : 'Remplace la licence n. ' . $id_modele, 500)
         . f_champ('duree_j', 'Duree en jours (vide = perpetuelle)', $duree ?? '', 'number', 'min="1" max="36500"')
-        . f_bouton('Creer la cle', 'principal'))
+        . f_bouton('Creer la cle', 'principal'), $modele === null ? [] : ['modele' => $id_modele])
         . '<p class="discret">La cle n\'est affichee qu\'une fois, a la creation : elle est a transmettre au client, qui '
-        . 'la saisit dans l\'application. Elle se lie au premier poste qui l\'active.</p>';
+        . 'la saisit dans l\'application. Elle se lie au premier ordinateur qui l\'active.</p>';
+}
+
+/** Licences creees pour remplacer une licence revoquee (journal "licence_remplacee"), dans l'ordre. */
+function licence_remplacantes(PDO $db, int $id): array
+{
+    $ids = [];
+    foreach (db_lignes($db, "SELECT detail FROM journal WHERE action = 'licence_remplacee' AND cible = ? ORDER BY id",
+        ['licence ' . $id]) as $j) {
+        if (preg_match('/^par la licence n\. (\d+)$/', (string)$j['detail'], $m) === 1
+            && db_valeur($db, 'SELECT COUNT(*) FROM licences WHERE id = ?', [(int)$m[1]]) == 1) {
+            $ids[] = (int)$m[1];
+        }
+    }
+    return $ids;
 }
 
 /** Cree une cle non liee ; renvoie ['id' => ..., 'cle' => ...]. */
@@ -859,16 +1093,41 @@ function licence_creer(PDO $db, int $distribution_id, string $titulaire, ?string
     return ['id' => $id, 'cle' => $cle];
 }
 
+/**
+ * Cree une cle depuis le formulaire Nouvelle licence. Avec modele (licence revoquee, D67), en une
+ * transaction : la licence revoquee note sa remplacante (journal "licence_remplacee", affiche sur sa fiche).
+ */
 function admin_action_licence_creer(array $ctx)
 {
     $p = $ctx['post'];
-    $r = licence_creer($ctx['db'], (int)($p['distribution_id'] ?? 0),
-        (string)texte_saisi($p['titulaire'] ?? '', 120, 'Titulaire', true), email_saisi($p['email'] ?? '', 'E-mail'),
-        texte_saisi($p['note'] ?? '', 500, 'Note', false, true), entier_saisi($p['duree_j'] ?? '', 1, 36500, 'Duree', true),
-        $ctx['utilisateur'], $ctx['ip'], $ctx['maintenant']);
+    $db = $ctx['db'];
+    $distribution = (int)($p['distribution_id'] ?? 0);
+    if ($distribution <= 0) {
+        throw new AdminErreur('Distribution : choisissez-la dans la liste. Rien n\'a ete cree.');
+    }
+    $titulaire = (string)texte_saisi($p['titulaire'] ?? '', 120, 'Client', true);
+    $email = email_saisi($p['email'] ?? '', 'E-mail');
+    $note = texte_saisi($p['note'] ?? '', 500, 'Note', false, true);
+    $duree = entier_saisi($p['duree_j'] ?? '', 1, 36500, 'Duree', true);
+    $id_modele = (int)($p['modele'] ?? 0);
+    $modele = $id_modele > 0 ? licence_lire($db, $id_modele) : null;
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        $r = licence_creer($db, $distribution, $titulaire, $email, $note, $duree, $ctx['utilisateur'], $ctx['ip'],
+            $ctx['maintenant']);
+        if ($modele !== null && $modele['statut'] === 'revoquee') {
+            admin_journal($ctx, 'licence_remplacee', 'licence ' . $id_modele, 'par la licence n. ' . $r['id']);
+        }
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        $db->exec('ROLLBACK');
+        throw $e;
+    }
     return '<p class="succes">Cle creee. Elle ne sera plus affichee : copiez-la maintenant pour la transmettre au '
         . 'client.</p>' . bloc_copie('cle', $r['cle']) . '<p><a href="index.php?page=licence&amp;id=' . (int)$r['id']
-        . '">Voir la licence</a> - <a href="index.php?page=licence_nouvelle">Creer une autre cle</a></p>';
+        . '">Voir la licence</a> - <a href="index.php?page=licence_nouvelle&amp;distribution=' . $distribution
+        . '">Creer une autre licence pour cette distribution</a> - <a href="index.php?page=distribution&amp;id='
+        . $distribution . '">Retour a la distribution</a></p>';
 }
 
 /**
@@ -918,7 +1177,7 @@ function admin_action_licence_modifier(array $ctx): array
     $id = (int)($p['id'] ?? 0);
     licence_lire($ctx['db'], $id);
     $valeurs = [
-        'titulaire' => (string)texte_saisi($p['titulaire'] ?? '', 120, 'Titulaire', true),
+        'titulaire' => (string)texte_saisi($p['titulaire'] ?? '', 120, 'Client', true),
         'email' => email_saisi($p['email'] ?? '', 'E-mail'),
         'note' => texte_saisi($p['note'] ?? '', 500, 'Note', false, true),
         'tolerance_j' => entier_saisi($p['tolerance_j'] ?? '', 0, 365, 'Tolerance', true),
@@ -987,7 +1246,7 @@ function admin_action_licence_liberer(array $ctx): array
     $id = (int)($ctx['post']['id'] ?? 0);
     $lic = licence_lire($ctx['db'], $id);
     if ($lic['machine'] === null) {
-        throw new AdminErreur('Cette cle n\'est liee a aucun poste.');
+        throw new AdminErreur('Cette cle n\'est liee a aucun ordinateur.');
     }
     db_maj($ctx['db'], 'licences', ['machine' => null, 'id_poste' => null, 'nom_ordinateur' => null, 'lie_le' => null,
         'modifie_le' => $ctx['maintenant']], 'id', $id);
@@ -995,8 +1254,46 @@ function admin_action_licence_liberer(array $ctx): array
     return admin_redirection('index.php?page=licence&id=' . $id . '&ok=liberee');
 }
 
+/**
+ * Nouvelle cle (D67) pour une licence active ou suspendue, en une transaction : l'ancienne
+ * cle n'existe plus pour l'API (cle_invalide : l'ancien ordinateur l'efface), l'ordinateur
+ * lie est libere et une remise en attente de l'ancienne cle (demande acceptee) est annulee.
+ * La reponse affiche la nouvelle cle une seule fois (pas de redirection).
+ */
+function admin_action_licence_nouvelle_cle(array $ctx): array
+{
+    $id = (int)($ctx['post']['id'] ?? 0);
+    $db = $ctx['db'];
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        $lic = licence_lire($db, $id);
+        if (!in_array($lic['statut'], ['active', 'suspendue'], true)) {
+            throw new AdminErreur('Licence revoquee : sa cle ne peut plus etre remplacee. Utiliser "Nouvelle licence pour '
+                . 'ce client" sur la fiche de la licence.');
+        }
+        $cle = cle_generer();
+        db_maj($db, 'licences', ['cle_hash' => cle_hash($cle), 'cle_indice' => substr($cle, -4), 'machine' => null,
+            'id_poste' => null, 'nom_ordinateur' => null, 'lie_le' => null, 'modifie_le' => $ctx['maintenant']], 'id', $id);
+        db_modifier($db, 'UPDATE demandes SET cle_chiffree = NULL WHERE licence_id = ?', [$id]);
+        admin_journal($ctx, 'cle_remplacee', 'licence ' . $id, 'ancienne cle ...' . $lic['cle_indice'] . ' ; '
+            . ($lic['machine'] === null ? 'aucun ordinateur lie'
+                : 'ordinateur libere : ' . $lic['id_poste'] . ' (' . $lic['nom_ordinateur'] . ')'));
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        $db->exec('ROLLBACK');
+        throw $e;
+    }
+    return admin_page($ctx, 'Nouvelle cle', '<p class="succes">Nouvelle cle creee. Elle ne sera plus affichee : copiez-la '
+        . 'maintenant pour la transmettre au client.</p>' . bloc_copie('cle', $cle)
+        . '<p>L\'ancienne cle ne fonctionne plus. Envoyez cette cle au client : il la saisit dans l\'application avec '
+        . '"J\'ai une cle". Elle se liera au premier ordinateur ou elle sera saisie.</p>'
+        . '<p class="discret">L\'ordinateur qui utilisait l\'ancienne cle la voit refusee a son prochain controle : '
+        . 'l\'application l\'efface et previent l\'utilisateur ; il faudra y saisir la nouvelle cle.</p>'
+        . '<p><a href="index.php?page=licence&amp;id=' . $id . '">Retour a la licence</a></p>');
+}
+
 // ---------------------------------------------------------------------------
-// Produits et distributions
+// Distributions, et produits pour les ranger (D68)
 // ---------------------------------------------------------------------------
 
 function ligne_installer(string $produit, string $distribution): string
@@ -1005,132 +1302,72 @@ function ligne_installer(string $produit, string $distribution): string
         . '", version=APP_VERSION)';
 }
 
-function admin_ecran_produits(array $ctx): string
+/**
+ * Regles d'une distribution en une phrase : "Licence 365 jours, essai 15 jours, options : export_pdf,
+ * hors ligne 15 jours" (puis ", version minimale X" si elle est fixee).
+ */
+function regles_resume(array $d): string
 {
-    $db = $ctx['db'];
-    $html = '<p><a class="bouton principal" href="index.php?page=produit">Nouveau produit</a></p>';
-    $produits = db_lignes($db, 'SELECT * FROM produits ORDER BY code');
-    if ($produits === []) {
-        return $html . '<p class="discret">Aucun produit.</p>';
-    }
-    foreach ($produits as $p) {
-        $html .= '<section class="produit"><h2>' . h($p['code']) . ' - ' . h($p['nom'])
-            . ((int)$p['actif'] === 1 ? '' : ' <span class="etiquette revoquee">desactive</span>') . '</h2>'
-            . '<p>Version minimale : ' . h($p['version_min'] ?: 'aucune') . ' - <a href="index.php?page=produit&amp;id='
-            . (int)$p['id'] . '">Modifier</a> - <a href="index.php?page=distribution&amp;produit=' . (int)$p['id']
-            . '">Nouvelle distribution</a></p>';
-        $lignes = [];
-        foreach (db_lignes($db, 'SELECT d.*, (SELECT COUNT(*) FROM licences l WHERE l.distribution_id = d.id) AS nb '
-            . 'FROM distributions d WHERE d.produit_id = ? ORDER BY d.code', [(int)$p['id']]) as $d) {
-            $lignes[] = ['<a href="index.php?page=distribution&amp;id=' . (int)$d['id'] . '">' . h($d['code']) . '</a>'
-                . ((int)$d['actif'] === 1 ? '' : ' ' . etiquette('inactive')),
-                h($d['libelle']), h($d['client']), (int)$d['tolerance_j'] . ' / ' . (int)$d['preavis_j'] . ' j',
-                $d['duree_defaut_j'] === null ? 'perpetuelle' : (int)$d['duree_defaut_j'] . ' j',
-                (int)$d['essai_j'] . ' j', h($d['version_min'] ?: '-'), h(options_affichees(options_lire($d['options']), '-')),
-                (int)$d['nb']];
-        }
-        $html .= tableau_html(['Code', 'Libelle', 'Client ou canal', 'Tolerance / preavis', 'Duree par defaut', 'Essai',
-                'Version min', 'Options', 'Licences'], $lignes, 'Aucune distribution.') . '</section>';
-    }
-    return $html;
-}
-
-function admin_ecran_produit(array $ctx, int $id): string
-{
-    $p = $id ? db_ligne($ctx['db'], 'SELECT * FROM produits WHERE id = ?', [$id]) : null;
-    if ($id && $p === null) {
-        throw new AdminErreur('Produit inconnu.');
-    }
-    return f_formulaire($ctx, 'produit_enregistrer',
-        ($p === null ? f_champ('code', 'Code (ex. MONAPPLI, definitif)', '', 'text', 'maxlength="64" required')
-            : '<p>Code : <code>' . h($p['code']) . '</code> (non modifiable : il est inscrit dans les applications)</p>')
-        . f_champ('nom', 'Nom', $p['nom'] ?? '', 'text', 'maxlength="120" required')
-        . f_champ('version_min', 'Version minimale globale (facultative)', $p['version_min'] ?? '', 'text', 'maxlength="32"')
-        . f_case('actif', 'Actif', $p === null || (int)$p['actif'] === 1)
-        . f_bouton('Enregistrer', 'principal'), ['id' => $id])
-        . '<p class="discret">Un produit desactive bloque toutes ses distributions (code produit_inconnu).</p>';
-}
-
-function admin_action_produit_enregistrer(array $ctx): array
-{
-    $p = $ctx['post'];
-    $id = (int)($p['id'] ?? 0);
-    $valeurs = [
-        'nom' => (string)texte_saisi($p['nom'] ?? '', 120, 'Nom', true),
-        'version_min' => texte_saisi($p['version_min'] ?? '', 32, 'Version minimale'),
-        'actif' => ($p['actif'] ?? '') === '1' ? 1 : 0,
-    ];
-    if ($id === 0) {
-        $valeurs['code'] = code_saisi($p['code'] ?? '', 'Code');
-        if (db_valeur($ctx['db'], 'SELECT COUNT(*) FROM produits WHERE code = ?', [$valeurs['code']]) > 0) {
-            throw new AdminErreur('Ce code de produit existe deja.');
-        }
-        $valeurs['cree_le'] = $ctx['maintenant'];
-        $id = db_inserer($ctx['db'], 'produits', $valeurs);
-        admin_journal($ctx, 'produit_cree', 'produit ' . $id, $valeurs['code']);
+    $jours = static function ($n): string {
+        return (int)$n . ((int)$n > 1 ? ' jours' : ' jour');
+    };
+    $options = options_lire($d['options']);
+    if ($options === []) {
+        $texte_options = 'aucune option';
+    } elseif (in_array(OPTION_TOUTES, $options, true)) {
+        $texte_options = 'toutes les options';
     } else {
-        if (db_maj($ctx['db'], 'produits', $valeurs, 'id', $id) !== 1) {
-            throw new AdminErreur('Produit inconnu.');
-        }
-        admin_journal($ctx, 'produit_modifie', 'produit ' . $id, json_encode($valeurs));
+        $texte_options = 'options : ' . implode(', ', $options);
     }
-    return admin_redirection('index.php?page=produits&ok=produit');
+    $version = version_min_normalisee($d['version_min'] ?? null);
+    return ($d['duree_defaut_j'] === null ? 'Licence perpetuelle' : 'Licence ' . $jours($d['duree_defaut_j']))
+        . ', ' . ((int)$d['essai_j'] === 0 ? 'pas d\'essai' : 'essai ' . $jours($d['essai_j']))
+        . ', ' . $texte_options . ', hors ligne ' . $jours($d['tolerance_j'])
+        . ($version === null ? '' : ', version minimale ' . $version);
 }
 
-function admin_ecran_distribution(array $ctx, int $id): string
+/** Champs essentiels des regles d'une distribution ($d null : valeurs proposees a un debutant). */
+function f_regles_essentiel(?array $d): string
 {
-    $db = $ctx['db'];
-    $d = $id ? db_ligne($db, 'SELECT d.*, p.code AS produit_code FROM distributions d JOIN produits p ON p.id = d.produit_id '
-        . 'WHERE d.id = ?', [$id]) : null;
-    if ($id && $d === null) {
-        throw new AdminErreur('Distribution inconnue.');
-    }
-    $html = '';
-    if ($d !== null) {
-        $html .= '<p>Ligne a inserer dans l\'application, juste apres la creation de la fenetre principale :</p>'
-            . bloc_copie('installer', ligne_installer($d['produit_code'], $d['code']));
-        $produit_champ = '<p>Produit : <code>' . h($d['produit_code']) . '</code> - Code : <code>' . h($d['code'])
-            . '</code> (non modifiable)</p>';
-    } else {
-        $produits = [];
-        foreach (db_lignes($db, 'SELECT id, code, nom FROM produits ORDER BY code') as $p) {
-            $produits[(int)$p['id']] = $p['code'] . ' - ' . $p['nom'];
-        }
-        if ($produits === []) {
-            return '<p>Creer d\'abord un <a href="index.php?page=produit">produit</a>.</p>';
-        }
-        $produit_champ = f_choix('produit_id', 'Produit', $produits, (int)($ctx['get']['produit'] ?? 0))
-            . f_champ('code', 'Code (ex. MONAPPLI-CLIENTA, definitif)', '', 'text', 'maxlength="64" required');
-    }
-    $html .= f_formulaire($ctx, 'distribution_enregistrer', $produit_champ
-        . f_champ('libelle', 'Libelle', $d['libelle'] ?? '', 'text', 'maxlength="120" required')
-        . f_champ('client', 'Client ou canal', $d['client'] ?? '', 'text', 'maxlength="120"')
-        . f_champ('tolerance_j', 'Tolerance hors ligne (jours, 0 a 365)', $d['tolerance_j'] ?? 15, 'number', 'min="0" max="365" required')
-        . f_champ('preavis_j', 'Preavis (jours, 0 a 365)', $d['preavis_j'] ?? 5, 'number', 'min="0" max="365" required')
-        . f_champ('duree_defaut_j', 'Duree de licence par defaut (jours, vide = perpetuelle)', $d['duree_defaut_j'] ?? '',
-            'number', 'min="1" max="36500"')
-        . f_champ('essai_j', 'Essai pendant une demande (jours, 0 = aucun)', $d['essai_j'] ?? 15, 'number', 'min="0" max="365" required')
-        . f_champ('version_min', 'Version minimale (facultative)', $d['version_min'] ?? '', 'text', 'maxlength="32"')
-        . f_champ('options', 'Options activees (codes separes par des virgules, * = toutes)',
-            implode(', ', options_lire($d['options'] ?? '[]')))
-        . f_zone('message', 'Message d\'accueil (facultatif)', $d['message'] ?? '', MESSAGE_ACCUEIL_MAX)
-        . f_case('actif', 'Active', $d === null || (int)$d['actif'] === 1)
-        . f_bouton('Enregistrer', 'principal'), ['id' => $id]);
-    if ($d !== null) {
-        $html .= '<h2>Dupliquer</h2>' . f_formulaire($ctx, 'distribution_dupliquer',
-            f_champ('code', 'Code de la copie', $d['code'] . '-COPIE', 'text', 'maxlength="64" required')
-            . f_bouton('Dupliquer'), ['id' => $id]);
-    }
-    return $html;
+    return '<p class="discret">La duree est proposee pour chaque nouvelle licence. L\'essai laisse l\'application '
+        . 'fonctionner pendant qu\'une demande attend votre reponse (une seule fois par ordinateur pour cette '
+        . 'distribution). Les options sont les codes des fonctions que '
+        . 'l\'application active selon la licence (vide si elle n\'en a pas).</p>'
+        . f_champ('duree_defaut_j', 'Duree de licence par defaut (jours, vide = perpetuelle)',
+            $d === null ? REGLES_DEFAUT['duree_defaut_j'] : ($d['duree_defaut_j'] ?? ''), 'number', 'min="1" max="36500"')
+        . f_champ('essai_j', 'Essai pendant une demande (jours, 0 = aucun)', $d['essai_j'] ?? REGLES_DEFAUT['essai_j'],
+            'number', 'min="0" max="365" required')
+        . f_champ('options', 'Options (codes separes par des virgules, * = toutes)',
+            implode(', ', options_lire($d['options'] ?? '[]')));
 }
 
-function admin_action_distribution_enregistrer(array $ctx): array
+/**
+ * Reglages avances des regles, replies (ouverts si $ouvert) : tolerance, preavis, version minimale,
+ * message d'accueil, puis $fin (la case Active).
+ */
+function f_regles_avance(?array $d, string $fin = '', bool $ouvert = false): string
 {
-    $p = $ctx['post'];
-    $id = (int)($p['id'] ?? 0);
-    $valeurs = [
-        'libelle' => (string)texte_saisi($p['libelle'] ?? '', 120, 'Libelle', true),
-        'client' => texte_saisi($p['client'] ?? '', 120, 'Client'),
+    return '<details class="avance"' . ($ouvert ? ' open' : '') . '><summary>Reglages avances</summary>'
+        . '<p class="discret">Les valeurs proposees conviennent dans la plupart des cas. Tolerance hors ligne : nombre de '
+        . 'jours pendant lesquels l\'application fonctionne sans joindre le serveur. Preavis : l\'application previent '
+        . 'l\'utilisateur ce nombre de jours avant la fin de cette tolerance. Version minimale : une version plus '
+        . 'ancienne de l\'application est refusee. Une distribution inactive bloque ses licences et refuse les demandes '
+        . '(l\'application recoit "produit inconnu").</p>'
+        . f_champ('tolerance_j', 'Tolerance hors ligne (jours, 0 a 365)', $d['tolerance_j'] ?? REGLES_DEFAUT['tolerance_j'],
+            'number', 'min="0" max="365" required')
+        . f_champ('preavis_j', 'Preavis (jours, 0 a 365)', $d['preavis_j'] ?? REGLES_DEFAUT['preavis_j'], 'number',
+            'min="0" max="365" required')
+        . f_champ('version_min', 'Version minimale de l\'application (facultative, ex. 1.2)', $d['version_min'] ?? '',
+            'text', 'maxlength="32"')
+        . f_zone('message', 'Message d\'accueil (facultatif, affiche dans la fenetre Licence de l\'application)',
+            $d['message'] ?? '', MESSAGE_ACCUEIL_MAX)
+        . $fin . '</details>';
+}
+
+/** Regles d'une distribution saisies par f_regles_essentiel() et f_regles_avance(). */
+function regles_saisies(array $p): array
+{
+    return [
         'tolerance_j' => entier_saisi($p['tolerance_j'] ?? '', 0, 365, 'Tolerance'),
         'preavis_j' => entier_saisi($p['preavis_j'] ?? '', 0, 365, 'Preavis'),
         'duree_defaut_j' => entier_saisi($p['duree_defaut_j'] ?? '', 1, 36500, 'Duree par defaut', true),
@@ -1138,27 +1375,261 @@ function admin_action_distribution_enregistrer(array $ctx): array
         'version_min' => texte_saisi($p['version_min'] ?? '', 32, 'Version minimale'),
         'options' => json_encode(options_saisies($p['options'] ?? '')),
         'message' => texte_saisi($p['message'] ?? '', MESSAGE_ACCUEIL_MAX, 'Message', false, true),
-        'actif' => ($p['actif'] ?? '') === '1' ? 1 : 0,
     ];
+}
+
+/** Produits pour une liste de choix : id => "CODE - Nom". */
+function produits_choix(PDO $db): array
+{
+    $choix = [];
+    foreach (db_lignes($db, 'SELECT id, code, nom FROM produits ORDER BY code') as $p) {
+        $choix[(int)$p['id']] = $p['code'] . ' - ' . $p['nom'];
+    }
+    return $choix;
+}
+
+/**
+ * Distributions (D68) : la liste rangee par produit, filtrable par produit. Pour chaque distribution :
+ * ses regles en une phrase, ses licences, ses demandes en attente et son etat. Le produit n'a qu'un
+ * nom a changer (son code est definitif).
+ */
+function admin_ecran_distributions(array $ctx): string
+{
+    $db = $ctx['db'];
+    $produits = produits_choix($db);
+    $filtre = (int)($ctx['get']['produit'] ?? 0);
+    if (!isset($produits[$filtre])) {
+        $filtre = 0;
+    }
+    $html = '<p>' . h(DISTRIBUTIONS_EXPLICATION) . '</p>'
+        . '<p><a class="bouton principal" href="index.php?page=distribution' . ($filtre > 0 ? '&amp;produit=' . $filtre : '')
+        . '">Nouvelle distribution</a></p>';
+    if ($produits === []) {
+        return $html . '<p class="discret">Aucune distribution.</p>';
+    }
+    $html .= '<form method="get" action="index.php" class="filtres"><input type="hidden" name="page" value="distributions">'
+        . f_choix('produit', 'Produit', [0 => 'tous'] + $produits, $filtre) . '<button type="submit">Filtrer</button></form>';
+    $sql = 'SELECT id, code, nom FROM produits' . ($filtre > 0 ? ' WHERE id = ?' : '') . ' ORDER BY code';
+    foreach (db_lignes($db, $sql, $filtre > 0 ? [$filtre] : []) as $p) {
+        $id = (int)$p['id'];
+        $lignes = [];
+        foreach (db_lignes($db, 'SELECT d.*, (SELECT COUNT(*) FROM licences l WHERE l.distribution_id = d.id) AS nb_licences, '
+            . "(SELECT COUNT(*) FROM demandes dm WHERE dm.distribution_id = d.id AND dm.statut = 'en_attente') AS nb_attente "
+            . 'FROM distributions d WHERE d.produit_id = ? ORDER BY d.code', [$id]) as $d) {
+            // Etat a cote du code : toujours visible, meme sur un ecran etroit.
+            $lignes[] = ['<a href="index.php?page=distribution&amp;id=' . (int)$d['id'] . '">' . h($d['code']) . '</a> '
+                . etiquette((int)$d['actif'] === 1 ? 'active' : 'inactive'),
+                h($d['libelle']), h($d['client']), h(regles_resume($d)),
+                '<a href="index.php?page=licences&amp;distribution=' . (int)$d['id'] . '">' . (int)$d['nb_licences'] . '</a>',
+                (int)$d['nb_attente'] === 0 ? '0'
+                    : '<a href="index.php?page=demandes">' . (int)$d['nb_attente'] . '</a>'];
+        }
+        // Le filtre en cours suit le renommage (retour a la meme liste).
+        $html .= '<section class="produit"><div class="entete-produit"><h2>' . h($p['code']) . ' - ' . h($p['nom']) . '</h2>'
+            . '<details class="renommer"><summary>Renommer</summary>' . f_formulaire($ctx, 'produit_enregistrer',
+                f_champ('nom', 'Nouveau nom du produit', $p['nom'], 'text', 'maxlength="120" required')
+                . f_bouton('Renommer'), ['id' => $id] + ($filtre > 0 ? ['produit' => $filtre] : []), 'en-ligne')
+            . '</details></div>'
+            . tableau_html(['Distribution', 'Libelle', 'Client', 'Regles', 'Licences', 'En attente'], $lignes,
+                'Aucune distribution pour ce produit.')
+            . ($lignes === [] ? '<p><a href="index.php?page=distribution&amp;produit=' . $id . '">Nouvelle distribution pour '
+                . 'ce produit</a></p>' : '')
+            . '</section>';
+    }
+    return $html;
+}
+
+/**
+ * Renomme un produit (D68) : seul son nom change. Son code est definitif (il est inscrit dans les
+ * applications) ; un produit se cree avec sa premiere distribution (admin_action_distribution_enregistrer).
+ */
+function admin_action_produit_enregistrer(array $ctx): array
+{
+    $id = (int)($ctx['post']['id'] ?? 0);
+    $nom = (string)texte_saisi($ctx['post']['nom'] ?? '', 120, 'Nom du produit', true);
+    $produit = db_ligne($ctx['db'], 'SELECT code, nom FROM produits WHERE id = ?', [$id]);
+    if ($produit === null) {
+        throw new AdminErreur('Produit inconnu.');
+    }
+    db_maj($ctx['db'], 'produits', ['nom' => $nom], 'id', $id);
+    admin_journal($ctx, 'produit_renomme', 'produit ' . $id, $produit['code'] . ' : ' . $produit['nom'] . ' -> ' . $nom);
+    $filtre = (int)($ctx['post']['produit'] ?? 0);
+    return admin_redirection('index.php?page=distributions' . ($filtre > 0 ? '&produit=' . $filtre : '') . '&ok=produit');
+}
+
+/**
+ * Page d'une distribution (D68), l'unite geree : en-tete (code, libelle, produit de classement,
+ * etat), ligne installer(...), ses licences, ses regles (essentiel, puis reglages avances replies)
+ * et la duplication. id = 0 : formulaire de creation.
+ */
+function admin_ecran_distribution(array $ctx, int $id): string
+{
     if ($id === 0) {
-        $valeurs['produit_id'] = (int)($p['produit_id'] ?? 0);
-        if (db_valeur($ctx['db'], 'SELECT COUNT(*) FROM produits WHERE id = ?', [$valeurs['produit_id']]) != 1) {
-            throw new AdminErreur('Produit inconnu.');
-        }
-        $valeurs['code'] = code_saisi($p['code'] ?? '', 'Code');
-        if (db_valeur($ctx['db'], 'SELECT COUNT(*) FROM distributions WHERE code = ?', [$valeurs['code']]) > 0) {
-            throw new AdminErreur('Ce code de distribution existe deja.');
-        }
-        $valeurs['cree_le'] = $ctx['maintenant'];
-        $id = db_inserer($ctx['db'], 'distributions', $valeurs);
-        admin_journal($ctx, 'distribution_creee', 'distribution ' . $id, $valeurs['code']);
+        return admin_ecran_distribution_nouvelle($ctx);
+    }
+    $d = db_ligne($ctx['db'], 'SELECT d.*, p.code AS produit_code, p.nom AS produit_nom, '
+        . '(SELECT COUNT(*) FROM licences l WHERE l.distribution_id = d.id) AS nb_licences '
+        . 'FROM distributions d JOIN produits p ON p.id = d.produit_id WHERE d.id = ?', [$id]);
+    if ($d === null) {
+        throw new AdminErreur('Distribution inconnue.');
+    }
+    $active = (int)$d['actif'] === 1;
+    return fiche_html([
+            'Code' => '<code>' . h($d['code']) . '</code> <span class="discret">(definitif : il est inscrit dans '
+                . 'l\'application)</span>',
+            'Libelle' => h($d['libelle']),
+            'Produit' => h($d['produit_code'] . ' - ' . $d['produit_nom']) . ' <span class="discret">(classement)</span>',
+            'Etat' => etiquette($active ? 'active' : 'inactive') . ($active ? '' : ' <span class="discret">ses licences '
+                . 'sont bloquees et les demandes refusees (Reglages avances, case Active)</span>'),
+        ])
+        . '<p>Ligne a inserer dans l\'application, juste apres la creation de la fenetre principale :</p>'
+        . bloc_copie('installer', ligne_installer($d['produit_code'], $d['code']))
+        . '<p class="raccourcis"><a class="bouton" href="index.php?page=licences&amp;distribution=' . $id
+        . '">Voir ses licences (' . (int)$d['nb_licences'] . ')</a>'
+        . ($active ? '<a class="bouton principal" href="index.php?page=licence_nouvelle&amp;distribution=' . $id
+            . '">Nouvelle licence pour cette distribution</a>' : '') . '</p>'
+        . ($active ? '' : '<p class="alerte">Distribution inactive : reactivez-la (Reglages avances, case Active) pour '
+            . 'lui creer des licences.</p>')
+        . '<h2>Regles</h2>' . f_formulaire($ctx, 'distribution_enregistrer',
+            f_champ('libelle', LIBELLE_DISTRIBUTION, $d['libelle'], 'text', 'maxlength="120" required')
+            . f_champ('client', CLIENT_DISTRIBUTION, $d['client'] ?? '', 'text', 'maxlength="120"')
+            . f_regles_essentiel($d)
+            . f_regles_avance($d, f_case('actif', 'Active', $active), !$active)
+            . f_bouton('Enregistrer', 'principal'), ['id' => $id])
+        . '<h2>Dupliquer</h2><p class="discret">Cree une autre distribution avec les memes regles et le meme produit (autre '
+        . 'client, edition demo...), sans licence, sans demande et sans client : vous completerez sa page ensuite. Son '
+        . 'code est definitif (il sera inscrit dans l\'application).</p>'
+        . f_formulaire($ctx, 'distribution_dupliquer',
+            f_champ('code', 'Code de la copie (definitif)', '', 'text', 'maxlength="64" required placeholder="ex. '
+                . h($d['produit_code']) . '-CLIENTB"')
+            . f_bouton('Dupliquer'), ['id' => $id]);
+}
+
+/**
+ * Nouvelle distribution (D68) : un produit existant pour la ranger, ou un nouveau produit (code et
+ * nom) cree avec elle ; puis son code (definitif) et ses regles, avec les valeurs d'un debutant.
+ */
+function admin_ecran_distribution_nouvelle(array $ctx): string
+{
+    $produits = produits_choix($ctx['db']);
+    $produit = (int)($ctx['get']['produit'] ?? 0);
+    // Des produits existent : rien n'est choisi d'avance, pour qu'un doublon ne soit pas cree par megarde
+    // ("Nouveau produit" laisse par defaut) ; le navigateur exige un choix (required).
+    if ($produits === []) {
+        $choix = [0 => 'Nouveau produit'];
+        $selection = 0;
     } else {
-        if (db_maj($ctx['db'], 'distributions', $valeurs, 'id', $id) !== 1) {
+        $choix = ['' => '-- choisir un produit --'] + $produits + [0 => 'Nouveau produit'];
+        $selection = isset($produits[$produit]) ? $produit : '';
+    }
+    // Le code et le nom du nouveau produit ne sont obligatoires (required, pose par app.js) que si
+    // "Nouveau produit" est choisi : sans JavaScript, les exiger bloquerait le choix d'un produit existant.
+    return '<p>' . h(DISTRIBUTIONS_EXPLICATION) . ' Choisissez un produit existant, ou creez-le ici.</p>'
+        . f_formulaire($ctx, 'distribution_enregistrer',
+            f_choix('produit_id', 'Produit (pour le classement)', $choix, $selection, 'data-produit required')
+            . '<p class="discret">Le code du produit et le code de la distribution sont inscrits dans l\'application '
+            . '(ligne installer(...) donnee apres l\'enregistrement) : ils ne pourront plus changer. Exemple : produit '
+            . 'MONAPPLI, distribution MONAPPLI-CLIENTA.</p>'
+            . '<fieldset class="nouveau-produit" data-nouveau-produit><legend>Nouveau produit</legend>'
+            . f_champ('produit_code', 'Code du nouveau produit (definitif, obligatoire)', '', 'text',
+                'maxlength="64" placeholder="ex. MONAPPLI"')
+            . f_champ('produit_nom', 'Nom du nouveau produit (obligatoire)', '', 'text',
+                'maxlength="120" placeholder="ex. Mon application"')
+            . '</fieldset>'
+            . f_champ('code', 'Code de la distribution (definitif)', '', 'text',
+                'maxlength="64" required placeholder="ex. MONAPPLI-CLIENTA"')
+            . f_champ('libelle', LIBELLE_DISTRIBUTION, '', 'text', 'maxlength="120" required')
+            . f_champ('client', CLIENT_DISTRIBUTION, '', 'text', 'maxlength="120"')
+            . f_regles_essentiel(null)
+            . f_regles_avance(null, f_case('actif', 'Active', true))
+            . f_bouton('Enregistrer', 'principal'), ['id' => 0]);
+}
+
+/**
+ * Code deja pris dans produits ou distributions, a la casse pres : le code existant, sinon null.
+ * L'API distingue la casse, mais COMPTA et compta seraient confondus a la lecture des listes.
+ */
+function code_existant(PDO $db, string $table, string $code): ?string
+{
+    if (!in_array($table, ['produits', 'distributions'], true)) {
+        throw new InvalidArgumentException('Table inattendue.');
+    }
+    $existant = db_valeur($db, 'SELECT code FROM ' . $table . ' WHERE code = ? COLLATE NOCASE ORDER BY code = ? DESC '
+        . 'LIMIT 1', [$code, $code]);
+    return $existant === null ? null : (string)$existant;
+}
+
+/** Refus d'un code de distribution deja pris (a la casse pres). */
+function distribution_code_libre(PDO $db, string $code, string $suite): void
+{
+    $existant = code_existant($db, 'distributions', $code);
+    if ($existant !== null) {
+        throw new AdminErreur('Ce code de distribution existe deja' . ($existant !== $code ? ' (' . $existant
+            . ', meme code a la casse pres)' : '') . '.' . $suite);
+    }
+}
+
+/**
+ * Enregistre une distribution (D68). Creation, en une transaction : le produit choisi (produit_id),
+ * ou un nouveau produit (produit_code, produit_nom, produit_id = 0) cree avec elle ; son code est
+ * definitif. Modification : libelle, client, regles et etat ; ni son code ni son produit.
+ */
+function admin_action_distribution_enregistrer(array $ctx): array
+{
+    $p = $ctx['post'];
+    $db = $ctx['db'];
+    $id = (int)($p['id'] ?? 0);
+    $valeurs = [
+        'libelle' => (string)texte_saisi($p['libelle'] ?? '', 120, 'Libelle', true),
+        'client' => texte_saisi($p['client'] ?? '', 120, 'Client'),
+    ] + regles_saisies($p) + ['actif' => ($p['actif'] ?? '') === '1' ? 1 : 0];
+    if ($id !== 0) {
+        if (db_maj($db, 'distributions', $valeurs, 'id', $id) !== 1) {
             throw new AdminErreur('Distribution inconnue.');
         }
         admin_journal($ctx, 'distribution_modifiee', 'distribution ' . $id, json_encode($valeurs));
+        return admin_redirection('index.php?page=distribution&id=' . $id . '&ok=distribution');
     }
-    return admin_redirection('index.php?page=distribution&id=' . $id . '&ok=distribution');
+    $code = code_saisi($p['code'] ?? '', 'Code de la distribution');
+    // produit_id : '' (rien choisi), 0 ("Nouveau produit") ou l'id d'un produit existant.
+    $produit_id = (int)($p['produit_id'] ?? 0);
+    $produit_code = trim((string)($p['produit_code'] ?? ''));
+    $nouveau = null;
+    if ($produit_id === 0) {
+        if ($produit_code === '') {
+            throw new AdminErreur('Produit : choisissez-le dans la liste, ou remplissez le code et le nom du nouveau '
+                . 'produit. Rien n\'a ete cree.');
+        }
+        $nouveau = ['code' => code_saisi($produit_code, 'Code du nouveau produit'),
+            'nom' => (string)texte_saisi($p['produit_nom'] ?? '', 120, 'Nom du nouveau produit', true)];
+    } elseif ($produit_code !== '' || trim((string)($p['produit_nom'] ?? '')) !== '') {
+        // Sans JavaScript, les deux sont visibles : on ne devine pas lequel etait voulu.
+        throw new AdminErreur('Produit : choisissez un produit existant ou "Nouveau produit", pas les deux (laissez vides '
+            . 'le code et le nom du nouveau produit pour un produit existant). Rien n\'a ete cree.');
+    }
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        distribution_code_libre($db, $code, ' Rien n\'a ete cree.');
+        if ($nouveau !== null) {
+            $existant = code_existant($db, 'produits', $nouveau['code']);
+            if ($existant !== null) {
+                throw new AdminErreur('Le produit ' . $existant . ' existe deja' . ($existant !== $nouveau['code']
+                    ? ' (meme code, autre casse)' : '') . ' : choisissez-le dans la liste. Rien n\'a ete cree.');
+            }
+            $produit_id = db_inserer($db, 'produits', $nouveau + ['cree_le' => $ctx['maintenant']]);
+            admin_journal($ctx, 'produit_cree', 'produit ' . $produit_id, $nouveau['code'] . ' (' . $nouveau['nom'] . ')');
+        } elseif (db_valeur($db, 'SELECT COUNT(*) FROM produits WHERE id = ?', [$produit_id]) != 1) {
+            throw new AdminErreur('Produit inconnu.');
+        }
+        $id = db_inserer($db, 'distributions', ['produit_id' => $produit_id, 'code' => $code,
+            'cree_le' => $ctx['maintenant']] + $valeurs);
+        admin_journal($ctx, 'distribution_creee', 'distribution ' . $id, $code);
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        $db->exec('ROLLBACK');
+        throw $e;
+    }
+    return admin_redirection('index.php?page=distribution&id=' . $id . '&ok=creee');
 }
 
 function admin_action_distribution_dupliquer(array $ctx): array
@@ -1167,13 +1638,13 @@ function admin_action_distribution_dupliquer(array $ctx): array
     if ($source === null) {
         throw new AdminErreur('Distribution inconnue.');
     }
-    $code = code_saisi($ctx['post']['code'] ?? '', 'Code');
-    if (db_valeur($ctx['db'], 'SELECT COUNT(*) FROM distributions WHERE code = ?', [$code]) > 0) {
-        throw new AdminErreur('Ce code de distribution existe deja.');
-    }
+    $code = code_saisi($ctx['post']['code'] ?? '', 'Code de la copie');
+    distribution_code_libre($ctx['db'], $code, '');
+    // Memes regles et meme produit ; ni licence, ni demande, ni client (une copie sert a un autre client).
     unset($source['id']);
     $source['code'] = $code;
     $source['libelle'] = tronquer_utf8($source['libelle'] . ' (copie)', 120);
+    $source['client'] = null;
     $source['cree_le'] = $ctx['maintenant'];
     $id = db_inserer($ctx['db'], 'distributions', $source);
     admin_journal($ctx, 'distribution_dupliquee', 'distribution ' . $id, 'copie de ' . (int)$ctx['post']['id'] . ' : ' . $code);
@@ -1198,16 +1669,16 @@ function admin_ecran_serveurs(array $ctx): string
     $vus = db_ligne($db, 'SELECT COALESCE(SUM(dernier_contact >= ?), 0) AS j1, COALESCE(SUM(dernier_contact >= ?), 0) AS j7, '
         . 'COALESCE(SUM(dernier_contact >= ?), 0) AS j30, COUNT(*) AS liees FROM licences '
         . "WHERE machine IS NOT NULL AND statut = 'active'", [$n - JOUR, $n - 7 * JOUR, $n - 30 * JOUR]);
-    return '<p>Liste signee diffusee a chaque reponse, dans l\'ordre de priorite (plus petit = premier). Les postes la '
-        . 'memorisent : changer d\'URL ne demande jamais de recompiler les applications.</p>'
+    return '<p>Liste signee diffusee a chaque reponse, dans l\'ordre de priorite (plus petit = premier). Les ordinateurs '
+        . 'la memorisent : changer d\'URL ne demande jamais de recompiler les applications.</p>'
         . tableau_html(['URL', 'Etat', 'Reglage'], $lignes, 'Aucune URL.')
         . '<h2>Ajouter une URL</h2>' . f_formulaire($ctx, 'url_ajouter',
             f_champ('url', 'URL de l\'API (https://.../api/v1/)', '', 'url', 'required maxlength="300"')
             . f_champ('priorite', 'Priorite', 20, 'number', 'min="0" max="9999"') . f_bouton('Ajouter', 'principal'))
-        . '<h2>Suivi d\'une migration</h2><p>Postes actifs vus depuis 24 h : <strong>' . (int)$vus['j1'] . '</strong>, '
+        . '<h2>Suivi d\'une migration</h2><p>Ordinateurs actifs vus depuis 24 h : <strong>' . (int)$vus['j1'] . '</strong>, '
         . '7 jours : <strong>' . (int)$vus['j7'] . '</strong>, 30 jours : <strong>' . (int)$vus['j30'] . '</strong> sur '
-        . (int)$vus['liees'] . ' postes lies.</p><p class="discret">Procedure : ajouter la nouvelle URL, attendre que les '
-        . 'postes se soient connectes (colonne dernier contact), puis desactiver l\'ancienne.</p>';
+        . (int)$vus['liees'] . ' ordinateurs lies.</p><p class="discret">Procedure : ajouter la nouvelle URL, attendre que '
+        . 'les ordinateurs se soient connectes (colonne dernier contact), puis desactiver l\'ancienne.</p>';
 }
 
 function admin_action_url_ajouter(array $ctx): array
@@ -1368,7 +1839,7 @@ function admin_ecran_sauvegarde(array $ctx): string
     }
     return '<p>Base : ' . h(number_format((int)@filesize($base) / 1024, 0, ',', ' ')) . ' Ko.</p>'
         . f_formulaire($ctx, 'sauvegarde_telecharger', f_bouton('Telecharger une copie de la base', 'principal'))
-        . '<p class="discret">La copie contient les empreintes des postes et les hachages des cles, jamais les cles '
+        . '<p class="discret">La copie contient les empreintes des ordinateurs et les hachages des cles, jamais les cles '
         . 'en clair. La sauvegarde quotidienne est faite par la tache planifiee OVH (prive/sauvegarde.php).</p>'
         . '<h2>Dernieres sauvegardes quotidiennes</h2>' . tableau_html(['Fichier', 'Taille'], $lignes, 'Aucune sauvegarde : '
             . 'verifier la tache planifiee.');
@@ -1468,7 +1939,7 @@ function admin_action_mot_de_passe(array $ctx): string
     htpasswd_ecrire((string)$ctx['config']['htpasswd'], $ctx['utilisateur'], $nouveau);
     admin_journal($ctx, 'mot_de_passe', $ctx['utilisateur'], null);
     return '<p class="succes">Mot de passe change. Le navigateur va redemander l\'identifiant et le nouveau mot de passe.</p>'
-        . '<p><a href="index.php">Tableau de bord</a></p>';
+        . '<p><a href="index.php?page=tableau">Accueil</a></p>';
 }
 
 // ---------------------------------------------------------------------------
@@ -1496,14 +1967,14 @@ function admin_ecran_cles(array $ctx): string
         $lignes[] = [(int)$cle['kid'], '<code>' . h($cle['cle_publique']) . '</code>',
             h(date_fr((int)$cle['active_depuis'], true)),
             $cle['retiree_le'] === null ? etiquette('active') : h(date_fr((int)$cle['retiree_le'], true))
-                . ' <span class="discret">(acceptee par les postes jusqu\'au ' . h(date_fr((int)$cle['retiree_le'] + 90 * JOUR))
+                . ' <span class="discret">(acceptee par les ordinateurs jusqu\'au ' . h(date_fr((int)$cle['retiree_le'] + 90 * JOUR))
                 . ')</span>',
             $cle['bulletin'] === null ? 'premiere cle' : 'signe par la cle precedente'];
     }
     $html .= '<h2>Historique</h2>' . tableau_html(['kid', 'Cle publique', 'Active depuis', 'Retiree le', 'Bulletin'], $lignes);
-    $html .= '<h2>Rotation</h2><p>Genere une nouvelle paire sur le serveur. La cle privee actuelle est effacee ; les postes '
-        . 'qui se connectent adoptent la nouvelle cle et acceptent encore l\'ancienne pendant 90 jours. Un poste reste hors '
-        . 'ligne plus de 12 mois apres une rotation devra etre mis a jour.</p>'
+    $html .= '<h2>Rotation</h2><p>Genere une nouvelle paire sur le serveur. La cle privee actuelle est effacee ; les '
+        . 'ordinateurs qui se connectent adoptent la nouvelle cle et acceptent encore l\'ancienne pendant 90 jours. Un '
+        . 'ordinateur reste hors ligne plus de 12 mois apres une rotation devra etre mis a jour.</p>'
         . f_formulaire($ctx, 'cle_rotation', f_bouton('Nouvelle cle de signature', 'danger'));
     return $html;
 }

@@ -43,7 +43,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-MODULE_VERSION = "1.3.0"
+MODULE_VERSION = "1.4.0"
 
 # Renseignees une fois le serveur installe (ecran Cles de la console).
 # Vides : aucun controle, aucun fichier, l'application ne parle jamais de licence.
@@ -736,6 +736,7 @@ class Garde(object):
         self._journal = None
         self._integration = None
         self._dernier_etat = None
+        self._bilan = (0, None)
         self._machine = ""
         self._poste = ""
         self._id = ""
@@ -1186,6 +1187,25 @@ class Garde(object):
 
     def _controler(self, delai_max=None):
         """Controle reseau synchrone ; a n'appeler que hors du fil de l'interface."""
+        succes = False
+        try:
+            succes = self._controler_une_fois(delai_max)
+            return succes
+        finally:
+            # Bilan lu par "Verifier maintenant" : nombre de controles termines et
+            # resultat du dernier (l'heure du dernier controle ne suffit pas : elle
+            # ne change pas quand il n'y a rien a verifier).
+            with self._verrou:
+                self._bilan = (self._bilan[0] + 1, succes)
+
+    def _a_verifier(self):
+        """Vrai si un controle a un objet : une cle a valider ou une demande en attente."""
+        with self._verrou:
+            local = self._local or {}
+            demande = local.get("demande")
+            return bool(local.get("cle")) or (isinstance(demande, dict) and demande.get("statut") == "en_attente")
+
+    def _controler_une_fois(self, delai_max=None):
         if not self._configure or self._stockage is None:
             return True
         if not self._verrou_reseau.acquire(timeout=60):
@@ -1571,7 +1591,7 @@ class Garde(object):
             if not self._configure:
                 return tk.Frame(parent)
             pal = _palette(palette if palette is not None else
-                           (self._integration.pal if self._integration else None))
+                           (self._integration.palette_app if self._integration else None), parent, self._log)
             return _CadreLicence(parent, self, pal).cadre
         except Exception as exc:
             self._log(logging.ERROR, "cadre_licence : %r", exc)
@@ -1592,17 +1612,74 @@ PALETTE_DEFAUT = {
     "police_champ": ("Consolas", 11),
 }
 
+# Couleurs de statut (pastilles, icones, encadres). Les fonds teintes sont
+# derives de la palette : ils restent lisibles sur un theme sombre. "orange"
+# est un ambre, distinct de l'accent par defaut : une alerte ne se confond
+# pas avec une page neutre.
+_TONS = {"vert": "#1a7f37", "bleu": "#0969da", "orange": "#9a6700", "rouge": "#cf222e"}
+# Statut -> (ton, libelle de la pastille de la fenetre Licence).
+_PASTILLES = {
+    VALIDE: ("vert", "Valide"), ESSAI: ("bleu", "Essai"), AVERTISSEMENT: ("orange", "Attention"),
+    DEMANDE_EN_ATTENTE: ("bleu", "En attente"), DEMANDE_REFUSEE: ("rouge", "Refusee"),
+    EXPIREE: ("rouge", "Bloquee"), REVOQUEE: ("rouge", "Revoquee"),
+    VERSION_REFUSEE: ("rouge", "Mise a jour requise"), A_ACTIVER: ("gris", "Non activee"),
+    NON_CONFIGURE: ("gris", "Non configuree"),
+}
+# Glyphes des polices d'icones de Windows 10 et 11 (codes : le fichier reste en
+# ASCII). Sans ces polices, un "i" ou un "!" les remplace.
+_GLYPHES = {"cle": chr(0xE8D7), "envoi": chr(0xE724), "ok": chr(0xE73E), "horloge": chr(0xE823),
+            "alerte": chr(0xE7BA), "refus": chr(0xE711), "maj": chr(0xE898), "info": chr(0xE946),
+            "licence": chr(0xEA18)}
+_POLICES_ICONES = ("Segoe Fluent Icons", "Segoe MDL2 Assets")
+_FAMILLE_ICONES = [None]
+# Largeur utile des pages de la fenetre d'activation, en pixels a 96 ppp.
+_LARGEUR = 540
+
 
 def _tk():
     import tkinter
     return tkinter
 
 
-def _palette(palette):
+_COULEURS_PALETTE = ("fond", "panneau", "texte", "discret", "accent", "accent_texte")
+
+
+def _palette(palette, widget=None, journal=None, fenetres=False):
+    """Palette de l'application completee par PALETTE_DEFAUT.
+
+    Avec widget : toute couleur ou police que Tk refuse est remplacee par sa
+    valeur par defaut (une couleur invalide empecherait sinon d'afficher la
+    fenetre d'activation). fenetres : une palette qui donne "fond" sans
+    "panneau" garde ce fond pour le corps des fenetres, son role jusqu'a la 1.3.0.
+    """
     resultat = dict(PALETTE_DEFAUT)
-    if isinstance(palette, dict):
-        resultat.update((k, v) for k, v in palette.items() if k in PALETTE_DEFAUT and v)
+    if not isinstance(palette, dict):
+        return resultat
+    fournies = dict((k, v) for k, v in palette.items() if k in PALETTE_DEFAUT and v)
+    if widget is not None:
+        for cle, valeur in list(fournies.items()):
+            try:
+                if cle in _COULEURS_PALETTE:
+                    widget.winfo_rgb(valeur)
+                else:
+                    widget.tk.call("font", "actual", valeur)
+            except Exception:
+                del fournies[cle]
+                if journal is not None:
+                    journal(logging.WARNING, "palette : %s invalide (%r), valeur par defaut", cle, valeur)
+    resultat.update(fournies)
+    if fenetres and "fond" in fournies and "panneau" not in fournies:
+        resultat["panneau"] = fournies["fond"]
     return resultat
+
+
+def _raison_lisible(raison):
+    """Echec d'un controle en une phrase pour l'utilisateur ; le detail
+    technique (serveurs essayes, erreurs) reste dans la ligne de diagnostic."""
+    raison = _ascii(raison)
+    if not raison or raison.startswith("serveur injoignable"):
+        return _MESSAGES["injoignable"]
+    return raison
 
 
 def _afficher_message(parent, titre, texte):
@@ -1611,70 +1688,748 @@ def _afficher_message(parent, titre, texte):
 
 
 def _ecrire_champ(entree, texte):
+    # Reecrit seulement si le texte change : une selection en cours est conservee.
+    if entree.get() == texte:
+        return
     entree.configure(state="normal")
     entree.delete(0, "end")
     entree.insert(0, texte)
     entree.configure(state="readonly")
 
 
-class _CadreLicence(object):
-    LIGNES = (("id_poste", "Identifiant du poste"), ("cle", "Cle"), ("nom_ordinateur", "Nom de l'ordinateur"),
-              ("titulaire", "Titulaire"), ("echeance", "Echeance"), ("statut", "Statut"),
-              ("dernier_controle", "Dernier controle"))
+def _configurer(widget, **options):
+    """configure() limite aux options qui changent (rafraichissement sans scintillement)."""
+    changees = dict((cle, valeur) for cle, valeur in options.items()
+                    if str(widget.cget(cle)) != str(valeur))
+    if changees:
+        widget.configure(**changees)
 
-    def __init__(self, parent, garde, pal):
+
+def _differer(widget, delais, ms, fonction):
+    """after() memorise dans delais, a annuler a la destruction (_annuler) :
+    un after en attente sur un widget detruit finit en erreur Tcl sur stderr."""
+    ident = []
+
+    def appel():
+        delais.discard(ident[0])
+        try:
+            fonction()
+        except Exception:
+            pass
+
+    ident.append(widget.after(ms, appel))
+    delais.add(ident[0])
+
+
+def _annuler(widget, delais):
+    for ident in list(delais):
+        try:
+            widget.after_cancel(ident)
+        except Exception:
+            pass
+    delais.clear()
+
+
+def _rgb(widget, couleur):
+    return [valeur / 65535.0 for valeur in widget.winfo_rgb(couleur)]
+
+
+def _melange(widget, couleur1, couleur2, part):
+    """Couleur situee a part (0 a 1) du chemin de couleur1 a couleur2, en #rrggbb."""
+    a, b = _rgb(widget, couleur1), _rgb(widget, couleur2)
+    return "#%02x%02x%02x" % tuple(int(round(255 * (x + (y - x) * part))) for x, y in zip(a, b))
+
+
+def _clarte(widget, couleur):
+    r, v, b = _rgb(widget, couleur)
+    return 0.2126 * r + 0.7152 * v + 0.0722 * b
+
+
+def _contraste(widget, couleur1, couleur2):
+    """Rapport de contraste WCAG (1 a 21) entre deux couleurs."""
+    def luminance(couleur):
+        r, v, b = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in _rgb(widget, couleur)]
+        return 0.2126 * r + 0.7152 * v + 0.0722 * b
+    a, b = sorted((luminance(couleur1), luminance(couleur2)))
+    return (b + 0.05) / (a + 0.05)
+
+
+def _police(tkapp, police, delta=0, gras=None, souligne=False):
+    """Variante d'une police Tk (tuple ou chaine) ; une police nommee est rendue telle quelle."""
+    try:
+        morceaux = list(police) if isinstance(police, (tuple, list)) else list(tkapp.splitlist(police))
+        if len(morceaux) < 2:
+            return police
+        famille, taille = morceaux[0], int(morceaux[1])
+        styles = []
+        for morceau in morceaux[2:]:
+            styles.extend(str(morceau).split())
+        if gras is not None:
+            styles = [m for m in styles if m not in ("bold", "normal")] + (["bold"] if gras else [])
+        if souligne and "underline" not in styles:
+            styles.append("underline")
+        # Taille negative : en pixels.
+        taille = taille + delta if taille > 0 else taille - delta
+        return tuple([famille, taille] + styles)
+    except Exception:
+        return police
+
+
+def _famille_icones(widget):
+    if _FAMILLE_ICONES[0] is None:
+        famille = ""
+        try:
+            from tkinter import font
+            presentes = set(font.families(widget))
+            for nom in _POLICES_ICONES:
+                if nom in presentes:
+                    famille = nom
+                    break
+        except Exception:
+            pass
+        _FAMILLE_ICONES[0] = famille
+    return _FAMILLE_ICONES[0]
+
+
+class _Style(object):
+    """Palette de l'application, completee de couleurs et de polices derivees.
+
+    Seules les cles de PALETTE_DEFAUT viennent de l'application ; bordures,
+    survols, fonds teintes et couleurs de statut en sont calcules, pour qu'un
+    theme (clair ou sombre) s'applique a tous les composants.
+    """
+
+    def __init__(self, widget, pal):
+        self.pal = pal
+        try:
+            # Interface a l'echelle si l'application declare la prise en charge du DPI.
+            self.k = max(1.0, float(widget.winfo_fpixels("1i")) / 96.0)
+        except Exception:
+            self.k = 1.0
+        self.c = self._couleurs(widget, pal)
+        try:
+            self.sombre = _clarte(widget, self.c["panneau"]) < 0.45
+        except Exception:
+            self.sombre = False
+        tkapp = widget.tk
+        police = pal["police"]
+        self.texte = police
+        self.gras = _police(tkapp, police, 0, True)
+        self.petit = _police(tkapp, police, -1)
+        self.petit_gras = _police(tkapp, police, -1, True)
+        self.lien = _police(tkapp, police, -1, None, True)
+        self.saisie = _police(tkapp, police, 1)
+        self.carte = _police(tkapp, police, 1, True)
+        self.titre = _police(tkapp, pal["police_titre"], 2)
+        self.champ = pal["police_champ"]
+        self.cle = _police(tkapp, pal["police_champ"], 2)
+        self.icones = _famille_icones(widget)
+
+    def px(self, n):
+        return int(round(n * self.k))
+
+    def icone(self, taille):
+        return (self.icones, -self.px(taille))
+
+    @staticmethod
+    def _couleurs(widget, pal):
+        c = dict((cle, pal[cle]) for cle in _COULEURS_PALETTE)
+        tons = dict(_TONS, accent=pal["accent"], gris=pal["discret"])
+        try:
+            def m(a, b, part):
+                return _melange(widget, a, b, part)
+
+            # Texte illisible sur "panneau" (palette partielle d'un theme sombre) :
+            # les fenetres reprennent "fond", leur fond jusqu'a la 1.3.0.
+            sur_panneau = _contraste(widget, c["texte"], c["panneau"])
+            if sur_panneau < 3 and _contraste(widget, c["texte"], c["fond"]) > sur_panneau:
+                c["panneau"] = c["fond"]
+            panneau, texte = c["panneau"], c["texte"]
+            sombre = _clarte(widget, panneau) < 0.45
+            if _rgb(widget, c["fond"]) == _rgb(widget, panneau):
+                # Pied des fenetres (zone des boutons) a peine distinct du corps.
+                c["fond"] = m(panneau, "#000000", 0.25) if sombre else m(panneau, texte, 0.05)
+            c["bordure"] = m(panneau, texte, 0.25 if sombre else 0.16)
+            c["survol"] = m(panneau, texte, 0.08 if sombre else 0.045)
+            c["lecture"] = m(panneau, texte, 0.06 if sombre else 0.04)
+            c["champ"] = m(panneau, "#000000", 0.2) if sombre else panneau
+            c["accent_survol"] = m(pal["accent"], "#ffffff" if sombre else "#000000", 0.15)
+            c["accent_inactif"] = m(pal["accent"], panneau, 0.5)
+            c["inactif"] = m(texte, panneau, 0.55)
+            for nom, base in tons.items():
+                # Sur fond sombre, une couleur foncee est eclaircie pour rester lisible.
+                origine = m(base, "#ffffff", 0.35) if sombre and _clarte(widget, base) < 0.45 else base
+                # Liens, icones, barre du haut : contraste d'au moins 4,5:1 avec le
+                # panneau (un accent jaune sur fond blanc est rapproche du texte).
+                fort, pas = origine, 0
+                while pas < 10 and _contraste(widget, fort, panneau) < 4.5:
+                    pas += 1
+                    fort = m(origine, texte, pas / 10.0)
+                c[nom + "_fort"] = fort
+                c[nom + "_doux"] = m(panneau, base, 0.2 if sombre else 0.1)
+                c[nom + "_bord"] = m(panneau, base, 0.45 if sombre else 0.35)
+        except Exception:
+            c.update(bordure=pal["discret"], survol=pal["panneau"], lecture=pal["panneau"],
+                     champ=pal["panneau"], accent_survol=pal["accent"], accent_inactif=pal["discret"],
+                     inactif=pal["discret"])
+            for nom, base in tons.items():
+                c[nom + "_fort"], c[nom + "_doux"], c[nom + "_bord"] = base, pal["panneau"], base
+        return c
+
+
+def _bouton(parent, s, texte, commande, genre="secondaire", fond=None):
+    """Bouton plat : "principal" (accent), "secondaire" (bord fin) ou "lien" (texte seul).
+
+    Renvoie le tk.Button ; bouton.cadre est le widget a placer (pack, grid).
+    Sous Windows, Tk ne dessine pas highlightbackground autour d'un bouton :
+    le bord d'un bouton secondaire (1 pixel, accent au focus clavier) et
+    l'anneau de focus d'un bouton principal (2 pixels, couleur du texte) sont
+    donc un cadre. Un lien se souligne au survol et au focus clavier.
+    """
+    tk = _tk()
+    c = s.c
+    cadre = None
+    if genre == "principal":
+        normal, survol, inactif = c["accent"], c["accent_survol"], c["accent_inactif"]
+        options = dict(fg=c["accent_texte"], activeforeground=c["accent_texte"],
+                       disabledforeground=c["accent_texte"], font=s.gras, padx=s.px(16), pady=s.px(4),
+                       highlightthickness=0)
+        cadre, epaisseur = tk.Frame(parent, bg=normal), s.px(2)
+    elif genre == "lien":
+        normal = survol = inactif = fond or c["panneau"]
+        options = dict(fg=c["accent_fort"], activeforeground=c["accent_survol"],
+                       disabledforeground=c["inactif"], font=s.petit, padx=s.px(2), pady=0,
+                       highlightthickness=0)
+    else:
+        normal, survol, inactif = c["panneau"], c["survol"], c["panneau"]
+        options = dict(fg=c["texte"], activeforeground=c["texte"], disabledforeground=c["inactif"],
+                       font=s.texte, padx=s.px(14), pady=s.px(6), highlightthickness=0)
+        cadre, epaisseur = tk.Frame(parent, bg=c["bordure"]), 1
+    bouton = tk.Button(cadre if cadre is not None else parent, text=texte, command=commande, relief="flat",
+                       bd=0, cursor="hand2", bg=normal, activebackground=survol, **options)
+    bouton._etdel = (normal, inactif)
+    bouton.cadre = bouton
+    if cadre is not None:
+        bouton.pack(padx=epaisseur, pady=epaisseur)
+        bouton.cadre = cadre
+    etat = {"survol": False, "focus": False}
+
+    def peindre():
+        try:
+            actif = str(bouton.cget("state")) != "disabled"
+            if genre == "lien":
+                bouton.configure(font=s.lien if actif and (etat["survol"] or etat["focus"]) else s.petit)
+                return
+            bg = (survol if etat["survol"] else normal) if actif else inactif
+            bouton.configure(bg=bg)
+            if genre == "principal":
+                cadre.configure(bg=c["texte"] if etat["focus"] else bg)
+            else:
+                cadre.configure(bg=c["accent_fort"] if etat["focus"] else c["bordure"])
+        except Exception:
+            pass
+
+    def changer(cle, valeur):
+        etat[cle] = valeur
+        peindre()
+
+    bouton._etdel_peindre = peindre
+    bouton.bind("<Enter>", lambda _e: changer("survol", True), add="+")
+    bouton.bind("<Leave>", lambda _e: changer("survol", False), add="+")
+    bouton.bind("<FocusIn>", lambda _e: changer("focus", True), add="+")
+    bouton.bind("<FocusOut>", lambda _e: changer("focus", False), add="+")
+    return bouton
+
+
+def _invoquer_bouton(widget):
+    """Entree sur un bouton qui a le focus clavier : ce bouton, pas l'action
+    principale de la fenetre (usage de Windows). Renvoie True si widget est un
+    bouton (evenement traite, meme s'il est grise)."""
+    try:
+        if widget.winfo_class() != "Button":
+            return False
+    except Exception:
+        return False
+    try:
+        if str(widget.cget("state")) != "disabled":
+            widget.invoke()
+    except Exception:
+        pass
+    return True
+
+
+def _activer_bouton(bouton, actif):
+    normal, inactif = getattr(bouton, "_etdel", (None, None))
+    options = {"state": "normal" if actif else "disabled", "cursor": "hand2" if actif else "arrow"}
+    if normal is not None:
+        options["bg"] = normal if actif else inactif
+    bouton.configure(**options)
+    peindre = getattr(bouton, "_etdel_peindre", None)
+    if peindre is not None:
+        peindre()
+
+
+def _badge(parent, s, icone, ton, taille, fond):
+    """Disque teinte portant une icone, en tete des fenetres et des cartes."""
+    tk = _tk()
+    c = s.c
+    d = s.px(taille)
+    canevas = tk.Canvas(parent, width=d, height=d, bg=fond, highlightthickness=0, bd=0)
+    doux, fort = c[ton + "_doux"], c[ton + "_fort"]
+    try:
+        # Liseret de couleur intermediaire : bord du disque moins crenele.
+        canevas.create_oval(0, 0, d, d, fill=_melange(canevas, fond, doux, 0.5), outline="")
+    except Exception:
+        pass
+    canevas.create_oval(1, 1, d - 1, d - 1, fill=doux, outline="")
+    if s.icones:
+        canevas.create_text(d / 2.0, d / 2.0, text=_GLYPHES.get(icone, ""), fill=fort,
+                            font=s.icone(taille * 0.42))
+    else:
+        canevas.create_text(d / 2.0, d / 2.0, fill=fort, font=s.carte,
+                            text="!" if icone in ("alerte", "refus", "maj") else "i")
+    return canevas
+
+
+def _encadre(parent, s, ton, icone=None):
+    """Encadre teinte a barre laterale (information, succes, alerte) ; renvoie (cadre, zone de texte)."""
+    tk = _tk()
+    c = s.c
+    doux, fort = c[ton + "_doux"], c[ton + "_fort"]
+    cadre = tk.Frame(parent, bg=doux)
+    tk.Frame(cadre, bg=fort, width=s.px(3)).pack(side="left", fill="y")
+    interieur = tk.Frame(cadre, bg=doux, padx=s.px(12), pady=s.px(8))
+    interieur.pack(side="left", fill="both", expand=True)
+    if icone and s.icones:
+        tk.Label(interieur, text=_GLYPHES[icone], font=s.icone(16), bg=doux, fg=fort, bd=0).pack(
+            side="left", anchor="n", padx=(0, s.px(10)), pady=(s.px(1), 0))
+    zone = tk.Frame(interieur, bg=doux)
+    zone.pack(side="left", fill="both", expand=True)
+    return cadre, zone
+
+
+def _bord_actif(cadre, champ, s):
+    """Bord du cadre a la couleur d'accent tant que le champ a le focus (rouge
+    tant que cadre.erreur est vrai)."""
+    c = s.c
+    cadre.erreur = False
+
+    def changer(actif):
+        try:
+            if cadre.erreur:
+                couleur = c["rouge_fort"]
+            else:
+                couleur = c["accent_fort"] if actif else c["bordure"]
+            # Tk dessine highlightcolor quand le focus est dans le cadre (champ
+            # compris), highlightbackground sinon : les deux suivent l'etat.
+            cadre.configure(highlightbackground=couleur, highlightcolor=couleur)
+        except Exception:
+            pass
+
+    cadre.changer_bord = changer
+    champ.bind("<FocusIn>", lambda _e: changer(True), add="+")
+    champ.bind("<FocusOut>", lambda _e: changer(False), add="+")
+
+
+def _saisie(parent, s, police=None, lecture_seule=False, valeur=""):
+    """Champ de saisie plat : bord fin, marge interieure, bord d'accent au focus."""
+    tk = _tk()
+    c = s.c
+    fond = c["lecture"] if lecture_seule else c["champ"]
+    cadre = tk.Frame(parent, bg=fond, highlightthickness=1, highlightbackground=c["bordure"],
+                     highlightcolor=c["bordure"])
+    entree = tk.Entry(cadre, width=12, font=police or s.saisie, relief="flat", bd=0, highlightthickness=0,
+                      bg=fond, fg=c["texte"], readonlybackground=fond, disabledbackground=fond,
+                      insertbackground=c["texte"], selectbackground=c["accent"],
+                      selectforeground=c["accent_texte"])
+    entree.pack(fill="x", padx=s.px(9), pady=s.px(6))
+    if valeur:
+        entree.insert(0, valeur)
+    if lecture_seule:
+        entree.configure(state="readonly")
+    else:
+        _bord_actif(cadre, entree, s)
+    cadre.bind("<Button-1>", lambda _e: entree.focus_set())
+    return cadre, entree
+
+
+def _carte(parent, s, icone, titre, description, commande):
+    """Carte de choix entierement cliquable ; renvoie (cadre, bouton du titre)."""
+    tk = _tk()
+    c = s.c
+    fond = c["panneau"]
+    cadre = tk.Frame(parent, bg=fond, highlightthickness=1, highlightbackground=c["bordure"],
+                     highlightcolor=c["bordure"], padx=s.px(16), pady=s.px(16), cursor="hand2")
+    badge = _badge(cadre, s, icone, "accent", 36, fond)
+    badge.configure(cursor="hand2")
+    badge.pack(anchor="w")
+    bouton = tk.Button(cadre, text=titre, command=commande, font=s.carte, bg=fond, fg=c["texte"],
+                       activebackground=fond, activeforeground=c["accent_fort"],
+                       disabledforeground=c["inactif"], relief="flat", bd=0, highlightthickness=0,
+                       padx=0, pady=0, anchor="w", cursor="hand2")
+    bouton._etdel = (fond, fond)
+    bouton.pack(anchor="w", fill="x", pady=(s.px(12), s.px(4)))
+    texte = tk.Label(cadre, text=description, font=s.texte, bg=fond, fg=c["discret"], justify="left",
+                     anchor="w", bd=0, padx=0, wraplength=s.px(_LARGEUR // 2 - 40), cursor="hand2")
+    texte.pack(anchor="w", fill="x")
+    elements = (cadre, badge, bouton, texte)
+    # Survol : fond teinte et bord d'accent ; focus clavier (Tab) : bord d'accent.
+    etat = {"survol": False, "focus": False}
+
+    def peindre():
+        actif = etat["survol"] or etat["focus"]
+        bg = c["survol"] if etat["survol"] else fond
+        bord = c["accent_fort"] if actif else c["bordure"]
+        try:
+            # highlightcolor : dessine quand le focus est dans la carte (son bouton).
+            cadre.configure(bg=bg, highlightbackground=bord, highlightcolor=bord)
+            for widget in elements[1:]:
+                widget.configure(bg=bg)
+            bouton.configure(activebackground=bg, fg=c["accent_fort"] if actif else c["texte"])
+            bouton._etdel = (bg, bg)
+        except Exception:
+            pass
+
+    def survol(actif):
+        etat["survol"] = actif
+        peindre()
+
+    def focus(actif):
+        etat["focus"] = actif
+        peindre()
+
+    bouton.bind("<FocusIn>", lambda _e: focus(True), add="+")
+    bouton.bind("<FocusOut>", lambda _e: focus(False), add="+")
+
+    def sortie(_e):
+        # Passer d'un element de la carte a un autre n'est pas une sortie.
+        try:
+            x, y = cadre.winfo_pointerxy()
+            dessous = cadre.winfo_containing(x, y)
+            while dessous is not None:
+                if dessous is cadre:
+                    return
+                dessous = dessous.master
+        except Exception:
+            pass
+        survol(False)
+
+    def clic(_e):
+        if str(bouton.cget("state")) != "disabled":
+            commande()
+
+    for widget in elements:
+        widget.bind("<Enter>", lambda _e: survol(True), add="+")
+        widget.bind("<Leave>", sortie, add="+")
+        if widget is not bouton:
+            widget.bind("<Button-1>", clic, add="+")
+    return cadre, bouton
+
+
+def _etapes(parent, s, fond, courante=1):
+    """Frise des trois etapes d'une demande ; courante : indice de l'etape en cours."""
+    tk = _tk()
+    c = s.c
+    largeur, hauteur = s.px(_LARGEUR), s.px(54)
+    canevas = tk.Canvas(parent, width=largeur, height=hauteur, bg=fond, highlightthickness=0, bd=0)
+    noms = ("Demande envoyee", "Traitement par ETDEL", "Licence activee")
+    xs = [largeur * (2 * i + 1) / 6.0 for i in range(3)]
+    r, y = s.px(10), s.px(12)
+    for i in range(2):
+        canevas.create_line(xs[i] + r + s.px(8), y, xs[i + 1] - r - s.px(8), y, width=s.px(2),
+                            fill=c["vert_fort"] if i < courante else c["bordure"])
+    for i, x in enumerate(xs):
+        if i < courante:
+            canevas.create_oval(x - r, y - r, x + r, y + r, fill=c["vert_fort"], outline="")
+            if s.icones:
+                canevas.create_text(x, y, text=_GLYPHES["ok"], fill=c["panneau"], font=s.icone(11))
+            else:
+                canevas.create_line(x - r / 2.0, y, x - r / 6.0, y + r / 3.0, x + r / 2.0, y - r / 3.0,
+                                    fill=c["panneau"], width=s.px(2))
+        elif i == courante:
+            canevas.create_oval(x - r, y - r, x + r, y + r, fill=c["bleu_doux"], outline=c["bleu_fort"],
+                                width=s.px(2))
+            p = s.px(4)
+            canevas.create_oval(x - p, y - p, x + p, y + p, fill=c["bleu_fort"], outline="")
+        else:
+            canevas.create_oval(x - r, y - r, x + r, y + r, fill=fond, outline=c["bordure"], width=s.px(2))
+        canevas.create_text(x, y + r + s.px(13), text=noms[i], font=s.petit_gras if i == courante else s.petit,
+                            fill=c["texte"] if i <= courante else c["discret"])
+    return canevas
+
+
+def _haut_borne(fenetre, y, hauteur):
+    """Ordonnee bornee : le bas de la fenetre (barre de titre comprise) reste
+    au-dessus de la barre des taches de l'ecran principal quand c'est possible."""
+    try:
+        k = max(1.0, float(fenetre.winfo_fpixels("1i")) / 96.0)
+        ecran = fenetre.winfo_screenheight()
+        if 0 <= y < ecran:
+            # Environ 32 px de barre de titre et de bords, 48 px de barre des taches.
+            y = min(y, ecran - int(48 * k) - int(32 * k) - hauteur)
+    except Exception:
+        pass
+    return max(0, y)
+
+
+def _centrer(fenetre, reference=None):
+    """Place la fenetre au centre de la fenetre de reference si elle est visible, sinon de l'ecran."""
+    try:
+        fenetre.update_idletasks()
+        largeur, hauteur = fenetre.winfo_reqwidth(), fenetre.winfo_reqheight()
+        if reference is not None and reference.winfo_viewable():
+            cx = reference.winfo_rootx() + reference.winfo_width() // 2
+            cy = reference.winfo_rooty() + reference.winfo_height() // 2
+        else:
+            cx, cy = fenetre.winfo_screenwidth() // 2, fenetre.winfo_screenheight() // 2
+        fenetre.geometry("+%d+%d" % (cx - largeur // 2, _haut_borne(fenetre, cy - hauteur // 2, hauteur)))
+    except Exception:
+        pass
+
+
+def _recentrer(fenetre):
+    """Apres un changement de page : meme centre, nouvelle taille."""
+    try:
+        taille, _plus, position = fenetre.geometry().partition("+")
+        largeur, hauteur = [int(v) for v in taille.split("x")]
+        x, y = [int(v) for v in position.split("+")]
+        fenetre.update_idletasks()
+        nouvelle_l, nouvelle_h = fenetre.winfo_reqwidth(), fenetre.winfo_reqheight()
+        fenetre.geometry("+%d+%d" % (x + (largeur - nouvelle_l) // 2,
+                                     _haut_borne(fenetre, y + (hauteur - nouvelle_h) // 2, nouvelle_h)))
+    except Exception:
+        pass
+
+
+def _habiller_fenetre(fenetre, root, s):
+    """Windows : icone de la fenetre principale, et barre de titre sombre avec
+    une palette sombre (Windows 10 2004 et suivants, sans effet ailleurs)."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        fenetre.update_idletasks()
+        hwnd = int(fenetre.wm_frame(), 16)
+        if s.sombre:
+            vrai = ctypes.c_int(1)
+            # DWMWA_USE_IMMERSIVE_DARK_MODE : 20, ou 19 avant Windows 10 2004.
+            if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(vrai), 4) != 0:
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 19, ctypes.byref(vrai), 4)
+        # Prototype propre au module : celui de ctypes.windll, partage avec
+        # l'application, n'est pas modifie.
+        envoyer = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, wintypes.HWND, wintypes.UINT, wintypes.WPARAM,
+                                     wintypes.LPARAM)(("SendMessageW", ctypes.windll.user32))
+        source = int(root.wm_frame(), 16)
+        for taille in (0, 1):  # ICON_SMALL, ICON_BIG
+            icone = envoyer(source, 0x007F, taille, 0)  # WM_GETICON
+            if icone:
+                envoyer(hwnd, 0x0080, taille, icone)  # WM_SETICON
+    except Exception:
+        pass
+
+
+def _brut_cle(texte):
+    return "".join(ch for ch in (texte or "").upper() if ch.isascii() and ch.isalnum())
+
+
+def _mettre_en_forme_cle(texte):
+    """Saisie de cle en cours -> (texte a afficher, caracteres saisis hors prefixe).
+
+    Majuscules, tirets places tous les 4 caracteres, prefixe ETDEL ajoute ;
+    les caracteres hors alphabet restent visibles pour etre signales.
+    """
+    brut = _brut_cle(texte)
+    if brut.startswith("ETDEL"):
+        corps = brut[5:21]
+    elif "ETDEL".startswith(brut):
+        # Prefixe en cours de frappe (ou champ vide).
+        return brut, ""
+    else:
+        corps = brut[:16]
+    if not corps:
+        return "ETDEL", ""
+    return "ETDEL-" + "-".join(corps[i:i + 4] for i in range(0, len(corps), 4)), corps
+
+
+def _position_apres(texte, rang):
+    """Indice qui suit le rang-ieme caractere alphanumerique de texte."""
+    if rang <= 0:
+        return 0
+    vus = 0
+    for indice, ch in enumerate(texte):
+        if ch.isascii() and ch.isalnum():
+            vus += 1
+            if vus == rang:
+                return indice + 1
+    return len(texte)
+
+
+class _CadreLicence(object):
+    """Etat de la licence en lecture seule : fenetre Licence et page de reglages d'une application.
+
+    actions : cadre ou placer "Verifier maintenant" et son retour (pied de la
+    fenetre Licence) ; a defaut, sous les informations du cadre.
+    """
+
+    AUCUNE = "Aucune licence a verifier sur ce poste."
+
+    def __init__(self, parent, garde, pal, style=None, encadre=True, actions=None):
         tk = _tk()
         self.garde = garde
-        self.cadre = tk.Frame(parent, bg=pal["panneau"], padx=12, pady=10)
+        self.s = s = style or _Style(parent, pal)
+        c = s.c
+        fond = c["panneau"]
+        self.cadre = tk.Frame(parent, bg=fond)
+        if encadre:
+            # Carte a bord fin : se detache du fond de la page de reglages.
+            self.cadre.configure(padx=s.px(20), pady=s.px(14), highlightthickness=1,
+                                 highlightbackground=c["bordure"], highlightcolor=c["bordure"])
+        self.cadre.columnconfigure(1, weight=1)
         self.valeurs = {}
-        for rang, (cle, libelle) in enumerate(self.LIGNES):
-            tk.Label(self.cadre, text=libelle, bg=pal["panneau"], fg=pal["discret"],
-                     font=pal["police"], anchor="w").grid(row=rang, column=0, sticky="w", padx=(0, 12))
-            if cle in ("id_poste", "cle"):
-                # Champs en lecture seule : selectionnables pour une dictee ou un copier-coller.
-                widget = tk.Entry(self.cadre, font=pal["police_champ"], width=14 if cle == "id_poste" else 26,
-                                  relief="flat", readonlybackground=pal["panneau"], fg=pal["texte"])
-            else:
-                widget = tk.Label(self.cadre, bg=pal["panneau"], fg=pal["texte"], font=pal["police"],
-                                  anchor="w", justify="left", wraplength=380)
-            widget.grid(row=rang, column=1, sticky="w")
-            self.valeurs[cle] = widget
+        self._apres = None
+        self._delais = set()
+        self._verification = None
+        self._verifiable = None
+        self._message_visible = False
+
+        # Statut : pastille de couleur (vert, bleu, ambre, rouge) et message.
+        haut = tk.Frame(self.cadre, bg=fond)
+        haut.grid(row=0, column=0, columnspan=2, sticky="we", pady=(0, s.px(10)))
+        self.pastille = tk.Label(haut, font=s.petit_gras, padx=s.px(9), pady=s.px(2), bd=0)
+        self.pastille.pack(side="left", anchor="n", pady=(s.px(1), 0))
+        self.valeurs["statut"] = tk.Label(haut, bg=fond, fg=c["texte"], font=s.gras, anchor="w",
+                                          justify="left", wraplength=s.px(420))
+        self.valeurs["statut"].pack(side="left", fill="x", expand=True, padx=(s.px(10), 0))
+
+        def libelle(rang, texte):
+            tk.Label(self.cadre, text=texte, bg=fond, fg=c["discret"], font=s.texte, anchor="w").grid(
+                row=rang, column=0, sticky="w", padx=(0, s.px(20)), pady=s.px(2))
+
+        def valeur(rang, cle):
+            etiquette = tk.Label(self.cadre, bg=fond, fg=c["texte"], font=s.texte, anchor="w",
+                                 justify="left", wraplength=s.px(300))
+            etiquette.grid(row=rang, column=1, sticky="w", pady=s.px(2))
+            self.valeurs[cle] = etiquette
+
+        def code(rang, cle, largeur, texte_lien, commande):
+            # Champ en lecture seule : selectionnable pour une dictee ou un copier-coller ;
+            # suivi de son lien d'action (Copier, Afficher la cle).
+            cellule = tk.Frame(self.cadre, bg=fond)
+            cellule.grid(row=rang, column=1, sticky="w", pady=s.px(2))
+            boite = tk.Frame(cellule, bg=c["lecture"])
+            boite.pack(side="left")
+            entree = tk.Entry(boite, font=s.champ, width=largeur, relief="flat", bd=0, highlightthickness=0,
+                              fg=c["texte"], readonlybackground=c["lecture"], selectbackground=c["accent"],
+                              selectforeground=c["accent_texte"])
+            entree.pack(padx=s.px(8), pady=s.px(2))
+            entree.configure(state="readonly")
+            self.valeurs[cle] = entree
+            bouton = _bouton(cellule, s, texte_lien, commande, "lien", fond)
+            # Largeur fixe : le libelle change ("Copie !", "Masquer la cle") sans decalage.
+            bouton.configure(width=len(texte_lien), anchor="w")
+            bouton.pack(side="left", padx=(s.px(10), 0))
+            return bouton
+
+        for rang, (cle, texte) in enumerate((("titulaire", "Titulaire"), ("echeance", "Echeance"),
+                                             ("dernier_controle", "Dernier controle")), 1):
+            libelle(rang, texte)
+            valeur(rang, cle)
+        tk.Frame(self.cadre, bg=c["bordure"], height=1).grid(row=4, column=0, columnspan=2, sticky="we",
+                                                             pady=s.px(8))
+        libelle(5, "Identifiant du poste")
+        copier = code(5, "id_poste", 10, "Copier", None)
+        copier.configure(command=lambda: self._copier(self.valeurs["id_poste"].get(), copier, "Copier"))
+        libelle(6, "Cle")
         # Cle masquee comme dans la console (4 derniers caracteres, pour s'y retrouver
         # au telephone) ; affichee en entier a la demande, pour la noter avant une
         # reinstallation. Jamais dans le diagnostic ni dans le journal.
         self.cle_visible = False
-        self.bouton_cle = tk.Button(self.cadre, text="Afficher la cle", command=self._basculer_cle,
-                                    font=pal["police"])
-        self.bouton_cle.grid(row=1, column=2, sticky="w", padx=(8, 0))
-        rang = len(self.LIGNES)
-        self.message = tk.Label(self.cadre, bg=pal["panneau"], fg=pal["discret"], font=pal["police"],
-                                anchor="w", justify="left", wraplength=480)
-        self.message.grid(row=rang, column=0, columnspan=3, sticky="w", pady=(4, 0))
-        tk.Button(self.cadre, text="Verifier maintenant", command=garde.controler_maintenant,
-                  font=pal["police"]).grid(row=rang + 1, column=0, sticky="w", pady=(8, 4))
-        tk.Label(self.cadre, text="Diagnostic", bg=pal["panneau"], fg=pal["discret"],
-                 font=pal["police"]).grid(row=rang + 2, column=0, sticky="w")
-        self.diagnostic = tk.Entry(self.cadre, font=pal["police"], width=60, relief="flat",
-                                   readonlybackground=pal["panneau"], fg=pal["discret"])
-        self.diagnostic.grid(row=rang + 3, column=0, columnspan=3, sticky="we")
-        self._apres = None
+        self.bouton_cle = code(6, "cle", 26, "Afficher la cle", self._basculer_cle)
+        libelle(7, "Nom de l'ordinateur")
+        valeur(7, "nom_ordinateur")
+        # Message de la distribution (saisi dans la console), affiche s'il existe.
+        self.boite_message, zone = _encadre(self.cadre, s, "bleu", "info")
+        self.boite_message.grid(row=8, column=0, columnspan=2, sticky="we", pady=(s.px(10), 0))
+        self.message = tk.Label(zone, bg=c["bleu_doux"], fg=c["texte"], font=s.texte, anchor="w",
+                                justify="left", wraplength=s.px(430))
+        self.message.pack(fill="x")
+        self.boite_message.grid_remove()
+        dans_pied = actions is not None
+        if not dans_pied:
+            actions = tk.Frame(self.cadre, bg=fond)
+            actions.grid(row=9, column=0, columnspan=2, sticky="we", pady=(s.px(14), 0))
+        self.bouton_verifier = _bouton(actions, s, "Verifier maintenant", self._verifier, "secondaire")
+        self.bouton_verifier.cadre.pack(side="left")
+        self.retour_verification = tk.Label(actions, bg=actions.cget("bg"), fg=c["discret"], font=s.petit,
+                                            anchor="w", justify="left", wraplength=s.px(220 if dans_pied else 300))
+        self.retour_verification.pack(side="left", fill="x", expand=True, padx=(s.px(12), s.px(8)))
+        # Diagnostic : texte a transmettre au support (jamais la cle en clair),
+        # renvoye a la ligne entre les mots, selectionnable (Ctrl+C) et copiable.
+        tk.Label(self.cadre, text="Diagnostic", bg=fond, fg=c["discret"], font=s.texte, anchor="w").grid(
+            row=10, column=0, sticky="w", pady=(s.px(12), s.px(4)))
+        copier_diagnostic = _bouton(self.cadre, s, "Copier le diagnostic", None, "lien", fond)
+        copier_diagnostic.configure(width=len("Copier le diagnostic"), anchor="e", command=lambda: self._copier(
+            self.garde.texte_diagnostic(), copier_diagnostic, "Copier le diagnostic"))
+        copier_diagnostic.grid(row=10, column=1, sticky="e", pady=(s.px(12), s.px(4)))
+        self.diagnostic = tk.Text(self.cadre, font=s.petit, width=1, height=2, wrap="word", relief="flat", bd=0,
+                                  highlightthickness=0, padx=s.px(8), pady=s.px(5), bg=c["lecture"],
+                                  fg=c["discret"], selectbackground=c["accent"], selectforeground=c["accent_texte"],
+                                  inactiveselectbackground=c["accent"], insertwidth=0, cursor="xterm")
+        self.diagnostic.grid(row=11, column=0, columnspan=2, sticky="we")
+        self.diagnostic.configure(state="disabled")
+        self.diagnostic.bind("<Configure>", self.ajuster_diagnostic, add="+")
         self.cadre.bind("<Destroy>", self._sur_destruction, add="+")
         self.rafraichir()
 
+    def _ecrire_diagnostic(self, texte):
+        # Reecrit seulement si le texte change : une selection en cours est conservee.
+        if self.diagnostic.get("1.0", "end-1c") == texte:
+            return
+        self.diagnostic.configure(state="normal")
+        self.diagnostic.delete("1.0", "end")
+        self.diagnostic.insert("1.0", texte)
+        self.diagnostic.configure(state="disabled")
+        self.ajuster_diagnostic()
+
+    def ajuster_diagnostic(self, _evenement=None):
+        """Hauteur du diagnostic : son nombre de lignes affichees (1 a 4)."""
+        try:
+            lignes = self.diagnostic.count("1.0", "end", "update", "displaylines")
+            if isinstance(lignes, (tuple, list)):
+                lignes = lignes[0]
+            lignes = max(1, min(4, int(lignes or 1)))
+            if lignes != int(self.diagnostic.cget("height")):
+                self.diagnostic.configure(height=lignes)
+        except Exception:
+            pass
+
     def _sur_destruction(self, evenement):
         # Un after en attente sur un widget detruit finit en erreur Tcl sur stderr.
-        if evenement.widget is self.cadre and self._apres is not None:
-            try:
-                self.cadre.after_cancel(self._apres)
-            except Exception:
-                pass
-            self._apres = None
+        if evenement.widget is self.cadre:
+            if self._apres is not None:
+                try:
+                    self.cadre.after_cancel(self._apres)
+                except Exception:
+                    pass
+                self._apres = None
+            _annuler(self.cadre, self._delais)
+
+    def _copier(self, texte, bouton, libelle):
+        try:
+            self.cadre.clipboard_clear()
+            self.cadre.clipboard_append(texte)
+            bouton.configure(text="Copie !")
+            _differer(self.cadre, self._delais, 1500, lambda: bouton.configure(text=libelle))
+        except Exception:
+            pass
 
     def _afficher_cle(self):
         texte = self.garde._cle_affichee(self.cle_visible)
         _ecrire_champ(self.valeurs["cle"], texte or "-")
-        self.bouton_cle.configure(state="normal" if texte else "disabled",
-                                  text="Masquer la cle" if self.cle_visible else "Afficher la cle")
+        _configurer(self.bouton_cle, text="Masquer la cle" if self.cle_visible else "Afficher la cle")
+        if (str(self.bouton_cle.cget("state")) != "disabled") != bool(texte):
+            _activer_bouton(self.bouton_cle, bool(texte))
 
     def _basculer_cle(self):
         self.cle_visible = not self.cle_visible
@@ -1683,47 +2438,158 @@ class _CadreLicence(object):
         except Exception:
             pass
 
+    def _verifier(self):
+        try:
+            c = self.s.c
+            if self._verification is not None:
+                return
+            if not self.garde._a_verifier():
+                # Ni cle ni demande en attente : rien a demander au serveur.
+                self.retour_verification.configure(text=self.AUCUNE, fg=c["discret"])
+                return
+            self._verification = (time.monotonic(), self.garde._bilan[0])
+            _activer_bouton(self.bouton_verifier, False)
+            self.retour_verification.configure(text="Verification en cours...", fg=c["discret"])
+            self.garde.controler_maintenant()
+        except Exception:
+            pass
+
+    def _suivre_verification(self):
+        if self._verification is None:
+            return
+        debut, avant = self._verification
+        termines, succes = self.garde._bilan
+        ecoule = time.monotonic() - debut
+        # Le controle tourne dans un fil ; "en cours" reste affiche au moins 1,5 s.
+        if ecoule < 1.5 or (termines == avant and ecoule < 90):
+            return
+        self._verification = None
+        # Disponibilite du bouton reevaluee juste apres (rafraichir).
+        self._verifiable = None
+        c = self.s.c
+        e = self.garde.etat()
+        if termines == avant or not succes:
+            texte, couleur = _raison_lisible(e["raison"]), c["rouge_fort"]
+        elif e["statut"] in (VALIDE, AVERTISSEMENT):
+            texte, couleur = "Licence verifiee aupres du serveur.", c["vert_fort"]
+        elif e["statut"] in (ESSAI, DEMANDE_EN_ATTENTE):
+            texte, couleur = "Verifie : demande toujours en cours de traitement.", c["discret"]
+        else:
+            texte, couleur = "Verification terminee.", c["discret"]
+        self.retour_verification.configure(text=texte, fg=couleur)
+
+    def _disponibilite(self):
+        """"Verifier maintenant" grise quand il n'y a ni cle ni demande en attente."""
+        if self._verification is not None:
+            return
+        possible = self.garde._a_verifier()
+        if possible == self._verifiable:
+            return
+        self._verifiable = possible
+        _activer_bouton(self.bouton_verifier, possible)
+        if not possible:
+            self.retour_verification.configure(text=self.AUCUNE, fg=self.s.c["discret"])
+        elif self.retour_verification.cget("text") == self.AUCUNE:
+            self.retour_verification.configure(text="")
+
     def rafraichir(self):
+        self._apres = None
         try:
             if not self.cadre.winfo_exists():
                 return
+            c = self.s.c
             e = self.garde.etat()
+            ton, libelle = _PASTILLES.get(e["statut"], ("gris", e["statut"]))
+            _configurer(self.pastille, text=libelle, bg=c[ton + "_doux"], fg=c[ton + "_fort"])
             _ecrire_champ(self.valeurs["id_poste"], e["id_poste"] or "")
             self._afficher_cle()
             if e["echeance"]:
                 echeance = _date(e["echeance"])
+                if e["jours_restants"]:
+                    echeance += " (dans %d jour(s))" % e["jours_restants"]
             elif e["statut"] in (VALIDE, AVERTISSEMENT):
                 echeance = "Perpetuelle"
             else:
                 echeance = "-"
-            textes = {"nom_ordinateur": _ascii(e["nom_ordinateur"]), "titulaire": _ascii(e["titulaire"]) or "-",
-                      "echeance": echeance, "statut": e["message"] or e["statut"],
+            textes = {"nom_ordinateur": _ascii(e["nom_ordinateur"]) or "-",
+                      "titulaire": _ascii(e["titulaire"]) or "-", "echeance": echeance,
+                      "statut": e["message"] or libelle,
                       "dernier_controle": _date_heure(e["dernier_controle"]) or "Jamais"}
             for cle, texte in textes.items():
-                self.valeurs[cle].configure(text=texte)
-            accueil = self.garde._payload.get("message") if self.garde._payload else None
-            self.message.configure(text=_ascii(accueil))
-            _ecrire_champ(self.diagnostic, self.garde.texte_diagnostic())
+                _configurer(self.valeurs[cle], text=texte)
+            accueil = _ascii(self.garde._payload.get("message")) if self.garde._payload else ""
+            _configurer(self.message, text=accueil)
+            if bool(accueil) != self._message_visible:
+                self._message_visible = bool(accueil)
+                if accueil:
+                    self.boite_message.grid()
+                else:
+                    self.boite_message.grid_remove()
+            self._suivre_verification()
+            self._disponibilite()
+            self._ecrire_diagnostic(self.garde.texte_diagnostic())
             self._apres = self.cadre.after(1000, self.rafraichir)
         except Exception:
             pass
 
 
 class _FenetreLicence(object):
-    """Fenetre ouverte par Ctrl+Maj+L."""
+    """Fenetre ouverte par Ctrl+Maj+L (ou un clic sur le bandeau)."""
 
     def __init__(self, integ):
         tk = _tk()
         self.integ = integ
-        pal = integ.pal
+        s = integ.style()
+        c = s.c
+        fond = c["panneau"]
+        garde = integ.garde
         self.win = tk.Toplevel(integ.root)
-        self.win.title("Licence")
-        self.win.configure(bg=pal["fond"])
+        # Construite cachee puis centree : rien ne saute a l'ecran.
+        self.win.withdraw()
+        self.win.title("Licence - %s" % _ascii(garde.produit))
+        self.win.configure(bg=fond)
         self.win.resizable(False, False)
-        _CadreLicence(self.win, integ.garde, pal).cadre.pack(fill="both", expand=True, padx=12, pady=12)
-        tk.Button(self.win, text="Fermer", command=self.fermer, font=pal["police"]).pack(pady=(0, 12))
+        tk.Frame(self.win, bg=c["accent_fort"], height=s.px(4)).pack(fill="x")
+        # Pied : "Verifier maintenant" et son retour a gauche, "Fermer" a droite.
+        pied = tk.Frame(self.win, bg=c["fond"], padx=s.px(28), pady=s.px(10))
+        pied.pack(side="bottom", fill="x")
+        tk.Frame(self.win, bg=c["bordure"], height=1).pack(side="bottom", fill="x")
+        self.bouton_fermer = _bouton(pied, s, "Fermer", self.fermer, "principal")
+        self.bouton_fermer.cadre.pack(side="right")
+        actions = tk.Frame(pied, bg=c["fond"])
+        actions.pack(side="left", fill="x", expand=True)
+        entete = tk.Frame(self.win, bg=fond)
+        entete.pack(fill="x", padx=s.px(28), pady=(s.px(16), 0))
+        _badge(entete, s, "licence", "accent", 44, fond).pack(side="left", anchor="n")
+        textes = tk.Frame(entete, bg=fond)
+        textes.pack(side="left", fill="x", expand=True, padx=(s.px(16), 0))
+        tk.Label(textes, text="Licence", font=s.titre, bg=fond, fg=c["texte"], anchor="w").pack(fill="x")
+        tk.Label(textes, text="%s - version %s" % (_ascii(garde.produit), _ascii(garde.version)), font=s.texte,
+                 bg=fond, fg=c["discret"], anchor="w").pack(fill="x", pady=(s.px(2), 0))
+        self.cadre = _CadreLicence(self.win, garde, integ.pal, s, encadre=False, actions=actions)
+        self.cadre.cadre.pack(fill="both", expand=True, padx=s.px(28), pady=(s.px(14), s.px(16)))
         self.win.protocol("WM_DELETE_WINDOW", self.fermer)
+        for sequence in ("<Return>", "<KP_Enter>"):
+            self.win.bind(sequence, self._sur_entree)
         self.win.bind("<Escape>", lambda _e: self.fermer())
+        # Diagnostic a sa hauteur definitive avant le centrage.
+        self.win.update_idletasks()
+        self.cadre.ajuster_diagnostic()
+        _centrer(self.win, integ.root)
+        _habiller_fenetre(self.win, integ.root, s)
+        self.win.deiconify()
+        self.win.lift()
+        try:
+            self.bouton_fermer.focus_set()
+        except Exception:
+            pass
+
+    def _sur_entree(self, evenement):
+        # Entree sur un bouton qui a le focus (Verifier maintenant, Copier...) : ce
+        # bouton, comme sous Windows ; ailleurs : fermer.
+        if not _invoquer_bouton(evenement.widget):
+            self.fermer()
+        return "break"
 
     def fermer(self):
         try:
@@ -1733,92 +2599,238 @@ class _FenetreLicence(object):
 
 
 class _FenetreActivation(object):
-    """Fenetre modale : A_ACTIVER, DEMANDE_EN_ATTENTE, DEMANDE_REFUSEE, EXPIREE.
+    """Fenetre modale : A_ACTIVER, DEMANDE_EN_ATTENTE, DEMANDE_REFUSEE, EXPIREE, VERSION_REFUSEE.
 
     Rien n'est envoye au serveur sans clic explicite. Fermer quitte l'application.
+    Entree active le bouton qui a le focus clavier, sinon (dans un champ)
+    l'action principale de la page ; Echap revient en arriere depuis la saisie
+    d'une cle ou le formulaire de demande, et ferme la page "Demande envoyee".
     """
 
     PAGES_STATUT = ("accueil", "attente", "refus", "expiree", "version")
+    AIDE_TITULAIRE = "Societe ou personne a qui la licence est destinee"
 
     def __init__(self, integ):
         tk = _tk()
         self.integ = integ
         self.garde = integ.garde
         self.pal = integ.pal
+        self.s = integ.style()
         self.file = queue.Queue()
         self.occupe = False
         self.ferme = False
         self.page = None
         self.corps = None
+        self.contenu = None
+        self.pied = None
         self.boutons = []
+        self.principal = None
+        self.echap = None
         self.erreur = None
         self.info = None
         self._apres = None
+        self._apres_cle = None
+        self._message_cle = None
+        self._formatage = False
+        self._place = False
+        self._delais = set()
         integ.root.withdraw()
         self.win = tk.Toplevel(integ.root)
+        # Construite cachee puis centree : aucune fenetre ne saute a l'ecran.
+        self.win.withdraw()
         self.win.title("Licence - %s" % self.garde.produit)
-        self.win.configure(bg=self.pal["fond"])
-        self.win.minsize(440, 0)
+        self.win.configure(bg=self.s.c["panneau"])
+        self.win.resizable(False, False)
         self.win.protocol("WM_DELETE_WINDOW", integ.quitter)
         self.win.bind("<Destroy>", self._sur_destruction, add="+")
-        self.afficher_statut()
+        for sequence in ("<Return>", "<KP_Enter>"):
+            self.win.bind(sequence, self._sur_entree, add="+")
+        self.win.bind("<Escape>", self._sur_echap, add="+")
+        try:
+            self.afficher_statut()
+        except Exception:
+            # Fenetre cachee inachevee : detruite, l'appelant (ouvrir_activation)
+            # prend le relais ; l'application ne reste jamais invisible.
+            try:
+                self.win.destroy()
+            except Exception:
+                pass
+            self.ferme = True
+            raise
         if not self.ferme:
             self._apres = self.win.after(200, self._sonder)
 
     def _sur_destruction(self, evenement):
         if evenement.widget is self.win:
             self.ferme = True
-            if self._apres is not None:
-                try:
-                    self.win.after_cancel(self._apres)
-                except Exception:
-                    pass
-                self._apres = None
+            for apres in (self._apres, self._apres_cle):
+                if apres is not None:
+                    try:
+                        self.win.after_cancel(apres)
+                    except Exception:
+                        pass
+            self._apres = self._apres_cle = None
+            _annuler(self.win, self._delais)
 
     # -- construction -------------------------------------------------------
 
-    def _nouvelle_page(self, nom, titre):
+    def _nouvelle_page(self, nom, titre, sous_titre="", icone="cle", ton="accent", e=None):
+        """En-tete (icone, titre, explication), contenu, pied (identifiant du poste si e, actions)."""
         tk = _tk()
+        s, c = self.s, self.s.c
+        fond = c["panneau"]
+        if self._apres_cle is not None:
+            try:
+                self.win.after_cancel(self._apres_cle)
+            except Exception:
+                pass
+            self._apres_cle = None
         if self.corps is not None:
             self.corps.destroy()
         self.page = nom
         self.boutons = []
+        self.principal = None
+        self.echap = None
         self.erreur = None
         self.info = None
-        self.corps = tk.Frame(self.win, bg=self.pal["fond"], padx=20, pady=16)
+        self._message_cle = None
+        self.corps = tk.Frame(self.win, bg=fond)
         self.corps.pack(fill="both", expand=True)
-        self._label(titre, police=self.pal["police_titre"])
+        tk.Frame(self.corps, bg=c[ton + "_fort"], height=s.px(4)).pack(fill="x")
+        self.pied = tk.Frame(self.corps, bg=c["fond"], padx=s.px(28), pady=s.px(10))
+        self.pied.pack(side="bottom", fill="x")
+        tk.Frame(self.corps, bg=c["bordure"], height=1).pack(side="bottom", fill="x")
+        if e is not None:
+            self._identifiant(e)
+        entete = tk.Frame(self.corps, bg=fond)
+        entete.pack(fill="x", padx=s.px(28), pady=(s.px(16), 0))
+        _badge(entete, s, icone, ton, 44, fond).pack(side="left", anchor="n")
+        textes = tk.Frame(entete, bg=fond)
+        textes.pack(side="left", fill="x", expand=True, padx=(s.px(16), 0))
+        tk.Label(textes, text=titre, font=s.titre, bg=fond, fg=c["texte"], anchor="w", bd=0,
+                 padx=0).pack(fill="x")
+        if sous_titre:
+            tk.Label(textes, text=sous_titre, font=s.texte, bg=fond, fg=c["discret"], anchor="w", bd=0, padx=0,
+                     justify="left", wraplength=s.px(_LARGEUR - 60)).pack(fill="x", pady=(s.px(3), 0))
+        self.contenu = tk.Frame(self.corps, bg=fond)
+        self.contenu.pack(fill="both", expand=True, padx=s.px(28), pady=(s.px(14), s.px(16)))
+        # Meme largeur pour toutes les pages.
+        tk.Frame(self.contenu, bg=fond, width=s.px(_LARGEUR), height=1).pack()
 
-    def _label(self, texte, police=None, couleur=None):
+    def _texte(self, texte, parent=None, couleur=None, police=None, fond=None, largeur=_LARGEUR,
+               haut=0, bas=8):
         tk = _tk()
-        label = tk.Label(self.corps, text=texte, justify="left", anchor="w", wraplength=440,
-                         bg=self.pal["fond"], fg=couleur or self.pal["texte"],
-                         font=police or self.pal["police"])
-        label.pack(fill="x", pady=(0, 8))
+        s, c = self.s, self.s.c
+        label = tk.Label(parent or self.contenu, text=texte, justify="left", anchor="w", bd=0, padx=0,
+                         wraplength=s.px(largeur), bg=fond or c["panneau"], fg=couleur or c["texte"],
+                         font=police or s.texte)
+        label.pack(fill="x", pady=(s.px(haut), s.px(bas)))
         return label
 
-    def _champ(self, libelle, valeur="", lecture_seule=False, largeur=44):
+    def _libelle(self, parent, texte, mention=None):
+        """Libelle de champ en gras, suivi d'une mention discrete (obligatoire, facultatif)."""
         tk = _tk()
-        self._label(libelle)
-        entree = tk.Entry(self.corps, width=largeur, font=self.pal["police_champ"])
-        entree.pack(anchor="w", pady=(0, 10))
-        if valeur:
-            entree.insert(0, valeur)
-        if lecture_seule:
-            entree.configure(state="readonly")
-        return entree
+        s, c = self.s, self.s.c
+        ligne = tk.Frame(parent, bg=c["panneau"])
+        tk.Label(ligne, text=texte, font=s.gras, bg=c["panneau"], fg=c["texte"]).pack(side="left")
+        if mention:
+            tk.Label(ligne, text=mention, font=s.petit, bg=c["panneau"], fg=c["discret"]).pack(
+                side="left", padx=(s.px(6), 0))
+        return ligne
+
+    def _boite(self, ton, lignes, icone=None, haut=0, bas=0):
+        """Encadre teinte ; lignes : (texte, "normal" | "gras" | "discret" | "titre")."""
+        s, c = self.s, self.s.c
+        cadre, zone = _encadre(self.contenu, s, ton, icone)
+        cadre.pack(fill="x", pady=(s.px(haut), s.px(bas)))
+        largeur = _LARGEUR - 30 - (30 if icone and s.icones else 0)
+        for rang, (texte, genre) in enumerate(lignes):
+            police = {"gras": s.gras, "titre": s.petit_gras}.get(genre, s.texte)
+            couleur = {"discret": c["discret"], "titre": c[ton + "_fort"]}.get(genre, c["texte"])
+            self._texte(texte, zone, couleur, police, c[ton + "_doux"], largeur, haut=3 if rang else 0, bas=0)
 
     def _boutons(self, definitions):
+        """(texte, commande, genre) de gauche a droite ; l'action principale en dernier."""
         tk = _tk()
-        rangee = tk.Frame(self.corps, bg=self.pal["fond"])
-        rangee.pack(fill="x", pady=(6, 0))
-        for texte, commande in definitions:
-            bouton = tk.Button(rangee, text=texte, command=commande, font=self.pal["police"], padx=10)
-            bouton.pack(side="left", padx=(0, 8))
+        s, c = self.s, self.s.c
+        rangee = tk.Frame(self.pied, bg=c["fond"])
+        rangee.pack(side="right")
+        for texte, commande, genre in definitions:
+            bouton = _bouton(rangee, s, texte, commande, genre)
+            bouton.cadre.pack(side="left", padx=(s.px(8), 0))
             self.boutons.append(bouton)
+            if genre == "principal":
+                self.principal = bouton
 
     def _identifiant(self, e):
-        self._label("Identifiant du poste : %s" % e["id_poste"], couleur=self.pal["discret"])
+        # A dicter au support : toujours visible au pied des pages d'etat.
+        tk = _tk()
+        s, c = self.s, self.s.c
+        identifiant = e.get("id_poste") or ""
+        tk.Label(self.pied, text="Identifiant du poste : %s" % identifiant, font=s.petit, bg=c["fond"],
+                 fg=c["discret"]).pack(side="left")
+        copier = _bouton(self.pied, s, "Copier", None, "lien", c["fond"])
+        copier.configure(width=7, anchor="w", command=lambda: self._copier(identifiant, copier))
+        copier.pack(side="left", padx=(s.px(4), 0))
+
+    def _copier(self, texte, bouton):
+        try:
+            self.win.clipboard_clear()
+            self.win.clipboard_append(texte)
+            bouton.configure(text="Copie !")
+            _differer(self.win, self._delais, 1500, lambda: bouton.configure(text="Copier"))
+        except Exception:
+            pass
+
+    def _placer(self):
+        try:
+            if self._place:
+                _recentrer(self.win)
+            else:
+                self._place = True
+                _centrer(self.win)
+                _habiller_fenetre(self.win, self.integ.root, self.s)
+                self.win.deiconify()
+                self.win.lift()
+        except Exception:
+            pass
+
+    def _sur_entree(self, evenement):
+        # Entree sur un bouton qui a le focus clavier : ce bouton (Entree sur
+        # "Retour" revient en arriere, n'envoie jamais la demande) ; dans un champ
+        # ou sur la fenetre : l'action principale de la page ; dans le mot pour
+        # ETDEL : retour a la ligne.
+        try:
+            if self.occupe:
+                return "break"
+            widget = evenement.widget
+            if _invoquer_bouton(widget):
+                return "break"
+            if self.principal is None or widget.winfo_class() == "Text":
+                return None
+            if str(self.principal.cget("state")) != "disabled":
+                self.principal.invoke()
+        except Exception:
+            pass
+        return None
+
+    def _sur_echap(self, _evenement=None):
+        if self.echap is not None and not self.occupe:
+            try:
+                self.echap()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _focus_voisin(evenement, suivant):
+        # Tab dans le mot pour ETDEL : champ suivant plutot qu'une tabulation.
+        try:
+            voisin = evenement.widget.tk_focusNext() if suivant else evenement.widget.tk_focusPrev()
+            if voisin is not None:
+                voisin.focus_set()
+        except Exception:
+            pass
+        return "break"
 
     # -- pages --------------------------------------------------------------
 
@@ -1844,81 +2856,169 @@ class _FenetreActivation(object):
                 VERSION_REFUSEE: "version"}.get(statut, "accueil")
 
     def page_accueil(self, e=None):
+        tk = _tk()
         e = e or self.garde.etat()
-        self._nouvelle_page("accueil", "Licence requise")
-        self._label("Cette application necessite une licence ETDEL.")
+        s, c = self.s, self.s.c
+        self._nouvelle_page("accueil", "Licence requise", "Cette application necessite une licence ETDEL.",
+                            "cle", "accent", e)
         if e["statut"] == REVOQUEE:
-            self._label(e["message"], couleur=self.pal["accent"])
-        self._identifiant(e)
-        self._boutons([("J'ai une cle", self.page_cle), ("Demander une licence", self.page_formulaire)])
+            self._boite("rouge", [(e["message"], "normal")], "alerte", bas=16)
+        cartes = tk.Frame(self.contenu, bg=c["panneau"])
+        cartes.pack(fill="x")
+        for colonne in (0, 1):
+            cartes.columnconfigure(colonne, weight=1, uniform="carte")
+        choix = (("cle", "J'ai une cle", "Saisissez la cle de licence fournie par ETDEL.", self.page_cle),
+                 ("envoi", "Demander une licence",
+                  "Pas encore de cle ? Envoyez une demande a ETDEL depuis ce poste.", self.page_formulaire))
+        for colonne, (icone, titre, description, commande) in enumerate(choix):
+            carte, bouton = _carte(cartes, s, icone, titre, description, commande)
+            carte.grid(row=0, column=colonne, sticky="nsew",
+                       padx=(0, s.px(6)) if colonne == 0 else (s.px(6), 0))
+            self.boutons.append(bouton)
+        self._boutons([("Quitter", self.integ.quitter, "secondaire")])
+        self._placer()
+        # Clavier : la premiere carte a le focus (bord d'accent) ; Tab passe a
+        # la suivante, Entree ou Espace ouvre celle qui a le focus.
+        self.boutons[0].focus_set()
 
     def page_cle(self):
-        self._nouvelle_page("cle", "J'ai une cle")
-        self.entree_cle = self._champ("Cle de licence fournie par ETDEL :", largeur=32)
-        self.entree_cle.bind("<Return>", lambda _e: self._activer())
+        s, c = self.s, self.s.c
+        self._nouvelle_page("cle", "J'ai une cle", "Saisissez la cle de licence fournie par ETDEL.", "cle")
+        self._libelle(self.contenu, "Cle de licence").pack(fill="x", pady=(0, s.px(6)))
+        cadre, self.entree_cle = _saisie(self.contenu, s, police=s.cle)
+        cadre.pack(fill="x")
+        # Mise en forme pendant la frappe : majuscules, tirets, prefixe ETDEL.
+        self.entree_cle.configure(validate="key",
+                                  validatecommand=(self.entree_cle.register(self._sur_saisie_cle),))
+        self.erreur = self._texte("", couleur=c["discret"], haut=8, bas=0)
+        self._indiquer_cle("")
+        self._boutons([("Retour", self.afficher_statut, "secondaire"), ("Activer", self._activer, "principal")])
+        self.echap = self.afficher_statut
+        self._placer()
         self.entree_cle.focus_set()
-        self.erreur = self._label("", couleur=self.pal["accent"])
-        self._boutons([("Activer", self._activer), ("Retour", self.afficher_statut)])
 
     def page_formulaire(self):
         tk = _tk()
-        self._nouvelle_page("formulaire", "Demander une licence")
-        self.entree_titulaire = self._champ("Titulaire (obligatoire) :")
-        self.entree_email = self._champ("E-mail (facultatif) :")
-        self._label("Mot pour ETDEL (facultatif, %d caracteres maximum) :" % _MESSAGE_MAX)
-        self.texte_mot = tk.Text(self.corps, width=48, height=4, wrap="word", font=self.pal["police"])
-        self.texte_mot.pack(anchor="w")
+        s, c = self.s, self.s.c
+        fond = c["panneau"]
+        self._nouvelle_page("formulaire", "Demander une licence",
+                            "ETDEL etudie la demande puis attribue une licence a ce poste.", "envoi")
+        gauche, droite = (0, s.px(8)), (s.px(8), 0)
+        grille = tk.Frame(self.contenu, bg=fond)
+        grille.pack(fill="x")
+        for colonne in (0, 1):
+            grille.columnconfigure(colonne, weight=1, uniform="champ")
+        self._libelle(grille, "Titulaire", "obligatoire").grid(row=0, column=0, sticky="we", padx=gauche,
+                                                               pady=(0, s.px(6)))
+        self._libelle(grille, "E-mail", "facultatif").grid(row=0, column=1, sticky="we", padx=droite,
+                                                           pady=(0, s.px(6)))
+        self.cadre_titulaire, self.entree_titulaire = _saisie(grille, s)
+        self.cadre_titulaire.grid(row=1, column=0, sticky="we", padx=gauche)
+        cadre_email, self.entree_email = _saisie(grille, s)
+        cadre_email.grid(row=1, column=1, sticky="we", padx=droite)
+        # Aide sous le champ ; remplacee par l'erreur si le titulaire manque.
+        self.aide_titulaire = tk.Label(grille, text=self.AIDE_TITULAIRE, font=s.petit, bg=fond, fg=c["discret"],
+                                       anchor="w")
+        self.aide_titulaire.grid(row=2, column=0, columnspan=2, sticky="w", pady=(s.px(4), 0))
+        self.entree_titulaire.bind("<Key>", self._titulaire_saisi, add="+")
+        tete = tk.Frame(self.contenu, bg=fond)
+        tete.pack(fill="x", pady=(s.px(16), s.px(6)))
+        self._libelle(tete, "Mot pour ETDEL", "facultatif, %d caracteres maximum" % _MESSAGE_MAX).pack(side="left")
+        self.compteur = tk.Label(tete, text="0/%d" % _MESSAGE_MAX, font=s.petit, bg=fond, fg=c["discret"])
+        self.compteur.pack(side="right")
+        cadre_mot = tk.Frame(self.contenu, bg=c["champ"], highlightthickness=1, highlightbackground=c["bordure"],
+                             highlightcolor=c["bordure"])
+        cadre_mot.pack(fill="x")
+        self.texte_mot = tk.Text(cadre_mot, width=10, height=3, wrap="word", font=s.saisie, relief="flat", bd=0,
+                                 highlightthickness=0, bg=c["champ"], fg=c["texte"], insertbackground=c["texte"],
+                                 selectbackground=c["accent"], selectforeground=c["accent_texte"],
+                                 padx=s.px(9), pady=s.px(6))
+        self.texte_mot.pack(fill="x")
+        _bord_actif(cadre_mot, self.texte_mot, s)
         self.texte_mot.bind("<KeyRelease>", self._borner_mot)
-        self.compteur = self._label("0/%d" % _MESSAGE_MAX, couleur=self.pal["discret"])
-        self._champ("Nom de l'ordinateur :", valeur=self.garde._poste, lecture_seule=True)
-        self._label(MENTION_DELAI, couleur=self.pal["discret"])
-        self.erreur = self._label("", couleur=self.pal["accent"])
-        self._boutons([("Envoyer la demande", self._envoyer), ("Retour", self.afficher_statut)])
+        self.texte_mot.bind("<Tab>", lambda ev: self._focus_voisin(ev, True))
+        self.texte_mot.bind("<Shift-Tab>", lambda ev: self._focus_voisin(ev, False))
+        poste = tk.Frame(self.contenu, bg=fond)
+        poste.pack(fill="x", pady=(s.px(16), 0))
+        for colonne in (0, 1):
+            poste.columnconfigure(colonne, weight=1, uniform="champ")
+        self._libelle(poste, "Nom de l'ordinateur").grid(row=0, column=0, sticky="we", padx=gauche,
+                                                         pady=(0, s.px(6)))
+        cadre_nom, _entree = _saisie(poste, s, lecture_seule=True, valeur=self.garde._poste)
+        cadre_nom.grid(row=1, column=0, sticky="we", padx=gauche)
+        tk.Label(poste, text="Transmis avec la demande.", font=s.petit, bg=fond, fg=c["discret"],
+                 anchor="w").grid(row=1, column=1, sticky="w", padx=droite)
+        # Mention obligatoire, visible avant l'envoi.
+        self._boite("bleu", [(MENTION_DELAI, "normal")], "info", haut=18)
+        self.erreur = self._texte("", couleur=c["rouge_fort"], haut=10, bas=0)
+        self._boutons([("Retour", self.afficher_statut, "secondaire"),
+                       ("Envoyer la demande", self._envoyer, "principal")])
+        self.echap = self.afficher_statut
+        self._placer()
         self.entree_titulaire.focus_set()
 
     def page_envoyee(self, e):
-        self._nouvelle_page("envoyee", "Demande envoyee")
-        self._label(self.garde._texte_demande_envoyee())
-        self._label("En attendant la reponse, l'application est utilisable pendant %d jour(s)."
-                    % (e["jours_restants"] or 0))
-        self._boutons([("Continuer", self.fermer)])
+        s, c = self.s, self.s.c
+        self._nouvelle_page("envoyee", "Demande envoyee", self.garde._texte_demande_envoyee(), "ok", "vert", e)
+        _etapes(self.contenu, s, c["panneau"], 1).pack(fill="x", pady=(0, s.px(16)))
+        self._boite("vert", [("En attendant la reponse, l'application est utilisable pendant %d jour(s)."
+                              % (e["jours_restants"] or 0), "gras"),
+                             ("La licence s'activera automatiquement des que la demande sera acceptee.",
+                              "normal")], "ok")
+        self._boutons([("Continuer", self.fermer, "principal")])
+        # Fermer est permis ici (l'essai est ouvert) : Echap comme Continuer.
+        self.echap = self.fermer
+        self._placer()
 
     def page_attente(self, e):
-        self._nouvelle_page("attente", "Demande en attente")
-        self._label(self.garde._texte_demande_envoyee())
+        s, c = self.s, self.s.c
+        self._nouvelle_page("attente", "Demande en attente", self.garde._texte_demande_envoyee(), "horloge",
+                            "bleu", e)
+        _etapes(self.contenu, s, c["panneau"], 1).pack(fill="x", pady=(0, s.px(16)))
         demande = (self.garde._local or {}).get("demande") or {}
         if demande.get("essai_jusqu"):
-            self._label("La periode d'essai est terminee.")
+            essai = "La periode d'essai est terminee."
         else:
-            self._label("Aucune periode d'essai n'est disponible pour ce poste.")
-        self._label("La reponse est verifiee automatiquement chaque minute.", couleur=self.pal["discret"])
-        self._identifiant(e)
-        self.info = self._label("", couleur=self.pal["discret"])
-        self._boutons([("Verifier maintenant", self._verifier), ("J'ai une cle", self.page_cle)])
+            essai = "Aucune periode d'essai n'est disponible pour ce poste."
+        self._boite("bleu", [(essai, "gras"),
+                             ("L'application s'ouvrira des que la demande sera acceptee.", "normal"),
+                             ("La reponse est verifiee automatiquement chaque minute.", "discret")], "info")
+        self.info = self._texte("", couleur=c["discret"], police=s.petit, haut=10, bas=0)
+        self._boutons([("J'ai une cle", self.page_cle, "secondaire"),
+                       ("Verifier maintenant", self._verifier, "principal")])
         self.garde._planifier_au_plus_tard(_INTERVALLE_ATTENTE)
+        self._placer()
 
     def page_refus(self, e):
-        self._nouvelle_page("refus", "Demande refusee")
+        self._nouvelle_page("refus", "Demande refusee", "ETDEL n'a pas donne suite a la demande de licence.",
+                            "refus", "rouge", e)
         motif = _ascii(e.get("motif_refus"))
         if motif:
-            self._label(motif)
-        self._identifiant(e)
-        self._boutons([("Nouvelle demande", self.page_formulaire), ("J'ai une cle", self.page_cle)])
+            self._boite("rouge", [("Motif", "titre"), (motif, "normal")], bas=16)
+        self._texte("Vous pouvez envoyer une nouvelle demande ou saisir une cle fournie par ETDEL.",
+                    bas=0)
+        self._boutons([("J'ai une cle", self.page_cle, "secondaire"),
+                       ("Nouvelle demande", self.page_formulaire, "principal")])
+        self._placer()
 
     def page_expiree(self, e):
         refus = (self.garde._local or {}).get("refus")
         suspendue = isinstance(refus, dict) and refus.get("code") == "suspendue"
-        self._nouvelle_page("expiree", "Licence suspendue" if suspendue else "Licence a verifier")
-        self._label(e["message"])
-        self._identifiant(e)
-        self.info = self._label("", couleur=self.pal["discret"])
-        self._boutons([("Reessayer", self._verifier), ("J'ai une cle", self.page_cle)])
+        ton = "rouge" if suspendue else "orange"
+        self._nouvelle_page("expiree", "Licence suspendue" if suspendue else "Licence a verifier",
+                            "L'application ne peut pas s'ouvrir pour le moment.", "alerte", ton, e)
+        self._boite(ton, [(e["message"], "normal")])
+        self.info = self._texte("", couleur=self.s.c["discret"], police=self.s.petit, haut=10, bas=0)
+        self._boutons([("J'ai une cle", self.page_cle, "secondaire"), ("Reessayer", self._verifier, "principal")])
+        self._placer()
 
     def page_version(self, e):
-        self._nouvelle_page("version", "Mise a jour necessaire")
-        self._label(e["message"])
-        self.info = self._label("", couleur=self.pal["discret"])
-        self._boutons([("Reessayer", self._verifier), ("Quitter", self.integ.quitter)])
+        self._nouvelle_page("version", "Mise a jour necessaire",
+                            "Cette version de l'application n'est plus acceptee.", "maj", "orange", e)
+        self._boite("orange", [(e["message"], "normal")])
+        self.info = self._texte("", couleur=self.s.c["discret"], police=self.s.petit, haut=10, bas=0)
+        self._boutons([("Quitter", self.integ.quitter, "secondaire"), ("Reessayer", self._verifier, "principal")])
+        self._placer()
 
     # -- actions ------------------------------------------------------------
 
@@ -1928,17 +3028,82 @@ class _FenetreActivation(object):
             self.texte_mot.delete("1.0", "end")
             self.texte_mot.insert("1.0", texte[:_MESSAGE_MAX])
             texte = texte[:_MESSAGE_MAX]
-        self.compteur.configure(text="%d/%d" % (len(texte), _MESSAGE_MAX))
+        c = self.s.c
+        self.compteur.configure(text="%d/%d" % (len(texte), _MESSAGE_MAX),
+                                fg=c["orange_fort"] if len(texte) > _MESSAGE_MAX - 20 else c["discret"])
+
+    def _sur_saisie_cle(self):
+        # validatecommand : la mise en forme est differee, car modifier le champ
+        # pendant la validation desactiverait celle-ci.
+        if not self._formatage and self._apres_cle is None and not self.ferme:
+            self._apres_cle = self.win.after_idle(self._formater_cle)
+        return True
+
+    def _formater_cle(self):
+        self._apres_cle = None
+        try:
+            entree = self.entree_cle
+            ancien = entree.get()
+            nouveau, _corps = _mettre_en_forme_cle(ancien)
+            if nouveau != ancien:
+                position = entree.index("insert")
+                rang = sum(1 for ch in ancien[:position] if ch.isascii() and ch.isalnum())
+                if nouveau.startswith("ETDEL-") and not _brut_cle(ancien).startswith("ETDEL"):
+                    rang += 5
+                self._formatage = True
+                try:
+                    entree.delete(0, "end")
+                    entree.insert(0, nouveau)
+                finally:
+                    self._formatage = False
+                entree.icursor("end" if position >= len(ancien) else _position_apres(nouveau, rang))
+            self._indiquer_cle(nouveau)
+        except Exception:
+            pass
+
+    def _indiquer_cle(self, texte):
+        """Indication en direct sous le champ. Un message (cle refusee, erreur du
+        serveur) reste affiche tant que la saisie ne change pas."""
+        if self.erreur is None or self.occupe:
+            return
+        if self._message_cle is not None:
+            if _brut_cle(texte) == self._message_cle:
+                return
+            self._message_cle = None
+        s, c = self.s, self.s.c
+        _affiche, corps = _mettre_en_forme_cle(texte)
+        invalides = sorted(set(ch for ch in corps.translate(_CORRECTIONS) if ch not in _ALPHABET))
+        if not corps:
+            message, couleur = "Format : ETDEL-XXXX-XXXX-XXXX-XXXX (les tirets s'ajoutent seuls)", c["discret"]
+        elif invalides:
+            message, couleur = "Caractere non valide : %s" % ", ".join(invalides), c["rouge_fort"]
+        elif len(corps) < 16:
+            message, couleur = "Cle incomplete : %d/16 caracteres" % len(corps), c["discret"]
+        elif normaliser_cle(texte):
+            message, couleur = "Format correct : cliquez sur Activer.", c["vert_fort"]
+        else:
+            message, couleur = "Cle incorrecte : verifiez chaque caractere.", c["rouge_fort"]
+        self.erreur.configure(text=message, fg=couleur, font=s.petit)
+
+    def _message_saisie(self, texte):
+        # Message sur la page de la cle ; conserve tant que la saisie ne change pas.
+        if self.erreur is None:
+            return
+        self.erreur.configure(text=texte, fg=self.s.c["rouge_fort"], font=self.s.texte)
+        try:
+            self._message_cle = _brut_cle(self.entree_cle.get())
+        except Exception:
+            self._message_cle = None
 
     def _en_fond(self, fonction, rappel, attente="Connexion au serveur..."):
         if self.occupe:
             return
         self.occupe = True
         for bouton in self.boutons:
-            bouton.configure(state="disabled")
+            _activer_bouton(bouton, False)
         cible = self.erreur or self.info
         if cible is not None:
-            cible.configure(text=attente, fg=self.pal["discret"])
+            cible.configure(text=attente, fg=self.s.c["discret"])
 
         def tache():
             try:
@@ -1952,29 +3117,45 @@ class _FenetreActivation(object):
     def _activer(self):
         cle = self.entree_cle.get()
         if normaliser_cle(cle) is None:
-            self.erreur.configure(text="Cle invalide : verifiez la saisie (ETDEL-XXXX-XXXX-XXXX-XXXX)",
-                                  fg=self.pal["accent"])
+            self._message_saisie("Cle invalide : verifiez la saisie (ETDEL-XXXX-XXXX-XXXX-XXXX)")
             return
         self._en_fond(lambda: self.garde.activer(cle), self._apres_action)
 
     def _envoyer(self):
         titulaire = self.entree_titulaire.get().strip()
         if not titulaire:
-            self.erreur.configure(text="Le titulaire est obligatoire.", fg=self.pal["accent"])
+            # Erreur sous le champ, entoure de rouge, qui reprend le focus.
+            c = self.s.c
+            self.aide_titulaire.configure(text="Le titulaire est obligatoire.", fg=c["rouge_fort"])
+            self.cadre_titulaire.erreur = True
+            self.cadre_titulaire.changer_bord(True)
+            self.entree_titulaire.focus_set()
             return
         email = self.entree_email.get()
         mot = self.texte_mot.get("1.0", "end-1c")[:_MESSAGE_MAX]
         self._en_fond(lambda: self.garde.demander(titulaire, email, mot), self._apres_demande)
 
+    def _titulaire_saisi(self, _evenement=None):
+        # Premiere frappe apres l'erreur : l'aide d'origine revient.
+        try:
+            if self.cadre_titulaire.erreur:
+                self.cadre_titulaire.erreur = False
+                self.cadre_titulaire.changer_bord(True)
+                self.aide_titulaire.configure(text=self.AIDE_TITULAIRE, fg=self.s.c["discret"])
+        except Exception:
+            pass
+
     def _apres_action(self, resultat):
         if resultat.get("ok"):
             self.afficher_statut()
+        elif self.page == "cle":
+            self._message_saisie(resultat.get("message") or "")
         elif self.erreur is not None:
-            self.erreur.configure(text=resultat.get("message") or "", fg=self.pal["accent"])
+            self.erreur.configure(text=resultat.get("message") or "", fg=self.s.c["rouge_fort"])
 
     def _apres_demande(self, resultat):
         if not resultat.get("ok"):
-            self.erreur.configure(text=resultat.get("message") or "", fg=self.pal["accent"])
+            self.erreur.configure(text=resultat.get("message") or "", fg=self.s.c["rouge_fort"])
             return
         e = self.garde.etat()
         if e["statut"] == ESSAI:
@@ -1991,11 +3172,13 @@ class _FenetreActivation(object):
             self.afficher_statut()
             return
         if self.info is not None:
+            c = self.s.c
             if succes is True:
-                texte = "Verifie le %s : pas encore de reponse." % _date_heure(int(time.time()))
+                suite = "pas encore de reponse" if self.page == "attente" else "situation inchangee"
+                texte, couleur = "Verifie le %s : %s." % (_date_heure(int(time.time())), suite), c["discret"]
             else:
-                texte = _ascii(e["raison"]) or _MESSAGES["injoignable"]
-            self.info.configure(text=texte, fg=self.pal["discret"])
+                texte, couleur = _raison_lisible(e["raison"]), c["rouge_fort"]
+            self.info.configure(text=texte, fg=couleur)
 
     def _sonder(self):
         if self.ferme:
@@ -2006,7 +3189,7 @@ class _FenetreActivation(object):
                 self.occupe = False
                 for bouton in self.boutons:
                     try:
-                        bouton.configure(state="normal")
+                        _activer_bouton(bouton, True)
                     except Exception:
                         pass
                 rappel(resultat)
@@ -2045,13 +3228,21 @@ class _Integration(object):
     def __init__(self, root, garde, palette):
         self.root = root
         self.garde = garde
-        self.pal = _palette(palette)
+        self.palette_app = palette
+        self.pal = _palette(palette, root, garde._log, fenetres=True)
         self.fenetre = None
         self.fenetre_licence = None
         self.bandeau = None
         self.termine = False
         self._origine = ""
         self._apres = []
+        self._style = None
+
+    def style(self):
+        # Calcule a la premiere fenetre, pas dans installer() (moins de 50 ms).
+        if self._style is None:
+            self._style = _Style(self.root, self.pal)
+        return self._style
 
     def installer(self):
         root = self.root
@@ -2119,10 +3310,26 @@ class _Integration(object):
             self.garde._log(logging.ERROR, "fenetre licence : %r", exc)
 
     def ouvrir_activation(self):
-        if self.fenetre is None:
+        if self.fenetre is not None:
+            return
+        try:
             fenetre = _FenetreActivation(self)
-            # La fenetre a pu se refermer pendant sa construction (statut redevenu utilisable).
-            self.fenetre = None if fenetre.ferme else fenetre
+        except Exception as exc:
+            # Jamais d'application invisible : nouvel essai avec la palette par
+            # defaut, puis, a defaut, message et fermeture.
+            self.garde._log(logging.ERROR, "fenetre d'activation : %r", exc)
+            self.pal, self._style = dict(PALETTE_DEFAUT), None
+            try:
+                fenetre = _FenetreActivation(self)
+            except Exception as exc2:
+                self.garde._log(logging.ERROR, "fenetre d'activation (palette par defaut) : %r", exc2)
+                try:
+                    _afficher_message(self.root, "Licence", self.garde.etat()["message"] or "Licence requise")
+                finally:
+                    self.quitter()
+                return
+        # La fenetre a pu se refermer pendant sa construction (statut redevenu utilisable).
+        self.fenetre = None if fenetre.ferme else fenetre
 
     def fenetre_fermee(self):
         self.fenetre = None
@@ -2168,17 +3375,63 @@ class _Integration(object):
             self._apres = [self.root.after(_TICK_MS, self._tick)]
 
     def _maj_bandeau(self, e):
-        tk = _tk()
-        if e["statut"] in (AVERTISSEMENT, ESSAI) and self.fenetre is None:
+        statut = e["statut"]
+        if statut in (AVERTISSEMENT, ESSAI) and self.fenetre is None:
             if self.bandeau is None:
-                self.bandeau = tk.Label(self.root, bg=self.pal["accent"], fg=self.pal["accent_texte"],
-                                        font=self.pal["police"], anchor="w", padx=10, pady=4)
-            self.bandeau.configure(text=e["message"])
+                self._creer_bandeau()
+            self._habiller_bandeau(statut)
+            _configurer(self.bandeau, text=e["message"])
             # Superposition : ne depend ni de pack ni de grid dans l'application.
             self.bandeau.place(relx=0, rely=0, relwidth=1)
             self.bandeau.lift()
         elif self.bandeau is not None:
             self.bandeau.place_forget()
+
+    def _creer_bandeau(self):
+        tk = _tk()
+        s = self.style()
+        marge = s.px(34)
+        # Le bandeau est un Label (texte : etat()["message"]) ; l'icone et le lien
+        # y sont places et disparaissent avec lui. Un clic ouvre la fenetre Licence.
+        # Hauteur compacte (environ 30 px a 100 %) : il recouvre le haut de la
+        # fenetre de l'application (voir INTEGRATION.md).
+        self.bandeau = tk.Label(self.root, font=s.texte, anchor="w", justify="left", padx=marge,
+                                pady=s.px(5), bd=0, highlightthickness=1, cursor="hand2")
+        self._bandeau_icone = tk.Label(self.bandeau, bd=0, cursor="hand2",
+                                       font=s.icone(13) if s.icones else s.gras)
+        self._bandeau_icone.place(x=s.px(12), rely=0.5, anchor="w")
+        self._bandeau_lien = tk.Label(self.bandeau, text="Details", bd=0, cursor="hand2", font=s.gras)
+        self._bandeau_lien.place(relx=1.0, x=-s.px(14), rely=0.5, anchor="e")
+        souligne = _police(self.root.tk, s.gras, 0, None, True)
+        self._bandeau_lien.bind("<Enter>", lambda _e: self._bandeau_lien.configure(font=souligne), add="+")
+        self._bandeau_lien.bind("<Leave>", lambda _e: self._bandeau_lien.configure(font=s.gras), add="+")
+        for widget in (self.bandeau, self._bandeau_icone, self._bandeau_lien):
+            widget.bind("<Button-1>", lambda _e: self.ouvrir_licence(), add="+")
+
+        def ajuster(evenement):
+            # Le message passe a la ligne avant le lien plutot que dessous.
+            try:
+                largeur = max(s.px(120), evenement.width - 2 * marge - self._bandeau_lien.winfo_reqwidth())
+                if str(self.bandeau.cget("wraplength")) != str(largeur):
+                    self.bandeau.configure(wraplength=largeur)
+            except Exception:
+                pass
+
+        self.bandeau.bind("<Configure>", ajuster, add="+")
+
+    def _habiller_bandeau(self, statut):
+        s = self.style()
+        c = s.c
+        if statut == AVERTISSEMENT:
+            # Action attendue : couleurs d'accent de l'application.
+            fond, texte, vif, bord, icone = c["accent"], c["accent_texte"], c["accent_texte"], c["accent"], "alerte"
+        else:
+            # Essai : simple information, fond teinte discret.
+            fond, texte, vif, bord, icone = c["bleu_doux"], c["texte"], c["bleu_fort"], c["bleu_bord"], "info"
+        glyphe = _GLYPHES[icone] if s.icones else ("!" if icone == "alerte" else "i")
+        _configurer(self.bandeau, bg=fond, fg=texte, highlightbackground=bord, highlightcolor=bord)
+        _configurer(self._bandeau_icone, bg=fond, fg=vif, text=glyphe)
+        _configurer(self._bandeau_lien, bg=fond, fg=vif)
 
 
 def installer(root, produit, distribution, version, palette=None, _garde=None):

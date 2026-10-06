@@ -19,6 +19,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 
 ICI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ICI)
@@ -370,6 +371,17 @@ def test_formats():
         dicte = avec_zero[:6] + avec_zero[6:-1].replace("0", "O") + avec_zero[-1]
         check("cle : O lu comme 0 (Crockford)", L.normaliser_cle(dicte) == avec_zero)
     check("cle : non chaine", L.normaliser_cle(None) is None)
+    # Mise en forme pendant la frappe (fenetre d'activation).
+    check("saisie cle : vide", L._mettre_en_forme_cle("") == ("", ""))
+    check("saisie cle : prefixe en cours", L._mettre_en_forme_cle("etd") == ("ETD", "")
+          and L._mettre_en_forme_cle("ETDEL") == ("ETDEL", ""))
+    check("saisie cle : majuscules, tirets et prefixe ajoutes",
+          L._mettre_en_forme_cle("ab12cd") == ("ETDEL-AB12-CD", "AB12CD"))
+    check("saisie cle : cle collee sans tirets", L._mettre_en_forme_cle(cle.lower().replace("-", ""))[0] == cle)
+    check("saisie cle : cle sans prefixe", L._mettre_en_forme_cle(cle[6:])[0] == cle)
+    check("saisie cle : 16 caracteres au plus", L._mettre_en_forme_cle(cle + "-XYZ")[0] == cle)
+    check("saisie cle : curseur apres le n-ieme caractere", L._position_apres("ETDEL-AB12-CD", 7) == 8
+          and L._position_apres("ETDEL-AB12-CD", 9) == 10 and L._position_apres("AB", 5) == 2)
     ident = L._id_poste(MACHINE_A, "APP")
     check("id poste : format XXXX-XXXX", re.match(r"^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$", ident) is not None)
     check("id poste : stable", ident == L._id_poste(MACHINE_A, "APP"))
@@ -1253,6 +1265,11 @@ def tests_tk():
     def textes(w):
         return [x.cget("text") for x in widgets(w) if isinstance(x, (tk.Label, tk.Button))]
 
+    def champs(w):
+        # Champs en lecture seule : Entry (identifiant, cle) et Text (diagnostic).
+        return ([x.get() for x in widgets(w) if isinstance(x, tk.Entry)]
+                + [x.get("1.0", "end-1c") for x in widgets(w) if isinstance(x, tk.Text)])
+
     def bouton(w, texte):
         for x in widgets(w):
             if isinstance(x, tk.Button) and x.cget("text") == texte:
@@ -1305,7 +1322,23 @@ def tests_tk():
     bouton(win, "Envoyer la demande").invoke()
     pomper(root, 0.1)
     check("tk formulaire : titulaire obligatoire", "Le titulaire est obligatoire." in textes(win))
+    check("tk formulaire : erreur sous le champ titulaire",
+          integ.fenetre.aide_titulaire.cget("text") == "Le titulaire est obligatoire.")
     check("tk formulaire : rien envoye sans clic valide", serveur.appels == [])
+    # Entree avec le focus clavier sur "Retour" : retour a l'accueil, jamais d'envoi.
+    check("tk activation : Entree et Echap liees a la fenetre", win.bind("<Return>") != ""
+          and win.bind("<KP_Enter>") != "" and win.bind("<Escape>") != "")
+    integ.fenetre.entree_titulaire.insert(0, "Armement Pont")
+    integ.fenetre._sur_entree(types.SimpleNamespace(widget=bouton(win, "Retour")))
+    pomper(root, 0.3)
+    check("tk formulaire : Entree sur Retour revient a l'accueil sans envoi",
+          integ.fenetre.page == "accueil" and serveur.appels == [])
+    carte = bouton(win, "Demander une licence")
+    check("tk accueil : focus clavier visible sur les cartes", carte.bind("<FocusIn>") != ""
+          and carte.bind("<FocusOut>") != "")
+    integ.fenetre._sur_entree(types.SimpleNamespace(widget=carte))
+    pomper(root, 0.1)
+    check("tk accueil : Entree sur une carte l'ouvre", integ.fenetre.page == "formulaire" and serveur.appels == [])
     integ.fenetre.entree_titulaire.insert(0, "Armement Pont")
     integ.fenetre.texte_mot.insert("1.0", "y" * 300)
     integ.fenetre._borner_mot()
@@ -1315,11 +1348,18 @@ def tests_tk():
     check("tk demande : un seul envoi", ops(serveur) == ["demander"])
     check("tk demande : mention de delai apres envoi",
           any("Le traitement peut prendre plusieurs jours." in t for t in textes(win)))
+    check("tk demande envoyee : identifiant du poste et Echap", any(g.etat()["id_poste"] in t for t in textes(win))
+          and integ.fenetre.echap == integ.fenetre.fermer)
     bouton(win, "Continuer").invoke()
     pomper(root, 0.2)
     check("tk essai : fenetre fermee", integ.fenetre is None and root.state() == "normal")
     check("tk essai : bandeau", integ.bandeau is not None and integ.bandeau.winfo_ismapped()
           and integ.bandeau.cget("text") == "Licence en cours de traitement - 15 jour(s) d'essai restant(s)")
+    integ.bandeau.event_generate("<Button-1>")
+    pomper(root, 0.2)
+    check("tk bandeau : un clic ouvre la fenetre Licence", integ.fenetre_licence is not None
+          and "Essai" in textes(integ.fenetre_licence.win))
+    integ.fenetre_licence.fermer()
     n = len(serveur.appels)
     integ._tick()
     check("tk tick : lecture seule, aucun reseau", len(serveur.appels) == n)
@@ -1333,22 +1373,39 @@ def tests_tk():
     lic = integ.fenetre_licence.win
     check("tk Ctrl+Maj+L : raccourci installe", root.bind_all("<Control-Shift-KeyPress-L>") != "")
     check("tk fenetre Licence : contenu", "Identifiant du poste" in textes(lic) and "Verifier maintenant" in textes(lic))
-    ids = [x.get() for x in widgets(lic) if isinstance(x, tk.Entry)]
+    ids = champs(lic)
     check("tk fenetre Licence : identifiant selectionnable", g.etat()["id_poste"] in ids)
     check("tk fenetre Licence : titulaire", "Armement Pont" in textes(lic))
+    check("tk fenetre Licence : pastille de statut", "Valide" in textes(lic))
     check("tk fenetre Licence : diagnostic", any(x.startswith("Licence ETDEL") for x in ids))
+    check("tk fenetre Licence : diagnostic complet, renvoye a la ligne",
+          g.texte_diagnostic() in ids and integ.fenetre_licence.cadre.diagnostic.cget("wrap") == "word")
     # Cle masquee comme dans la console, complete sur demande, jamais dans le diagnostic.
     cle = g._local["cle"]
     masquee = "ETDEL-****-****-****-" + cle[-4:]
     check("tk fenetre Licence : cle masquee", masquee in ids and cle not in ids)
     bouton(lic, "Afficher la cle").invoke()
-    ids = [x.get() for x in widgets(lic) if isinstance(x, tk.Entry)]
+    ids = champs(lic)
     check("tk fenetre Licence : Afficher la cle", cle in ids and "Masquer la cle" in textes(lic))
     check("tk fenetre Licence : jamais la cle dans le diagnostic",
           not any(x.startswith("Licence ETDEL") and cle[6:] in x for x in ids))
     bouton(lic, "Masquer la cle").invoke()
-    ids = [x.get() for x in widgets(lic) if isinstance(x, tk.Entry)]
+    ids = champs(lic)
     check("tk fenetre Licence : Masquer la cle", masquee in ids and cle not in ids)
+    # Entree sur "Verifier maintenant" : verifie (un controle), ne ferme pas la fenetre.
+    check("tk fenetre Licence : Entree et Echap liees", lic.bind("<Return>") != "" and lic.bind("<Escape>") != "")
+    n = len(serveur.appels)
+    integ.fenetre_licence._sur_entree(types.SimpleNamespace(widget=bouton(lic, "Verifier maintenant")))
+    check("tk fenetre Licence : Entree sur Verifier maintenant verifie sans fermer",
+          integ.fenetre_licence is not None and pomper(root, 3, lambda: len(serveur.appels) > n)
+          and ops(serveur)[n:] == ["valider"])
+    check("tk fenetre Licence : verification reussie signalee", pomper(root, 4, lambda: any(
+        t == "Licence verifiee aupres du serveur." for t in textes(lic))))
+    integ.fenetre_licence._sur_entree(types.SimpleNamespace(widget=lic))
+    check("tk fenetre Licence : Entree hors bouton ferme", integ.fenetre_licence is None)
+    integ.ouvrir_licence()
+    pomper(root, 0.2)
+    lic = integ.fenetre_licence.win
     bouton(lic, "Fermer").invoke()
     cadre = g.cadre_licence(root)
     check("tk cadre_licence : Frame", isinstance(cadre, tk.Frame) and len(widgets(cadre)) > 5)
@@ -1364,6 +1421,14 @@ def tests_tk():
     pomper(root)
     integ = g._integration
     bouton(integ.fenetre.win, "J'ai une cle").invoke()
+    integ.fenetre._sur_echap()
+    check("tk Echap : retour a l'accueil", integ.fenetre.page == "accueil")
+    bouton(integ.fenetre.win, "J'ai une cle").invoke()
+    integ.fenetre.entree_cle.insert(0, "ab12")
+    pomper(root, 0.1)
+    check("tk cle : mise en forme pendant la saisie", integ.fenetre.entree_cle.get() == "ETDEL-AB12"
+          and any(t.startswith("Cle incomplete") for t in textes(integ.fenetre.win)) and serveur.appels == [])
+    integ.fenetre.entree_cle.delete(0, "end")
     integ.fenetre.entree_cle.insert(0, "ETDEL-1234")
     bouton(integ.fenetre.win, "Activer").invoke()
     pomper(root, 0.1)
@@ -1374,9 +1439,20 @@ def tests_tk():
     bouton(integ.fenetre.win, "Activer").invoke()
     pomper(root, 2, lambda: "Cle invalide" in textes(integ.fenetre.win))
     check("tk cle inconnue : message du serveur", "Cle invalide" in textes(integ.fenetre.win))
+    # Entree avec le focus clavier sur "Retour" : retour a l'accueil, aucune activation.
     integ.fenetre.entree_cle.delete(0, "end")
     integ.fenetre.entree_cle.insert(0, serveur.creer_cle())
-    bouton(integ.fenetre.win, "Activer").invoke()
+    n = len(serveur.appels)
+    integ.fenetre._sur_entree(types.SimpleNamespace(widget=bouton(integ.fenetre.win, "Retour")))
+    pomper(root, 0.3)
+    check("tk cle : Entree sur Retour revient sans activer", integ.fenetre.page == "accueil"
+          and len(serveur.appels) == n)
+    bouton(integ.fenetre.win, "J'ai une cle").invoke()
+    integ.fenetre.entree_cle.delete(0, "end")
+    integ.fenetre.entree_cle.insert(0, serveur.creer_cle())
+    # Entree dans le champ : action principale de la page, le bouton Activer.
+    check("tk cle : Activer est l'action principale", integ.fenetre.principal is bouton(integ.fenetre.win, "Activer"))
+    integ.fenetre._sur_entree(types.SimpleNamespace(widget=integ.fenetre.entree_cle))
     check("tk activation : fenetre fermee", pomper(root, 3, lambda: integ.fenetre is None))
     check("tk activation : application visible", root.state() == "normal" and g.etat()["statut"] == L.VALIDE)
     check("tk VALIDE : pas de bandeau", integ.bandeau is None or not integ.bandeau.winfo_ismapped())
@@ -1527,6 +1603,43 @@ def tests_tk():
     L.installer(root, "APP", "APP-A", "1.0", palette={"accent": "#123456", "inconnu": 1}, _garde=g)
     pomper(root)
     check("tk palette : bandeau aux couleurs du theme", g._integration.bandeau.cget("bg") == "#123456")
+    root.destroy()
+
+    # Palette partielle d'un theme sombre (fond et texte seulement, valable en 1.3.0) :
+    # les fenetres gardent le fond sombre de l'application.
+    horloge, serveur, dossiers = contexte()
+    root = tk.Tk()
+    g = garde(serveur, dossiers, horloge)
+    L.installer(root, "APP", "APP-A", "1.0", palette={"fond": "#202124", "texte": "#e8eaed", "discret": "#9aa0a6"},
+                _garde=g)
+    pomper(root)
+    titres = [x for x in widgets(g._integration.fenetre.win)
+              if isinstance(x, tk.Label) and x.cget("text") == "Licence requise"]
+    check("tk palette partielle sombre : titre sur fond sombre",
+          len(titres) == 1 and L._clarte(root, titres[0].cget("bg")) < 0.45)
+    root.destroy()
+
+    # Couleur invalide : valeur par defaut, la fenetre d'activation s'affiche.
+    horloge, serveur, dossiers = contexte()
+    root = tk.Tk()
+    g = garde(serveur, dossiers, horloge)
+    L.installer(root, "APP", "APP-A", "1.0", palette={"accent": "orangee"}, _garde=g)
+    pomper(root)
+    integ = g._integration
+    check("tk palette invalide : fenetre d'activation visible", integ.fenetre is not None
+          and integ.fenetre.win.state() == "normal" and integ.pal["accent"] == L.PALETTE_DEFAUT["accent"])
+    root.destroy()
+
+    # "Verifier maintenant" sans cle ni demande en attente : grise, rien n'est envoye.
+    horloge, serveur, dossiers = contexte()
+    root = tk.Tk()
+    g = garde(serveur, dossiers, horloge)
+    cadre = g.cadre_licence(root)
+    cadre.pack()
+    pomper(root, 0.2)
+    check("tk cadre_licence sans cle : Verifier grise, aucun envoi",
+          str(bouton(cadre, "Verifier maintenant").cget("state")) == "disabled"
+          and "Aucune licence a verifier sur ce poste." in textes(cadre) and serveur.appels == [])
     root.destroy()
 
 

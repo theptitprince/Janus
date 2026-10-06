@@ -288,9 +288,11 @@ function aide_section_demandes(): string
         <li>"Duree en jours (vide = perpetuelle)" : preremplie avec la duree par defaut de la distribution, de 1 a 36500.
         L'echeance court a partir de l'acceptation.</li>
         <li>"Titulaire" : prerempli avec le nom saisi par le demandeur, modifiable (120 caracteres).</li>
-        <li>"Options (codes separes par des virgules)" : preremplies avec celles de la distribution. Laissees telles
-        quelles, la licence suivra les options de la distribution. Toute autre liste (meme les memes codes dans un autre
-        ordre, ou un champ vide qui veut dire aucune option) devient une surcharge propre a cette licence.</li>
+        <li>"Options (codes separes par des virgules, * = toutes)" : preremplies avec celles de la distribution.
+        Laissees telles quelles, la licence suivra les options de la distribution. Toute autre liste (meme les memes codes
+        dans un autre ordre, ou un champ vide qui veut dire aucune option) devient une surcharge propre a cette licence.
+        Taper * seul donne toutes les options a cette licence, y compris celles qui seront ajoutees plus tard a
+        l'application.</li>
         <li>Bouton "Accepter", confirmation "Accepter la demande et creer la cle". La licence est creee active, deja liee
         au poste demandeur, avec l'e-mail de la demande (origine "demande").</li>
         <li>L'ecran affiche la cle une seule fois ("Cle (affichee une seule fois)", bouton "Copier"). Rien a transmettre :
@@ -416,8 +418,9 @@ function aide_section_licences(): string
         <li>"Tolerance hors ligne en jours (vide = distribution)" : de 0 a 365. Une valeur saisie fige la tolerance de
         cette licence ; vide, elle suit la distribution.</li>
         <li>Case "Options de la distribution" cochee : la licence suit les options de la distribution, et le champ
-        "Options propres a la licence" est ignore (ce qui y est tape est perdu). Case decochee : la liste saisie devient la
-        surcharge de la licence (vide = aucune option) et ne suit plus les changements de la distribution.</li>
+        "Options propres a la licence (* = toutes)" est ignore (ce qui y est tape est perdu). Case decochee : la liste
+        saisie devient la surcharge de la licence (vide = aucune option, * = toutes les options, presentes et futures) et
+        ne suit plus les changements de la distribution.</li>
         <li>"Enregistrer", confirmer "Modifier la licence". Les nouvelles valeurs parviennent au poste a son controle
         suivant.</li>
         </ul>
@@ -538,7 +541,7 @@ function aide_section_produits(): string
         Duree de licence par defaut (jours, vide = perpetuelle) | 1 a 36500 | valeur proposee a la creation d'une cle et a l'acceptation d'une demande
         Essai pendant une demande (jours, 0 = aucun) | 15 par defaut, 0 a 365 | utilisation pendant l'attente de votre decision, une fois par poste et par produit
         Version minimale (facultative) | 32 caracteres | version la plus ancienne acceptee ; la plus exigeante entre produit et distribution s'applique
-        Options activees (codes separes par des virgules) | minuscules, chiffres et _ (40 caracteres par code) | fonctions activees dans l'application. Les codes sont fixes par le developpeur dans le code de l'application (par exemple garde.option("export_pdf")) : lui en demander la liste. La console ne verifie pas les codes : un code mal orthographie n'active rien, sans aucun message. Vide = aucune option ; une option absente vaut "non"
+        Options activees (codes separes par des virgules, * = toutes) | minuscules, chiffres et _ (40 caracteres par code), ou * seul | fonctions activees dans l'application ; * active toutes les options, y compris celles qui seront ajoutees plus tard (edition complete, usage interne). Les codes sont fixes par le developpeur dans le code de l'application (par exemple garde.option("export_pdf")) : lui en demander la liste. La console ne verifie pas les codes : un code mal orthographie n'active rien, sans aucun message. Vide = aucune option ; une option absente vaut "non"
         Message d'accueil (facultatif) | {{ACCUEIL_MAX}} caracteres | affiche dans la fenetre Licence de l'application, sans accents
         Active | case | decochee : les postes qui ont une cle sont bloques a leur controle suivant, sauf les essais en cours (voir plus bas)
         T);
@@ -1237,7 +1240,8 @@ function aide_section_glossaire(): string
         'Distribution' => 'Variante livree d\'un produit (un client, un canal), avec ses regles. Une cle n\'est valable '
             . 'que dans sa distribution.',
         'Option' => 'Code (minuscules, chiffres, _) qui active une fonction de l\'application ; une option absente vaut '
-            . '"non". Une licence suit les options de sa distribution, sauf surcharge.',
+            . '"non". Une licence suit les options de sa distribution, sauf surcharge. Le joker * active toutes les '
+            . 'options, presentes et futures.',
         'Surcharge' => 'Tolerance ou options propres a une licence, qui ne suivent plus la distribution.',
         'Tolerance (hors ligne)' => 'Duree d\'utilisation sans controle reussi aupres du serveur (15 jours par defaut).',
         'Preavis' => 'Nombre de jours avant la fin de la tolerance hors ligne ou l\'application affiche un bandeau '

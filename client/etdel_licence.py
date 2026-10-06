@@ -43,7 +43,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-MODULE_VERSION = "1.1.0"
+MODULE_VERSION = "1.2.0"
 
 # Renseignees une fois le serveur installe (ecran Cles de la console).
 # Vides : aucun controle, aucun fichier, l'application ne parle jamais de licence.
@@ -89,6 +89,8 @@ _ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _CORRECTIONS = str.maketrans({"O": "0", "I": "1", "L": "1"})
 
 MENTION_DELAI = "Le traitement d'une demande peut prendre plusieurs jours."
+# Joker saisi dans la console : toutes les options, presentes et futures.
+OPTION_TOUTES = "*"
 
 _MESSAGES = {
     "cle_invalide": "Cle invalide",
@@ -1386,14 +1388,19 @@ class Garde(object):
         return dict(self._dernier_etat)
 
     def option(self, code):
-        """Option de la distribution lue dans le jeton signe ; False si absente."""
+        """Option de la distribution lue dans le jeton signe ; False si absente.
+
+        Le joker "*" (console : toutes les options) active toute option demandee.
+        """
         try:
             statut = self.etat()["statut"]
             with self._verrou:
+                options = []
                 if statut in (VALIDE, AVERTISSEMENT) and self._payload:
-                    return code in self._payload.get("options", [])
-                if statut == ESSAI:
-                    return code in ((self._local.get("demande") or {}).get("options") or [])
+                    options = self._payload.get("options", [])
+                elif statut == ESSAI:
+                    options = (self._local.get("demande") or {}).get("options") or []
+                return OPTION_TOUTES in options or code in options
         except Exception as exc:
             self._log(logging.ERROR, "option : %r", exc)
         return False

@@ -76,3 +76,24 @@ button:hover, .bouton:hover { border-color: var(--accent); }
   .fiche { grid-template-columns: 1fr; }
   .fiche dt { margin-top: .4rem; }
 }
+/* Aide : lien sous le titre de chaque ecran, sommaire, sections, questions depliables. */
+a.aide-lien { display: inline-block; margin: -.6rem 0 1rem; font-size: .85rem; }
+.aide p, .aide li, .aide details { max-width: 60rem; }
+.aide li { margin: .2rem 0; break-inside: avoid; }
+.aide h3 { font-size: 1rem; margin: 1.2rem 0 .4rem; }
+/* Le sommaire est un nav : on annule la mise en page du menu de l'en-tete. */
+.aide-sommaire { display: block; margin: 1rem 0; padding: .2rem 1rem .6rem; background: var(--panneau);
+  border: 1px solid var(--ligne); border-radius: 6px; }
+.aide-sommaire h2 { margin: .6rem 0 .4rem; }
+.aide-sommaire ol, .aide-colonnes { columns: 17rem 2; column-gap: 2rem; }
+.aide-sommaire ol { margin: 0; padding-left: 1.6rem; }
+.aide-sommaire a { padding: 0; opacity: 1; }
+.aide-sommaire a:hover { background: none; text-decoration: underline; }
+.aide-section { margin-top: 2rem; border-top: 1px solid var(--ligne); }
+/* Tableaux de texte : defilement horizontal sur telephone plutot que des colonnes ecrasees. */
+.aide td { min-width: 9rem; }
+.aide details { margin: .4rem 0; padding: .5rem .8rem; background: var(--panneau); border: 1px solid var(--ligne);
+  border-radius: 6px; }
+.aide summary { cursor: pointer; font-weight: 600; }
+.aide details[open] summary { margin-bottom: .4rem; }
+.aide-haut { font-size: .85rem; }

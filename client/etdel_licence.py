@@ -43,7 +43,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-MODULE_VERSION = "1.0.1"
+MODULE_VERSION = "1.1.0"
 
 # Renseignees une fois le serveur installe (ecran Cles de la console).
 # Vides : aucun controle, aucun fichier, l'application ne parle jamais de licence.
@@ -66,11 +66,11 @@ STATUTS_UTILISABLES = (VALIDE, AVERTISSEMENT, ESSAI)
 _STATUTS_FENETRE = (A_ACTIVER, DEMANDE_EN_ATTENTE, DEMANDE_REFUSEE, EXPIREE, VERSION_REFUSEE)
 # cle_invalide en validation : la cle n'existe plus sur le serveur, on la
 # traite comme une revocation plutot que de reessayer indefiniment.
-_CODES_REVOCATION = ("revoquee", "suspendue", "poste_revoque",
-                     "cle_liee_autre_poste", "cle_invalide")
-# Refus definitifs qui bloquent sans effacer la cle : une prolongation ou une
-# reactivation dans la console suffit a debloquer au controle suivant.
-_CODES_BLOCAGE = ("expiree", "version_trop_ancienne", "produit_inconnu")
+_CODES_REVOCATION = ("revoquee", "poste_revoque", "cle_liee_autre_poste", "cle_invalide")
+# Refus qui bloquent sans effacer la cle : une prolongation, une reactivation
+# ou la fin d'une suspension dans la console debloque au controle suivant,
+# sans ressaisie (une cle obtenue par demande n'a jamais ete montree).
+_CODES_BLOCAGE = ("expiree", "suspendue", "version_trop_ancienne", "produit_inconnu")
 
 JOUR = 86400
 _DELAI_PREMIER_CONTROLE = 3.0
@@ -1088,6 +1088,9 @@ class Garde(object):
             self._log(logging.WARNING, "licence bloquee par le serveur : %s", code)
             # La version refusee est memorisee : une mise a jour de l'application leve le blocage.
             local["refus"] = {"code": code, "t": reel, "version": self.version}
+            jusqu = payload.get("suspendue_jusqu")
+            if code == "suspendue" and _entier(jusqu):
+                local["refus"]["jusqu"] = jusqu
             local["dernier_controle"] = reel
             self._raison = code
             return True
@@ -1130,6 +1133,17 @@ class Garde(object):
                 if code == "demande_inconnue":
                     self._log(logging.WARNING, "demande %s inconnue du serveur", demande.get("numero"))
                     local["demande"] = None
+                    self._sauver()
+                    return True
+                if code in _CODES_REVOCATION:
+                    # Licence revoquee (ou poste libere) avant la remise de la cle :
+                    # la demande n'aboutira plus. L'essai s'arrete et la fenetre
+                    # d'activation permet une nouvelle demande ou la saisie d'une cle.
+                    self._log(logging.WARNING, "demande %s : licence %s avant la remise de la cle",
+                              demande.get("numero"), code)
+                    local["demande"] = None
+                    local["dernier_controle"] = reel
+                    self._revoque = code
                     self._sauver()
                     return True
                 self._sauver()
@@ -1245,6 +1259,14 @@ class Garde(object):
                 if code == "version_trop_ancienne":
                     return VERSION_REFUSEE, ("Version %s trop ancienne : mettez l'application a jour."
                                              % self.version), None
+                if code == "suspendue":
+                    # Cle conservee : le poste se debloque seul au premier controle
+                    # qui suit la reactivation ou la date de fin.
+                    fin = refus.get("jusqu")
+                    if _entier(fin):
+                        return EXPIREE, ("Licence suspendue jusqu'au %s. Elle sera reactivee automatiquement "
+                                         "a cette date (Reessayer)." % _date(fin)), None
+                    return EXPIREE, "Licence suspendue. Contactez ETDEL pour la reactiver.", None
                 return EXPIREE, _MESSAGES.get(code, "Licence bloquee"), None
             p = self._payload
             if p is None:
@@ -1264,8 +1286,12 @@ class Garde(object):
                                  "l'ordinateur a Internet puis reessayez."), jours
             # Preavis borne a la seconde moitie de la duree hors ligne : un preavis
             # superieur a la tolerance afficherait le bandeau des la verification reussie.
+            # Jamais avant le controle suivant (6 h) plus une heure non plus : avec une
+            # tolerance de 0 jour (7 h), un poste connecte verrait sinon le bandeau
+            # entre deux controles.
             debut_alerte = max(hors_ligne - int(p.get("preavis_j", 5)) * JOUR,
-                               p["emis"] + (hors_ligne - p["emis"]) // 2)
+                               p["emis"] + (hors_ligne - p["emis"]) // 2,
+                               p["emis"] + _INTERVALLE_CONTROLE + 3600)
             alerte_tolerance = maintenant >= debut_alerte
             alerte_echeance = bool(echeance) and echeance - maintenant < _PREAVIS_ECHEANCE_J * JOUR
             if alerte_tolerance and (not alerte_echeance or hors_ligne <= echeance):
@@ -1843,7 +1869,9 @@ class _FenetreActivation(object):
         self._boutons([("Nouvelle demande", self.page_formulaire), ("J'ai une cle", self.page_cle)])
 
     def page_expiree(self, e):
-        self._nouvelle_page("expiree", "Licence a verifier")
+        refus = (self.garde._local or {}).get("refus")
+        suspendue = isinstance(refus, dict) and refus.get("code") == "suspendue"
+        self._nouvelle_page("expiree", "Licence suspendue" if suspendue else "Licence a verifier")
         self._label(e["message"])
         self._identifiant(e)
         self.info = self._label("", couleur=self.pal["discret"])

@@ -1,7 +1,7 @@
 # Intégrer la licence ETDEL dans une application
 
-Module de référence : `client/etdel_licence.py`, version **1.0.1**.
-Empreinte SHA-256 (fins de ligne normalisées en LF) : `e6c4f01e2c6d30aafdb3ea7ead968044b4b530666e1c43e1c8f24382ac5cb3a2`
+Module de référence : `client/etdel_licence.py`, version **1.1.0**.
+Empreinte SHA-256 (fins de ligne normalisées en LF) : `bbee20f18a76c94072e72c623a948c3319e04a305c446df3b69aaf3d01751139`
 
 Le module est **le même pour toutes les applications** : on le copie tel quel, sans aucune modification, à côté du script principal. Il n'a pas de fichier de configuration. Tout ce qui est propre à une application (produit, distribution, version) passe en paramètres.
 
@@ -138,8 +138,8 @@ Aucune fonction publique ne lève d'exception vers l'application : toute erreur 
 | `DEMANDE_REFUSEE` | refus reçu | fenêtre : motif éventuel, « Nouvelle demande », « J'ai une cle » |
 | `VALIDE` | tout va bien | rien |
 | `AVERTISSEMENT` | fin de tolérance hors ligne (préavis, limité à la seconde moitié de la tolérance) ou échéance sous 15 jours | bandeau avec `etat()["message"]` |
-| `EXPIREE` | tolérance épuisée ou échéance dépassée | au lancement : fenêtre « Reessayer » ; en session : message puis fermeture |
-| `REVOQUEE` | clé révoquée, suspendue, libérée ou liée à un autre poste | message puis fermeture ; fenêtre d'activation au lancement suivant |
+| `EXPIREE` | tolérance épuisée, échéance dépassée, ou licence suspendue (le poste garde sa clé ; message « Licence suspendue jusqu'au … » si une date de fin est fixée) | au lancement : fenêtre « Reessayer » (titre « Licence suspendue » en cas de suspension) ; en session : message puis fermeture. La réactivation ou la fin de la suspension débloque au contrôle suivant, sans ressaisie |
+| `REVOQUEE` | clé révoquée (définitif), libérée ou liée à un autre poste : le poste efface sa clé | message puis fermeture ; fenêtre d'activation au lancement suivant |
 | `VERSION_REFUSEE` | version inférieure à la version minimale | au lancement : fenêtre « Mise a jour necessaire » (« Reessayer », « Quitter ») ; en session : message puis fermeture. Installer une version à jour lève le blocage sans attendre le serveur |
 
 ## Ce que le module transmet et conserve

@@ -266,3 +266,24 @@ function sauvegarde_creer(PDO $db, array $config, int $maintenant): string
     }
     return $fichier;
 }
+
+/**
+ * Fin des suspensions datees (D61) : a la date choisie, la licence redevient
+ * active d'elle-meme. Appelee a chaque requete de l'API et de la console, ce
+ * qui suffit : un poste ne voit son statut qu'au moment ou il interroge l'API.
+ */
+function licences_fin_suspension(PDO $db, int $maintenant): void
+{
+    $echues = db_lignes($db, "SELECT id FROM licences WHERE statut = 'suspendue' AND suspendue_jusqu IS NOT NULL "
+        . 'AND suspendue_jusqu <= ?', [$maintenant]);
+    foreach ($echues as $lic) {
+        // Condition repetee : deux requetes simultanees ne reactivent et ne journalisent qu'une fois.
+        $fait = db_modifier($db, "UPDATE licences SET statut = 'active', suspendue_jusqu = NULL, modifie_le = ? "
+            . "WHERE id = ? AND statut = 'suspendue' AND suspendue_jusqu IS NOT NULL AND suspendue_jusqu <= ?",
+            [$maintenant, (int)$lic['id'], $maintenant]);
+        if ($fait === 1) {
+            journal_ecrire($db, 'systeme', 'licence_reactivee', 'licence ' . $lic['id'],
+                'fin de la suspension programmee', null, $maintenant);
+        }
+    }
+}

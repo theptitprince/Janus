@@ -79,16 +79,28 @@
   // Controle d'exposition : aucun de ces fichiers ne doit etre telechargeable par URL.
   var liste = document.getElementById('exposition');
   if (liste && window.fetch) {
+    // URL rebatie sans identifiants : fetch refuse une adresse qui en contient
+    // (page ouverte par https://nom:mot@.../admin/).
+    var base = window.location.origin + window.location.pathname;
     JSON.parse(liste.getAttribute('data-chemins') || '[]').forEach(function (chemin) {
       var ligne = document.createElement('li');
       ligne.textContent = chemin + ' : verification...';
       liste.appendChild(ligne);
+      // Seule une reponse explicite du serveur prouve la protection : une erreur
+      // reseau ou une redirection ne prouve rien et reste "non verifie".
       var conclure = function (statut) {
-        var expose = statut === 200;
-        ligne.className = expose ? 'danger' : 'protege';
-        ligne.textContent = chemin + ' : ' + (expose ? 'DANGER, telechargeable' : 'protege (' + (statut || 'refus') + ')');
+        if (statut === 200) {
+          ligne.className = 'danger';
+          ligne.textContent = chemin + ' : DANGER, telechargeable';
+        } else if (statut === 401 || statut === 403 || statut === 404) {
+          ligne.className = 'protege';
+          ligne.textContent = chemin + ' : protege (' + statut + ')';
+        } else {
+          ligne.className = 'inconnu';
+          ligne.textContent = chemin + ' : non verifie (' + (statut || 'pas de reponse') + '), a controler a la main';
+        }
       };
-      window.fetch(chemin, { cache: 'no-store', credentials: 'omit', redirect: 'manual' })
+      window.fetch(new URL(chemin, base).href, { cache: 'no-store', credentials: 'omit', redirect: 'manual' })
         .then(function (reponse) { conclure(reponse.status); }, function () { conclure(0); });
     });
   }

@@ -68,6 +68,7 @@ button:hover, .bouton:hover { border-color: var(--accent); }
   font-size: 1.05rem; overflow-wrap: anywhere; }
 #exposition li.danger { background: none; color: var(--danger); font-weight: 700; }
 #exposition li.protege { color: var(--succes); }
+#exposition li.inconnu { color: var(--alerte); font-weight: 700; }
 @media (max-width: 600px) {
   header { justify-content: space-between; }
   nav { order: 3; flex-basis: 100%; }

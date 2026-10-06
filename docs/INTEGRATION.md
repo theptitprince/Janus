@@ -1,7 +1,7 @@
 # Intégrer la licence ETDEL dans une application
 
-Module de référence : `client/etdel_licence.py`, version **1.2.0**.
-Empreinte SHA-256 (fins de ligne normalisées en LF) : `49257495fcf9b660f9d286c59ae9f16e6f93bdd2f79dc017f845610b112e4f74`
+Module de référence : `client/etdel_licence.py`, version **1.3.0**.
+Empreinte SHA-256 (fins de ligne normalisées en LF) : `abccf569500527af038903843a89ce50d847c2154ed5e41014cc184fffd7ab1e`
 
 Le module est **le même pour toutes les applications** : on le copie tel quel, sans aucune modification, à côté du script principal. Il n'a pas de fichier de configuration. Tout ce qui est propre à une application (produit, distribution, version) passe en paramètres.
 
@@ -45,7 +45,7 @@ root.mainloop()
 - bandeau de préavis en superposition (période d'essai, tolérance hors ligne bientôt épuisée, échéance proche) ;
 - relecture de l'état toutes les 25 s ; licence expirée ou révoquée en cours de session : message, puis fermeture ;
 - interception de la fermeture de la fenêtre : l'heure atteinte est enregistrée, puis le gestionnaire d'origine de l'application est appelé (à défaut, `root.destroy()`) ; si l'application annule la fermeture, le contrôle continue ; il s'arrête à la destruction réelle de la fenêtre ;
-- raccourci **Ctrl+Maj+L** : fenêtre « Licence » (identifiant du poste, titulaire, échéance, statut, bouton « Verifier maintenant », diagnostic).
+- raccourci **Ctrl+Maj+L** : fenêtre « Licence » (identifiant du poste, clé masquée `ETDEL-****-****-****-ZS95` avec bouton « Afficher la cle », titulaire, échéance, statut, bouton « Verifier maintenant », diagnostic). La clé complète n'apparaît que sur demande, jamais dans le diagnostic ni le journal.
 
 `installer()` renvoie la Garde pour les usages avancés.
 

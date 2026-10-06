@@ -43,7 +43,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-MODULE_VERSION = "1.2.0"
+MODULE_VERSION = "1.3.0"
 
 # Renseignees une fois le serveur installe (ecran Cles de la console).
 # Vides : aucun controle, aucun fichier, l'application ne parle jamais de licence.
@@ -1534,6 +1534,15 @@ class Garde(object):
             self._log(logging.ERROR, "demander : %r", exc)
             return {"ok": False, "code": "interne", "message": _MESSAGES["interne"]}
 
+    def _cle_affichee(self, complete=False):
+        """Cle du poste pour la fenetre Licence : masquee comme dans la console
+        (ETDEL-****-****-****-XXXX), ou complete sur demande ; "" sans cle."""
+        with self._verrou:
+            cle = (self._local or {}).get("cle")
+        if not cle:
+            return ""
+        return cle if complete else "ETDEL-****-****-****-" + cle[-4:]
+
     def texte_diagnostic(self):
         """Une ligne prete a inserer dans un rapport (jamais la cle en clair)."""
         try:
@@ -1609,7 +1618,7 @@ def _ecrire_champ(entree, texte):
 
 
 class _CadreLicence(object):
-    LIGNES = (("id_poste", "Identifiant du poste"), ("nom_ordinateur", "Nom de l'ordinateur"),
+    LIGNES = (("id_poste", "Identifiant du poste"), ("cle", "Cle"), ("nom_ordinateur", "Nom de l'ordinateur"),
               ("titulaire", "Titulaire"), ("echeance", "Echeance"), ("statut", "Statut"),
               ("dernier_controle", "Dernier controle"))
 
@@ -1621,26 +1630,33 @@ class _CadreLicence(object):
         for rang, (cle, libelle) in enumerate(self.LIGNES):
             tk.Label(self.cadre, text=libelle, bg=pal["panneau"], fg=pal["discret"],
                      font=pal["police"], anchor="w").grid(row=rang, column=0, sticky="w", padx=(0, 12))
-            if cle == "id_poste":
-                # Champ en lecture seule : selectionnable pour une dictee ou un copier-coller.
-                widget = tk.Entry(self.cadre, font=pal["police_champ"], width=14, relief="flat",
-                                  readonlybackground=pal["panneau"], fg=pal["texte"])
+            if cle in ("id_poste", "cle"):
+                # Champs en lecture seule : selectionnables pour une dictee ou un copier-coller.
+                widget = tk.Entry(self.cadre, font=pal["police_champ"], width=14 if cle == "id_poste" else 26,
+                                  relief="flat", readonlybackground=pal["panneau"], fg=pal["texte"])
             else:
                 widget = tk.Label(self.cadre, bg=pal["panneau"], fg=pal["texte"], font=pal["police"],
                                   anchor="w", justify="left", wraplength=380)
             widget.grid(row=rang, column=1, sticky="w")
             self.valeurs[cle] = widget
+        # Cle masquee comme dans la console (4 derniers caracteres, pour s'y retrouver
+        # au telephone) ; affichee en entier a la demande, pour la noter avant une
+        # reinstallation. Jamais dans le diagnostic ni dans le journal.
+        self.cle_visible = False
+        self.bouton_cle = tk.Button(self.cadre, text="Afficher la cle", command=self._basculer_cle,
+                                    font=pal["police"])
+        self.bouton_cle.grid(row=1, column=2, sticky="w", padx=(8, 0))
         rang = len(self.LIGNES)
         self.message = tk.Label(self.cadre, bg=pal["panneau"], fg=pal["discret"], font=pal["police"],
                                 anchor="w", justify="left", wraplength=480)
-        self.message.grid(row=rang, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.message.grid(row=rang, column=0, columnspan=3, sticky="w", pady=(4, 0))
         tk.Button(self.cadre, text="Verifier maintenant", command=garde.controler_maintenant,
                   font=pal["police"]).grid(row=rang + 1, column=0, sticky="w", pady=(8, 4))
         tk.Label(self.cadre, text="Diagnostic", bg=pal["panneau"], fg=pal["discret"],
                  font=pal["police"]).grid(row=rang + 2, column=0, sticky="w")
         self.diagnostic = tk.Entry(self.cadre, font=pal["police"], width=60, relief="flat",
                                    readonlybackground=pal["panneau"], fg=pal["discret"])
-        self.diagnostic.grid(row=rang + 3, column=0, columnspan=2, sticky="we")
+        self.diagnostic.grid(row=rang + 3, column=0, columnspan=3, sticky="we")
         self._apres = None
         self.cadre.bind("<Destroy>", self._sur_destruction, add="+")
         self.rafraichir()
@@ -1654,12 +1670,26 @@ class _CadreLicence(object):
                 pass
             self._apres = None
 
+    def _afficher_cle(self):
+        texte = self.garde._cle_affichee(self.cle_visible)
+        _ecrire_champ(self.valeurs["cle"], texte or "-")
+        self.bouton_cle.configure(state="normal" if texte else "disabled",
+                                  text="Masquer la cle" if self.cle_visible else "Afficher la cle")
+
+    def _basculer_cle(self):
+        self.cle_visible = not self.cle_visible
+        try:
+            self._afficher_cle()
+        except Exception:
+            pass
+
     def rafraichir(self):
         try:
             if not self.cadre.winfo_exists():
                 return
             e = self.garde.etat()
             _ecrire_champ(self.valeurs["id_poste"], e["id_poste"] or "")
+            self._afficher_cle()
             if e["echeance"]:
                 echeance = _date(e["echeance"])
             elif e["statut"] in (VALIDE, AVERTISSEMENT):

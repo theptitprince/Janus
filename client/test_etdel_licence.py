@@ -1337,6 +1337,18 @@ def tests_tk():
     check("tk fenetre Licence : identifiant selectionnable", g.etat()["id_poste"] in ids)
     check("tk fenetre Licence : titulaire", "Armement Pont" in textes(lic))
     check("tk fenetre Licence : diagnostic", any(x.startswith("Licence ETDEL") for x in ids))
+    # Cle masquee comme dans la console, complete sur demande, jamais dans le diagnostic.
+    cle = g._local["cle"]
+    masquee = "ETDEL-****-****-****-" + cle[-4:]
+    check("tk fenetre Licence : cle masquee", masquee in ids and cle not in ids)
+    bouton(lic, "Afficher la cle").invoke()
+    ids = [x.get() for x in widgets(lic) if isinstance(x, tk.Entry)]
+    check("tk fenetre Licence : Afficher la cle", cle in ids and "Masquer la cle" in textes(lic))
+    check("tk fenetre Licence : jamais la cle dans le diagnostic",
+          not any(x.startswith("Licence ETDEL") and cle[6:] in x for x in ids))
+    bouton(lic, "Masquer la cle").invoke()
+    ids = [x.get() for x in widgets(lic) if isinstance(x, tk.Entry)]
+    check("tk fenetre Licence : Masquer la cle", masquee in ids and cle not in ids)
     bouton(lic, "Fermer").invoke()
     cadre = g.cadre_licence(root)
     check("tk cadre_licence : Frame", isinstance(cadre, tk.Frame) and len(widgets(cadre)) > 5)

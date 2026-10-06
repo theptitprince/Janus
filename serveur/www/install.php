@@ -128,8 +128,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 . 'LICENCE_CLE_PUBLIQUE = "' . $resultat['cle_publique'] . "\"\n";
             $avertissement = strpos($prive, (string)realpath(__DIR__)) === 0
                 ? '<p><strong>Attention :</strong> le dossier prive est dans www/. Il est protege par .htaccess ; '
-                . 'verifier dans le tableau de bord de la console que la base et les cles ne sont pas '
-                . 'telechargeables.</p>' : '';
+                . 'verifier dans la console (Administration, Controle d\'exposition) que la base et les cles ne '
+                . 'sont pas telechargeables.</p>' : '';
             install_page(200, 'Installation terminee',
                 '<p>Base, cle de signature (kid 1), secret des demandes et acces a la console sont crees. '
                 . 'L\'assistant est maintenant verrouille.</p>' . $avertissement

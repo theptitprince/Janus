@@ -1,6 +1,6 @@
 <?php
 // demandes.php - Demandes de licence : creation et suivi (API), acceptation et
-//                refus (console), periode d'essai unique par poste et par produit.
+//                refus (console), periode d'essai unique par poste et par distribution.
 // ETDEL (c) 2026
 
 declare(strict_types=1);
@@ -24,11 +24,14 @@ function demande_reponse_attente(array $demande, array $dist, array $base): arra
     ];
 }
 
-/** L'essai n'est accorde qu'une fois par poste (empreinte) et par produit, toutes distributions confondues. */
-function demande_essai_deja_accorde(PDO $db, string $machine, int $produit_id): bool
+/**
+ * L'essai n'est accorde qu'une fois par poste (empreinte) et par distribution (D68) : chaque
+ * distribution est geree seule, le produit ne sert qu'a les ranger.
+ */
+function demande_essai_deja_accorde(PDO $db, string $machine, int $distribution_id): bool
 {
-    return (int)db_valeur($db, 'SELECT COUNT(*) FROM demandes dm JOIN distributions d ON d.id = dm.distribution_id '
-        . 'WHERE dm.machine = ? AND d.produit_id = ? AND dm.essai_jusqu IS NOT NULL', [$machine, $produit_id]) > 0;
+    return (int)db_valeur($db, 'SELECT COUNT(*) FROM demandes WHERE machine = ? AND distribution_id = ? '
+        . 'AND essai_jusqu IS NOT NULL', [$machine, $distribution_id]) > 0;
 }
 
 function demande_creer(PDO $db, array $config, array $r, array $dist, array $base, string $ip, int $maintenant): array
@@ -51,7 +54,7 @@ function demande_creer(PDO $db, array $config, array $r, array $dist, array $bas
             return api_refus($base, 'demande_en_cours');
         }
         $essai = null;
-        if ((int)$dist['essai_j'] > 0 && !demande_essai_deja_accorde($db, $r['machine'], (int)$dist['produit_id'])) {
+        if ((int)$dist['essai_j'] > 0 && !demande_essai_deja_accorde($db, $r['machine'], (int)$dist['id'])) {
             $essai = $maintenant + (int)$dist['essai_j'] * JOUR;
         }
         $demande = [

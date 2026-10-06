@@ -1,7 +1,7 @@
 # Intégrer la licence ETDEL dans une application
 
-Module de référence : `client/etdel_licence.py`, version **1.3.0**.
-Empreinte SHA-256 (fins de ligne normalisées en LF) : `abccf569500527af038903843a89ce50d847c2154ed5e41014cc184fffd7ab1e`
+Module de référence : `client/etdel_licence.py`, version **1.4.0**.
+Empreinte SHA-256 (fins de ligne normalisées en LF) : `86ac7b191d28dec162fe86e981629cacb36ea59626a8123e5ef14e9de89196cb`
 
 Le module est **le même pour toutes les applications** : on le copie tel quel, sans aucune modification, à côté du script principal. Il n'a pas de fichier de configuration. Tout ce qui est propre à une application (produit, distribution, version) passe en paramètres.
 
@@ -41,11 +41,11 @@ root.mainloop()
 `installer()` prend tout en charge, sans autre modification du code :
 
 - contrôle en arrière-plan (premier essai 3 s après le lancement, puis toutes les 6 h ; 15 min après un échec) ; la fonction rend la main en moins de 50 ms ;
-- fenêtre d'activation si aucune licence n'est active (« J'ai une cle » ou « Demander une licence ») ; rien n'est envoyé sans clic explicite ; fermer cette fenêtre quitte l'application ;
-- bandeau de préavis en superposition (période d'essai, tolérance hors ligne bientôt épuisée, échéance proche) ;
+- fenêtre d'activation si aucune licence n'est active : deux cartes de choix « J'ai une cle » et « Demander une licence » ; la clé se met en forme pendant la frappe (majuscules, tirets, préfixe `ETDEL-`) avec une indication en direct (incomplète, format correct, caractère non valide) ; rien n'est envoyé sans clic explicite ; au clavier, Entrée active le bouton qui a le focus (Entrée sur « Retour » revient en arrière, n'envoie rien) et, dans un champ, l'action principale de la page (« Activer », « Envoyer la demande ») ; Échap revient en arrière depuis la saisie de clé ou le formulaire et ferme la page « Demande envoyee » ; fermer cette fenêtre quitte l'application ;
+- bandeau de préavis en superposition (période d'essai sur fond bleu clair, tolérance hors ligne bientôt épuisée ou échéance proche aux couleurs d'accent) ; un clic sur le bandeau ouvre la fenêtre « Licence ». Le bandeau recouvre environ 30 px (à 100 %) du haut de la fenêtre pendant l'essai ou le préavis, davantage si son message passe sur deux lignes dans une fenêtre étroite (moins de 700 px environ) : prévoir cette marge au-dessus de la barre d'outils ;
 - relecture de l'état toutes les 25 s ; licence expirée ou révoquée en cours de session : message, puis fermeture ;
 - interception de la fermeture de la fenêtre : l'heure atteinte est enregistrée, puis le gestionnaire d'origine de l'application est appelé (à défaut, `root.destroy()`) ; si l'application annule la fermeture, le contrôle continue ; il s'arrête à la destruction réelle de la fenêtre ;
-- raccourci **Ctrl+Maj+L** : fenêtre « Licence » (identifiant du poste, clé masquée `ETDEL-****-****-****-ZS95` avec bouton « Afficher la cle », titulaire, échéance, statut, bouton « Verifier maintenant », diagnostic). La clé complète n'apparaît que sur demande, jamais dans le diagnostic ni le journal.
+- raccourci **Ctrl+Maj+L** : fenêtre « Licence » (statut en pastille de couleur : vert valide, bleu essai ou attente, ambre avertissement, rouge bloqué ; titulaire, échéance, dernier contrôle, identifiant du poste avec « Copier », clé masquée `ETDEL-****-****-****-ZS95` avec « Afficher la cle », diagnostic avec « Copier le diagnostic » ; au pied, « Verifier maintenant », grisé tant que le poste n'a ni clé ni demande en attente, et « Fermer »). La clé complète n'apparaît que sur demande, jamais dans le diagnostic ni le journal.
 
 `installer()` renvoie la Garde pour les usages avancés.
 
@@ -71,15 +71,17 @@ Les composants s'adaptent au thème de l'application par un dictionnaire ; les c
 
 | Clé | Rôle | Défaut |
 |---|---|---|
-| `fond` | fond des fenêtres | `#f2f2f2` |
-| `panneau` | fond du cadre « Licence » | `#ffffff` |
+| `fond` | pied des fenêtres (zone des boutons) ; sans `panneau`, aussi le fond des fenêtres, comme en 1.3.0 | `#f2f2f2` |
+| `panneau` | fond des fenêtres et du cadre « Licence » | `#ffffff` |
 | `texte` | texte principal | `#1e1e1e` |
 | `discret` | libellés secondaires | `#6b6b6b` |
-| `accent` | bandeau, messages d'erreur | `#b4500a` |
-| `accent_texte` | texte du bandeau | `#ffffff` |
-| `police` | police courante | `("Segoe UI", 10)` |
-| `police_titre` | titres | `("Segoe UI", 13, "bold")` |
-| `police_champ` | champs de saisie, identifiant | `("Consolas", 11)` |
+| `accent` | bouton principal, liens, bandeau d'avertissement (éviter un accent vert ou bleu : il colore aussi le bandeau d'avertissement) | `#b4500a` |
+| `accent_texte` | texte sur l'accent (bouton principal, bandeau) | `#ffffff` |
+| `police` | police courante (tailles et graisses dérivées) | `("Segoe UI", 10)` |
+| `police_titre` | titres (agrandis de 2 points en tête de fenêtre) | `("Segoe UI", 13, "bold")` |
+| `police_champ` | clé de licence, identifiant du poste | `("Consolas", 11)` |
+
+Bordures, survols, fonds teintés et couleurs de statut (vert, bleu, ambre, rouge) sont calculés à partir de ces clés : une palette sombre (`panneau` foncé) donne des fenêtres sombres lisibles sans autre réglage, barre de titre sombre comprise (Windows 10 2004 et suivants). Un accent clair (jaune par exemple) reste au fond du bouton principal et du bandeau ; liens et icônes en prennent une nuance assombrie, lisible sur `panneau` (contraste d'au moins 4,5:1). Une couleur ou une police refusée par Tk est remplacée par sa valeur par défaut (ligne dans le journal). Les fenêtres reprennent l'icône de la fenêtre principale. Les icônes utilisent les polices d'icônes de Windows 10 et 11 (Segoe Fluent Icons, Segoe MDL2 Assets) ; sans elles, un simple « i » ou « ! » les remplace.
 
 ## Options par distribution
 
@@ -184,4 +186,4 @@ Remplacer `etdel_licence.py` par la nouvelle référence, mettre à jour `VERSIO
 - **Ctrl+Maj+L** affiche l'identifiant du poste (à dicter au support), le statut et la ligne de diagnostic ; « Verifier maintenant » relance un contrôle.
 - La colonne « raison » du diagnostic et le journal `licence.log` donnent le détail technique (serveur injoignable, horloge décalée, signature invalide…).
 - Horloge de l'ordinateur décalée de plus de 10 minutes : le serveur refuse le contrôle ; corriger la date et l'heure.
-- Changement d'ordinateur : « Liberer le poste » dans la console, puis saisir la même clé sur le nouvel ordinateur.
+- Changement d'ordinateur : « Changer d'ordinateur » sur la fiche de la licence dans la console, puis saisir la même clé sur le nouvel ordinateur.

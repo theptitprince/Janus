@@ -1,5 +1,6 @@
 // app.js - Console des licences ETDEL : confirmation des actions d'ecriture, copie dans le
-//          presse-papiers, duree par defaut, compteurs, controle d'exposition des fichiers.
+//          presse-papiers, actions depliables, reglages replies ouverts sur un champ refuse,
+//          champs du nouveau produit, duree par defaut, compteurs, controle d'exposition.
 // ETDEL (c) 2026
 (function () {
   'use strict';
@@ -57,6 +58,46 @@
       secours();
     }
   });
+
+  // Fiche licence : une seule action depliee a la fois (toggle ne remonte pas : ecoute en capture).
+  document.addEventListener('toggle', function (evenement) {
+    var ouverte = evenement.target;
+    if (!ouverte.open || !ouverte.classList || !ouverte.classList.contains('action')) {
+      return;
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('details.action[open]'), function (autre) {
+      if (autre !== ouverte) {
+        autre.open = false;
+      }
+    });
+  }, true);
+
+  // Champ refuse par le navigateur dans des reglages replies : on les deplie pour le montrer.
+  // (invalid ne remonte pas : ecoute en capture.)
+  document.addEventListener('invalid', function (evenement) {
+    var replie = evenement.target.closest ? evenement.target.closest('details') : null;
+    if (replie && !replie.open) {
+      replie.open = true;
+    }
+  }, true);
+
+  // Nouvelle distribution : le code et le nom du nouveau produit ne servent (et ne sont envoyes)
+  // que si "Nouveau produit" est choisi ; ils sont alors obligatoires. Un fieldset desactive n'envoie
+  // rien et le navigateur n'y verifie pas "required" : choisir un produit existant n'est jamais bloque.
+  var produit = document.querySelector('select[data-produit]');
+  var nouveau = document.querySelector('fieldset[data-nouveau-produit]');
+  if (produit && nouveau) {
+    var majProduit = function () {
+      var aCreer = produit.value === '0';
+      nouveau.hidden = !aCreer;
+      nouveau.disabled = !aCreer;
+      Array.prototype.forEach.call(nouveau.querySelectorAll('input'), function (champ) {
+        champ.required = aCreer;
+      });
+    };
+    produit.addEventListener('change', majProduit);
+    majProduit();
+  }
 
   // Creation d'une cle : la duree proposee suit la distribution choisie.
   var choix = document.querySelector('select[data-durees]');

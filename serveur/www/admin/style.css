@@ -23,15 +23,34 @@ code { font-family: Consolas, "DejaVu Sans Mono", monospace; font-size: .92em; }
 .erreur { background: #fbe9e7; color: var(--danger); }
 .pastille { display: inline-block; min-width: 1.3em; padding: 0 .35em; border-radius: 1em; background: var(--alerte);
   color: #fff; font-size: .8em; text-align: center; }
-.compteur { display: block; padding: 1rem; margin-bottom: 1rem; border-radius: 6px; background: var(--panneau);
-  border: 1px solid var(--ligne); text-decoration: none; color: var(--texte); font-size: 1.1rem; }
-.compteur strong { font-size: 2rem; margin-right: .4rem; }
-.compteur.alerte { border-color: var(--alerte); background: #fff4ec; }
 p.alerte { padding: .6rem .8rem; border-left: 3px solid var(--alerte); background: #fff4ec; }
 .cartes { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .6rem; }
 .carte { background: var(--panneau); border: 1px solid var(--ligne); border-radius: 6px; padding: .8rem; }
 .carte strong { display: block; font-size: 1.6rem; }
 .carte span { color: var(--discret); font-size: .9rem; }
+/* Cartes cliquables : compteurs de l'accueil, ecrans de l'administration. */
+a.carte { display: block; color: var(--texte); text-decoration: none; }
+a.carte:hover, a.carte:focus-visible { border-color: var(--accent); background: #f7fafd; }
+.raccourcis { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.2rem 0; }
+.menu-admin { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .6rem; }
+.carte.lien strong { font-size: 1.05rem; color: var(--accent); margin-bottom: .2rem; }
+/* Distributions : une carte par produit (simple classement), son nom a changer, ses distributions en tableau. */
+section.produit { margin: 0 0 1rem; padding: .1rem 1rem .6rem; background: var(--panneau); border: 1px solid var(--ligne);
+  border-radius: 6px; }
+section.produit h2 { margin: .8rem 0 .5rem; }
+.entete-produit { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 1rem; }
+/* Code et etat sur une ligne ; regles lisibles sur un ecran etroit (le tableau defile plutot qu'il ne les ecrase). */
+section.produit td:first-child, section.produit td:last-child { white-space: nowrap; }
+section.produit td:nth-child(4) { min-width: 16rem; }
+details.renommer > summary { cursor: pointer; font-size: .85rem; color: var(--accent); }
+details.renommer[open] { flex-basis: 100%; }
+details.renommer form { margin: .3rem 0 .6rem; }
+details.renommer input { display: block; width: 20rem; max-width: 100%; margin-top: .2rem; padding: .35rem; font: inherit;
+  color: var(--texte); border: 1px solid var(--ligne); border-radius: 4px; background: #fff; }
+/* Nouvelle distribution : code et nom du nouveau produit (masques par app.js si un produit existant est choisi). */
+fieldset.nouveau-produit { max-width: 34rem; margin: 0 0 1rem; padding: .3rem .9rem 0; border: 1px solid var(--ligne);
+  border-radius: 6px; }
+fieldset.nouveau-produit legend { padding: 0 .3rem; font-size: .9rem; color: var(--discret); }
 .defilement { overflow-x: auto; background: var(--panneau); border: 1px solid var(--ligne); border-radius: 6px; }
 table { border-collapse: collapse; width: 100%; }
 th, td { padding: .45rem .6rem; border-bottom: 1px solid var(--ligne); text-align: left; vertical-align: top; }
@@ -66,12 +85,38 @@ button:hover, .bouton:hover { border-color: var(--accent); }
 .copie { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0 1rem; }
 .copie code { padding: .5rem .7rem; background: var(--panneau); border: 1px solid var(--ligne); border-radius: 4px;
   font-size: 1.05rem; overflow-wrap: anywhere; }
+/* Fiche licence : un bouton par action ; il deplie sur toute la largeur une explication et son formulaire. */
+.actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; margin: 0 0 1.2rem; }
+details.action > summary { display: inline-block; list-style: none; padding: .45rem .9rem; border: 1px solid var(--accent);
+  border-radius: 4px; background: #fff; color: var(--accent); font-weight: 600; cursor: pointer; user-select: none; }
+details.action > summary::-webkit-details-marker { display: none; }
+details.action > summary::after { content: " \25BE"; }
+details.action > summary:hover { background: #eaf1f8; }
+details.action > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+details.action[open] { flex-basis: 100%; }
+details.action[open] > summary { background: var(--accent); color: #fff; }
+details.action[open] > summary::after { content: " \25B4"; }
+details.action-danger > summary { border-color: var(--danger); color: var(--danger); }
+details.action-danger > summary:hover { background: #fbe9e7; }
+details.action-danger[open] > summary { background: var(--danger); color: #fff; }
+.panneau { margin-top: .4rem; padding: .2rem .9rem .5rem; background: var(--panneau); border: 1px solid var(--ligne);
+  border-radius: 6px; }
+.panneau > p { max-width: 50rem; }
+details.avance { margin-top: 1.6rem; padding-top: .8rem; border-top: 1px solid var(--ligne); }
+details.avance > summary { cursor: pointer; font-weight: 600; color: var(--discret); }
+details.avance[open] > summary { margin-bottom: .4rem; }
+/* Reglages avances dans un formulaire (distribution) : avant le bouton Enregistrer. */
+form details.avance { margin: .2rem 0 1rem; padding-top: .6rem; }
+.formulaire p { max-width: 50rem; }
 #exposition li.danger { background: none; color: var(--danger); font-weight: 700; }
 #exposition li.protege { color: var(--succes); }
 #exposition li.inconnu { color: var(--alerte); font-weight: 700; }
-@media (max-width: 600px) {
+/* Menu sur sa propre ligne des qu'il ne tient plus a cote du nom (sinon "Administration" passe seul a la ligne). */
+@media (max-width: 900px) {
   header { justify-content: space-between; }
   nav { order: 3; flex-basis: 100%; }
+}
+@media (max-width: 600px) {
   main { padding: .6rem; }
   .fiche { grid-template-columns: 1fr; }
   .fiche dt { margin-top: .4rem; }

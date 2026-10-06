@@ -53,6 +53,7 @@ function api_point_entree(string $prive): void
 function api_traiter(PDO $db, array $config, string $corps, string $ip, int $maintenant): array
 {
     $cle = signature_active($db, $config);
+    licences_fin_suspension($db, $maintenant);
     $requete = strlen($corps) <= API_CORPS_MAX ? json_decode($corps, true, 16) : null;
     $requete = is_array($requete) ? $requete : [];
     $base = api_base($db, $requete, $maintenant);
@@ -278,6 +279,11 @@ function api_licence(PDO $db, array $r, array $dist, array $base, string $ip, in
         if ($code === 'cle_liee_autre_poste') {
             journal_ecrire($db, 'poste:' . $poste, 'refus_autre_poste', 'licence ' . $lic['id'],
                 'cle ...' . $lic['cle_indice'] . ' saisie sur ' . $r['poste'], $ip, $maintenant);
+        }
+        if ($code === 'suspendue') {
+            // Le poste garde sa cle et affiche la date de fin (signee comme le reste).
+            return api_refus($base, $code) + ['suspendue_jusqu' => $lic['suspendue_jusqu'] === null
+                ? null : (int)$lic['suspendue_jusqu']];
         }
         return api_refus($base, $code);
     }

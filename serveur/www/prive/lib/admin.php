@@ -11,6 +11,7 @@ require_once __DIR__ . '/demandes.php';
 require_once __DIR__ . '/notification.php';
 require_once __DIR__ . '/installation.php';
 require_once __DIR__ . '/csrf.php';
+require_once __DIR__ . '/aide.php';
 
 /** Erreur de saisie affichable telle quelle a l'administrateur. */
 class AdminErreur extends RuntimeException
@@ -177,6 +178,8 @@ function admin_traiter(array $ctx, array &$session): array
     }
     $ctx['csrf'] = csrf_jeton($session);
     try {
+        // Suspensions arrivees a leur date de fin : la console affiche l'etat reel.
+        licences_fin_suspension($ctx['db'], $ctx['maintenant']);
         if ($ctx['methode'] === 'POST') {
             return admin_post($ctx, $session);
         }
@@ -232,6 +235,8 @@ function admin_get(array $ctx): array
             return admin_page($ctx, 'Reglages', admin_ecran_reglages($ctx));
         case 'cles':
             return admin_page($ctx, 'Cles de signature', admin_ecran_cles($ctx));
+        case 'aide':
+            return admin_page($ctx, 'Aide', admin_ecran_aide($ctx));
         case 'export':
             return admin_export($ctx, (string)($ctx['get']['quoi'] ?? ''));
     }
@@ -285,6 +290,7 @@ function admin_page(array $ctx, string $titre, string $contenu, int $code = 200)
         'journal' => 'Journal',
         'sauvegarde' => 'Sauvegarde',
         'reglages' => 'Reglages',
+        'aide' => 'Aide',
     ];
     $courante = (string)($ctx['get']['page'] ?? 'tableau');
     $nav = '';
@@ -302,7 +308,7 @@ function admin_page(array $ctx, string $titre, string $contenu, int $code = 200)
         . '<link rel="stylesheet" href="style.css"><script src="app.js" defer></script></head><body>'
         . '<header><a class="marque" href="index.php">Licences ETDEL</a><nav>' . $nav . '</nav>'
         . '<span class="utilisateur">' . h($ctx['utilisateur']) . '</span></header>'
-        . '<main><h1>' . h($titre) . '</h1>' . $bandeau . $contenu . '</main></body></html>';
+        . '<main><h1>' . h($titre) . '</h1>' . aide_lien($ctx) . $bandeau . $contenu . '</main></body></html>';
     return ['code' => $code, 'entetes' => admin_entetes() + ['Content-Type' => 'text/html; charset=UTF-8'], 'corps' => $html];
 }
 
@@ -716,7 +722,8 @@ function admin_ecran_licences(array $ctx): string
             $l['machine'] === null ? '<span class="discret">non lie</span>'
                 : '<code>' . h($l['id_poste']) . '</code> ' . h($l['nom_ordinateur']),
             $l['echeance'] === null ? 'perpetuelle' : h(date_fr((int)$l['echeance'])),
-            etiquette(licence_statut_affiche($l, $ctx['maintenant'])), h(date_fr($l['dernier_contact'] === null ? null
+            etiquette(licence_statut_affiche($l, $ctx['maintenant'])) . suspension_detail($l),
+            h(date_fr($l['dernier_contact'] === null ? null
                 : (int)$l['dernier_contact'], true))];
     }
     $filtres = '<form method="get" action="index.php" class="filtres"><input type="hidden" name="page" value="licences">'
@@ -738,7 +745,7 @@ function admin_ecran_licence(array $ctx, int $id): string
     $statut = licence_statut_affiche($lic, $n);
     $options = $lic['options'] === null ? options_lire($lic['distribution_options']) : options_lire($lic['options']);
     $html = fiche_html([
-        'Statut' => etiquette($statut),
+        'Statut' => etiquette($statut) . suspension_detail($lic),
         'Titulaire' => h($lic['titulaire']),
         'E-mail' => h($lic['email']),
         'Note' => h($lic['note']),
@@ -782,26 +789,27 @@ function admin_ecran_licence(array $ctx, int $id): string
             . f_bouton('Enregistrer'), ['id' => $id]) . '</section>';
         $etat = '';
         if ($lic['statut'] === 'active') {
-            $etat .= f_formulaire($ctx, 'licence_suspendre', f_bouton('Suspendre'), ['id' => $id], 'en-ligne');
+            $etat .= f_formulaire($ctx, 'licence_suspendre', f_champ('jusqu', 'Jusqu\'au (facultatif)', '', 'date')
+                . f_bouton('Suspendre'), ['id' => $id]);
         } else {
             $etat .= f_formulaire($ctx, 'licence_reactiver', f_bouton('Reactiver'), ['id' => $id], 'en-ligne');
+            $etat .= f_formulaire($ctx, 'licence_suspendre', f_champ('jusqu', 'Nouvelle date de fin (vide = sans date)',
+                '', 'date') . f_bouton('Changer la date de fin'), ['id' => $id]);
         }
-        $etat .= f_formulaire($ctx, 'licence_revoquer', f_bouton('Revoquer', 'danger'), ['id' => $id], 'en-ligne');
+        $etat .= '<div class="rangee">' . f_formulaire($ctx, 'licence_revoquer', f_bouton('Revoquer', 'danger'), ['id' => $id],
+            'en-ligne');
         if ($lic['machine'] !== null) {
             $etat .= f_formulaire($ctx, 'licence_liberer', f_bouton('Liberer le poste'), ['id' => $id], 'en-ligne');
         }
-        // Annexe D : sur suspension, le poste efface sa cle. Une cle obtenue par
-        // demande n'a jamais ete montree a personne : la reactivation seule ne
-        // suffit pas a debloquer ce poste.
-        $suspension = $lic['origine'] === 'demande'
-            ? '<p class="alerte">Licence obtenue par demande : l\'utilisateur n\'a jamais vu sa cle. Apres une '
-                . 'suspension, le poste l\'efface ; la reactiver ne le debloquera pas. Pour une coupure temporaire, '
-                . 'preferer une echeance proche (date libre) ; sinon, creer ensuite une nouvelle cle a lui transmettre.</p>'
-            : '<p class="discret">Apres une suspension, le poste efface sa cle : une fois la licence reactivee, '
-                . 'l\'utilisateur saisit de nouveau la meme cle.</p>';
-        $actions .= '<section><h2>Etat</h2><div class="rangee">' . $etat . '</div><p class="discret">Suspendre et revoquer '
-            . 'bloquent le poste a sa connexion suivante. La revocation est definitive. Liberer le poste permet '
-            . 'd\'activer la meme cle sur un autre ordinateur.</p>' . $suspension . '</section>';
+        $etat .= '</div>';
+        // D61 : la suspension garde la cle du poste (il se debloque seul), la
+        // revocation l'efface definitivement.
+        $actions .= '<section><h2>Etat</h2>' . $etat . '<p class="discret">Suspendre bloque le poste a sa connexion '
+            . 'suivante sans effacer sa cle : il se debloque tout seul quand la licence est reactivee ou a la date de fin '
+            . 'choisie (sans date : jusqu\'a "Reactiver"). Revoquer est definitif : le poste efface sa cle ; pour le '
+            . 'remettre en service, creer une nouvelle cle ou laisser l\'utilisateur refaire une demande (pas de nouvel '
+            . 'essai si ce poste en a deja eu un pour ce produit). Liberer le poste permet d\'activer la meme cle sur un '
+            . 'autre ordinateur.</p></section>';
     }
     $lignes = [];
     foreach (db_lignes($ctx['db'], 'SELECT * FROM journal WHERE cible = ? ORDER BY id DESC LIMIT 50', ['licence ' . $id]) as $j) {
@@ -862,6 +870,21 @@ function admin_action_licence_creer(array $ctx)
         . '">Voir la licence</a> - <a href="index.php?page=licence_nouvelle">Creer une autre cle</a></p>';
 }
 
+/**
+ * Date saisie (AAAA-MM-JJ, champ date du navigateur) -> fin de cette journee
+ * dans le fuseau de config.php ; refusee si invalide ou deja passee.
+ */
+function admin_date_fin_journee(string $saisie, int $maintenant): int
+{
+    $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', $saisie) === 1
+        ? DateTime::createFromFormat('!Y-m-d H:i:s', $saisie . ' 23:59:59') : false;
+    // createFromFormat accepte le 31 fevrier (devient le 3 mars) : la date relue doit etre la date saisie.
+    if ($date === false || $date->format('Y-m-d') !== $saisie || $date->getTimestamp() <= $maintenant) {
+        throw new AdminErreur('Date invalide ou passee.');
+    }
+    return $date->getTimestamp();
+}
+
 function admin_action_licence_prolonger(array $ctx): array
 {
     $id = (int)($ctx['post']['id'] ?? 0);
@@ -877,14 +900,8 @@ function admin_action_licence_prolonger(array $ctx): array
     $depart = max((int)$lic['echeance'], $ctx['maintenant']);
     if ($mode === '30' || $mode === '365') {
         $echeance = $depart + (int)$mode * JOUR;
-    } elseif ($mode === 'date' && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($ctx['post']['date'] ?? '')) === 1) {
-        $date = DateTime::createFromFormat('!Y-m-d H:i:s', $ctx['post']['date'] . ' 23:59:59');
-        // createFromFormat accepte le 31 fevrier (devient le 3 mars) : la date relue doit etre la date saisie.
-        if ($date === false || $date->format('Y-m-d') !== $ctx['post']['date']
-            || $date->getTimestamp() <= $ctx['maintenant']) {
-            throw new AdminErreur('Date invalide ou passee.');
-        }
-        $echeance = $date->getTimestamp();
+    } elseif ($mode === 'date') {
+        $echeance = admin_date_fin_journee((string)($ctx['post']['date'] ?? ''), $ctx['maintenant']);
     } else {
         throw new AdminErreur('Prolongation invalide.');
     }
@@ -920,14 +937,38 @@ function admin_changer_statut(array $ctx, array $depuis, string $vers, string $a
     if (!in_array($lic['statut'], $depuis, true)) {
         throw new AdminErreur('Impossible depuis le statut "' . $lic['statut'] . '".');
     }
-    db_maj($ctx['db'], 'licences', ['statut' => $vers, 'modifie_le' => $ctx['maintenant']], 'id', $id);
+    // Reactiver ou revoquer met fin a toute suspension datee.
+    db_maj($ctx['db'], 'licences', ['statut' => $vers, 'suspendue_jusqu' => null, 'modifie_le' => $ctx['maintenant']],
+        'id', $id);
     admin_journal($ctx, $action, 'licence ' . $id, $lic['statut'] . ' -> ' . $vers);
     return admin_redirection('index.php?page=licence&id=' . $id . '&ok=' . $message);
 }
 
+/** Suspend, ou change la date de fin d'une licence deja suspendue (vide = sans date de fin). */
 function admin_action_licence_suspendre(array $ctx): array
 {
-    return admin_changer_statut($ctx, ['active'], 'suspendue', 'licence_suspendue', 'suspendue');
+    $id = (int)($ctx['post']['id'] ?? 0);
+    $lic = licence_lire($ctx['db'], $id);
+    if (!in_array($lic['statut'], ['active', 'suspendue'], true)) {
+        throw new AdminErreur('Impossible depuis le statut "' . $lic['statut'] . '".');
+    }
+    $saisie = trim((string)($ctx['post']['jusqu'] ?? ''));
+    $jusqu = $saisie === '' ? null : admin_date_fin_journee($saisie, $ctx['maintenant']);
+    db_maj($ctx['db'], 'licences', ['statut' => 'suspendue', 'suspendue_jusqu' => $jusqu,
+        'modifie_le' => $ctx['maintenant']], 'id', $id);
+    admin_journal($ctx, 'licence_suspendue', 'licence ' . $id, $lic['statut'] . ' -> suspendue, '
+        . ($jusqu === null ? 'sans date de fin' : 'jusqu\'au ' . date_fr($jusqu)));
+    return admin_redirection('index.php?page=licence&id=' . $id . '&ok=suspendue');
+}
+
+/** " jusqu'au JJ/MM/AAAA" ou " (sans date de fin)" pour une licence suspendue, sinon "". */
+function suspension_detail(array $lic): string
+{
+    if ($lic['statut'] !== 'suspendue') {
+        return '';
+    }
+    return $lic['suspendue_jusqu'] === null ? ' <span class="discret">(sans date de fin)</span>'
+        : ' <span class="discret">jusqu\'au ' . h(date_fr((int)$lic['suspendue_jusqu'])) . '</span>';
 }
 
 function admin_action_licence_reactiver(array $ctx): array

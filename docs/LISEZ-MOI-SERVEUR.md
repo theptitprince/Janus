@@ -65,7 +65,7 @@ Le dossier `serveur/tests/` ne s'envoie pas sur l'hébergement.
 |---|---|
 | Tableau de bord | demandes en attente, licences actives, expirées, suspendues, révoquées, postes vus sur 7 jours, licences expirant sous 30 jours, contrôle d'exposition des fichiers |
 | Demandes | accepter (durée, titulaire, options) ou refuser (motif facultatif, renvoyé tel quel à l'application) ; historique ; export CSV |
-| Licences | créer une clé (affichée une seule fois), rechercher, prolonger (+30 j, +1 an, date libre), modifier tolérance et options, suspendre, réactiver, révoquer, libérer le poste ; export CSV |
+| Licences | créer une clé (affichée une seule fois), rechercher, prolonger (+30 j, +1 an, date libre), modifier tolérance et options, suspendre (avec date de fin facultative : réactivation automatique), réactiver, révoquer (définitif), libérer le poste ; export CSV |
 | Produits | produits et distributions, duplication, ligne `installer(...)` |
 | Serveurs | liste des URL diffusées aux postes (priorité, diffusion), suivi d'une migration |
 | Clés | clé publique active (bouton « Copier »), historique, rotation |
@@ -76,6 +76,12 @@ Le dossier `serveur/tests/` ne s'envoie pas sur l'hébergement.
 Toute action d'écriture demande une confirmation et est inscrite au journal avec l'identifiant de connexion. Une notification par e-mail part à chaque nouvelle demande (50 au plus par jour) ; un échec d'envoi est inscrit au journal et n'empêche jamais l'enregistrement de la demande.
 
 Changer d'ordinateur pour un client : *Licences* › la licence › **« Liberer le poste »**, puis saisie de la même clé sur le nouvel ordinateur.
+
+**Suspendre ou révoquer ?**
+- **Suspendre** : coupure temporaire. Le poste reste bloqué mais garde sa clé ; il se débloque tout seul à son contrôle suivant quand la licence est réactivée (« Reactiver ») ou à la date de fin choisie (« Suspendre jusqu'au »). Rien à ressaisir, même pour une licence obtenue par demande.
+- **Révoquer** : définitif. Le poste efface sa clé et la licence ne peut plus être réactivée. Pour remettre le poste en service : créer une nouvelle clé et la transmettre, ou laisser l'utilisateur envoyer une nouvelle demande depuis l'application (pas de nouvel essai si ce poste en a déjà eu un pour ce produit).
+
+L'écran **Aide** de la console détaille chaque écran, chaque réglage et chaque action.
 
 ## 5. Sauvegardes
 
@@ -129,6 +135,8 @@ Limite assumée : qui contrôle l'hébergement peut signer. La sécurité du sys
 Envoyer par FTP les nouveaux fichiers de `serveur/www/` en **excluant** :
 - `licence/admin/.htaccess` (généré par l'assistant, il contient le chemin du `.htpasswd` ; la version du dépôt ferme la console) ;
 - `prive/config.php`, `prive/.htpasswd`, `prive/cles/`, `prive/install.verrou`, `prive/reinitialisation.utilisee` et tout le dossier `prive/data/`.
+
+La base existante est mise à niveau automatiquement à la première requête qui suit l'envoi des nouveaux fichiers (version du schéma dans `PRAGMA user_version`) : rien à faire à la main.
 
 Si `admin/.htaccess` a été écrasé par erreur, la console répond « accès refusé » : renvoyer la copie de secours faite à l'installation.
 

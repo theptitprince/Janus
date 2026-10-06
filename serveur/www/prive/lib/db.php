@@ -4,12 +4,43 @@
 
 declare(strict_types=1);
 
+// Version du schema (PRAGMA user_version) : 1 = colonne licences.suspendue_jusqu (D61).
+const SCHEMA_VERSION = 1;
+
 function db_ouvrir(string $chemin): PDO
 {
     if (!is_file($chemin)) {
         throw new RuntimeException('base absente : lancer install.php');
     }
-    return db_connecter($chemin);
+    $db = db_connecter($chemin);
+    db_migrer($db);
+    return $db;
+}
+
+/**
+ * Met a niveau une base creee par une version precedente du serveur : apres
+ * l'envoi des nouveaux fichiers par FTP, rien n'est a faire a la main.
+ */
+function db_migrer(PDO $db): void
+{
+    if ((int)$db->query('PRAGMA user_version')->fetchColumn() >= SCHEMA_VERSION) {
+        return;
+    }
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        // Relu sous verrou : une requete concurrente a pu migrer entre-temps.
+        if ((int)$db->query('PRAGMA user_version')->fetchColumn() < 1) {
+            $colonnes = array_column(db_lignes($db, 'PRAGMA table_info(licences)'), 'name');
+            if (!in_array('suspendue_jusqu', $colonnes, true)) {
+                $db->exec('ALTER TABLE licences ADD COLUMN suspendue_jusqu INTEGER');
+            }
+            $db->exec('PRAGMA user_version = 1');
+        }
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        $db->exec('ROLLBACK');
+        throw $e;
+    }
 }
 
 function db_connecter(string $chemin): PDO

@@ -179,7 +179,7 @@ class FauxServeur(object):
         return dict(base, ok=True, code=None, id_poste=L._id_poste(base["machine"], base["produit"]),
                     titulaire=lic["titulaire"], echeance=echeance,
                     jours_restants=int(math.ceil((echeance - maintenant) / float(JOUR))) if echeance else None,
-                    hors_ligne_jusqu=maintenant + tolerance * JOUR, preavis_j=dist["preavis_j"],
+                    hors_ligne_jusqu=maintenant + max(tolerance * JOUR, 7 * 3600), preavis_j=dist["preavis_j"],
                     options=lic["options"] if lic["options"] is not None else dist["options"],
                     version_min=dist["version_min"], message=dist["message"])
 
@@ -207,8 +207,10 @@ class FauxServeur(object):
             lic = self.licences.get(cle)
             if lic is None or lic["distribution"] != req["distribution"]:
                 return refus("cle_invalide")
-            if lic["statut"] != "active":
-                return refus("revoquee" if lic["statut"] == "revoquee" else "suspendue")
+            if lic["statut"] == "revoquee":
+                return refus("revoquee")
+            if lic["statut"] == "suspendue":
+                return dict(refus("suspendue"), suspendue_jusqu=lic.get("suspendue_jusqu"))
             if op == "activer" and lic["machine"] is None:
                 lic["machine"] = req["machine"]
             if lic["machine"] is None:
@@ -258,6 +260,11 @@ class FauxServeur(object):
             if d["cle_conservee"] is None:
                 return refus("demande_inconnue")
             lic = self.licences[d["cle"]]
+            # Comme demandes.php : la remise passe par les controles de la licence.
+            if lic["statut"] == "revoquee":
+                return refus("revoquee")
+            if lic["statut"] == "suspendue":
+                return dict(refus("suspendue"), suspendue_jusqu=lic.get("suspendue_jusqu"))
             reponse = self.jeton(base, d["cle"], lic, dist)
             reponse.update(demande=d["numero"], statut="acceptee", cle=d["cle"])
             return reponse
@@ -543,6 +550,15 @@ def test_preavis_superieur_a_la_tolerance():
     check("preavis borne : AVERTISSEMENT a mi-tolerance", g.etat()["statut"] == L.AVERTISSEMENT)
     horloge.avancer(jours=1.5)
     check("preavis borne : EXPIREE a 3 j", g.etat()["statut"] == L.EXPIREE)
+    # Tolerance 0 j (le serveur diffuse 7 h) : aucun bandeau entre deux controles.
+    horloge, serveur, dossiers, g, cle, _r = garde_active(jours=None, tolerance_j=0)
+    statuts = []
+    for heures in (1, 3.6, 5.9, 6.9):
+        horloge.t = g._payload["emis"] + int(heures * 3600)
+        statuts.append(g.etat()["statut"])
+    check("tolerance 0 : jamais de bandeau avant l'expiration", statuts == [L.VALIDE] * 4)
+    horloge.t = g._payload["emis"] + 7 * 3600
+    check("tolerance 0 : EXPIREE a 7 h sans controle", g.etat()["statut"] == L.EXPIREE)
 
 
 def test_deux_instances():
@@ -621,10 +637,40 @@ def test_revocation():
     check("revocation : cle effacee", g._local["cle"] is None and g._local["jeton"] is None)
     g.arreter()
     check("revocation : A_ACTIVER au lancement suivant", garde(serveur, dossiers, horloge).etat()["statut"] == L.A_ACTIVER)
+
+def test_suspension():
+    # Suspension : bloque sans effacer la cle ; reactivation ou date de fin
+    # debloquent au controle suivant, sans ressaisie.
     horloge, serveur, dossiers, g, cle, _r = garde_active()
     serveur.licences[cle]["statut"] = "suspendue"
-    g._controler()
-    check("suspension : REVOQUEE (suspendue)", g.etat()["statut"] == L.REVOQUEE and "suspendue" in g.etat()["message"])
+    check("suspension : controle tranche", g._controler() is True)
+    e = g.etat()
+    check("suspension : bloquee (EXPIREE)", e["statut"] == L.EXPIREE)
+    check("suspension sans date : message", e["message"] == "Licence suspendue. Contactez ETDEL pour la reactiver.")
+    check("suspension : cle conservee", g._local["cle"] == cle)
+    check("suspension : option False", g.option("export_pdf") is False)
+    g.arreter()
+    hors_ligne = garde(serveur, dossiers, horloge, urls=["https://injoignable.exemple.fr/api/v1/"])
+    check("suspension : toujours bloquee au lancement, meme hors ligne",
+          hors_ligne.etat()["statut"] == L.EXPIREE and "suspendue" in hors_ligne.etat()["message"])
+    serveur.licences[cle]["statut"] = "active"
+    g2 = garde(serveur, dossiers, horloge)
+    check("reactivation : debloque sans ressaisie", g2._controler() is True and g2.etat()["statut"] == L.VALIDE)
+    check("reactivation : refus efface", g2._local["refus"] is None)
+    fin = horloge.t + 10 * JOUR
+    serveur.licences[cle].update(statut="suspendue", suspendue_jusqu=fin)
+    g2._controler()
+    e = g2.etat()
+    check("suspension datee : message avec la date de fin",
+          e["statut"] == L.EXPIREE and e["message"].startswith("Licence suspendue jusqu'au %s." % L._date(fin)))
+    check("suspension datee : refus memorise avec la date", g2._local["refus"] == {
+        "code": "suspendue", "t": horloge.t, "version": "1.4.0", "jusqu": fin})
+    horloge.avancer(jours=11)
+    serveur.licences[cle].update(statut="active", suspendue_jusqu=None)
+    check("fin de suspension : debloque au controle suivant", g2._controler() is True and g2.etat()["statut"] == L.VALIDE)
+    serveur.licences[cle]["statut"] = "revoquee"
+    g2._controler()
+    check("revocation apres suspension : cle effacee", g2._local["cle"] is None and g2.etat()["statut"] == L.REVOQUEE)
 
 
 def test_autre_poste():
@@ -651,6 +697,36 @@ def test_renommage():
     check("renommage : nouveau nom transmis", serveur.licences[cle]["poste"] == "PC-RENOMME")
     g3 = garde(serveur, dossiers_temporaires(), horloge, machine=MACHINE_B, poste="PC-RENOMME")
     check("homonyme sur une autre machine : refuse", g3.activer(cle)["code"] == "cle_liee_autre_poste")
+
+
+def test_demande_acceptee_puis_revoquee_ou_suspendue():
+    # Revoquee avant la remise de la cle : la demande est abandonnee, l'essai
+    # s'arrete, une nouvelle demande devient possible.
+    horloge, serveur, dossiers = contexte()
+    g = garde(serveur, dossiers, horloge)
+    g.demander("Armement Durand")
+    check("avant remise : ESSAI", g.etat()["statut"] == L.ESSAI)
+    cle = serveur.accepter(1)
+    serveur.licences[cle]["statut"] = "revoquee"
+    check("revoquee avant remise : controle tranche", g._controler() is True)
+    e = g.etat()
+    check("revoquee avant remise : essai arrete, REVOQUEE", e["statut"] == L.REVOQUEE and e["demande"] is None)
+    check("revoquee avant remise : aucune cle", g._local["cle"] is None)
+    g.arreter()
+    g2 = garde(serveur, dossiers, horloge)
+    check("revoquee avant remise : fenetre d'activation au lancement suivant", g2.etat()["statut"] == L.A_ACTIVER)
+    check("revoquee avant remise : nouvelle demande possible", g2.demander("Armement Durand")["ok"])
+    # Suspendue avant la remise : la demande reste en attente, la cle arrive a la reactivation.
+    horloge, serveur, dossiers = contexte()
+    g = garde(serveur, dossiers, horloge)
+    g.demander("Armement Durand")
+    cle = serveur.accepter(1)
+    serveur.licences[cle]["statut"] = "suspendue"
+    g._controler()
+    check("suspendue avant remise : demande conservee", g.etat()["demande"] == 1 and g._local["cle"] is None)
+    serveur.licences[cle]["statut"] = "active"
+    g._controler()
+    check("reactivee : cle remise sans saisie", g.etat()["statut"] == L.VALIDE and g._local["cle"] == cle)
 
 
 def test_demande_essai_acceptee():
@@ -1433,8 +1509,9 @@ def main():
     tests = [test_ed25519, test_formats, test_fichier, test_publication, test_non_configure, test_activation,
              test_donnees_transmises, test_tolerance, test_tolerance_par_licence, test_recul_horloge,
              test_avance_horloge_corrigee, test_preavis_superieur_a_la_tolerance, test_deux_instances,
-             test_revocation, test_autre_poste, test_renommage,
-             test_demande_essai_acceptee, test_demande_refusee, test_essai_unique, test_essai_epuise,
+             test_revocation, test_suspension, test_autre_poste, test_renommage,
+             test_demande_essai_acceptee, test_demande_acceptee_puis_revoquee_ou_suspendue, test_demande_refusee,
+             test_essai_unique, test_essai_epuise,
              test_demande_reprise_et_perte, test_options_distributions, test_migration_url,
              test_signature_invalide, test_cache_altere, test_bulletins, test_version_et_expiration,
              test_horloge_decalee, test_diagnostic_et_journal, test_transport_reel_local, test_exiger,

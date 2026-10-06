@@ -28,7 +28,8 @@ CREATE TABLE licences (
   lie_le INTEGER, dernier_contact INTEGER, derniere_ip TEXT,
   statut TEXT NOT NULL DEFAULT 'active' CHECK (statut IN ('active','suspendue','revoquee')),
   origine TEXT NOT NULL CHECK (origine IN ('console','demande')),
-  cree_le INTEGER NOT NULL, modifie_le INTEGER NOT NULL);
+  cree_le INTEGER NOT NULL, modifie_le INTEGER NOT NULL,
+  suspendue_jusqu INTEGER);                        -- fin d'une suspension datee (NULL = sans date), D61
 
 CREATE TABLE demandes (
   id INTEGER PRIMARY KEY, distribution_id INTEGER NOT NULL REFERENCES distributions(id),
@@ -59,3 +60,7 @@ CREATE TABLE journal (
 CREATE TABLE limites (
   ip TEXT NOT NULL, point TEXT NOT NULL, fenetre INTEGER NOT NULL,
   compte INTEGER NOT NULL, PRIMARY KEY (ip, point, fenetre));
+
+-- Version du schema, relue par db_migrer() (lib/db.php) pour mettre a niveau une
+-- base creee par une version precedente du serveur.
+PRAGMA user_version = 1;

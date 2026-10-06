@@ -500,9 +500,6 @@ function test_demandes(): void
     check('acceptation : cle liee au poste demandeur', $lic['machine'] === MACHINE_A && $lic['origine'] === 'demande'
         && $lic['id_poste'] === 'SHXT-2380' && $lic['titulaire'] === 'Armement Durand SA');
     check('acceptation : echeance 90 j', (int)$lic['echeance'] === T0 + 3600 + 90 * JOUR && $lic['options'] === null);
-    $session = [];
-    $fiche = console($env, $session, 'GET', ['page' => 'licence', 'id' => $resultat['licence_id']])['corps'];
-    check('licence obtenue par demande : avertissement avant suspension', strpos($fiche, 'jamais vu sa cle') !== false);
     check('acceptation : cle conservee chiffree', strpos((string)db_valeur($env['db'], 'SELECT cle_chiffree FROM demandes WHERE id = 1'),
         substr($resultat['cle'], 6)) === false);
     check('acceptation : journal', db_valeur($env['db'], "SELECT acteur FROM journal WHERE action = 'demande_acceptee'") === 'admin');
@@ -867,12 +864,48 @@ function test_console_licences(): void
     check('modifier : option invalide', action($env, $session, 'licence_modifier', ['id' => $id, 'titulaire' => 'X',
         'options' => 'Export PDF'])['code'] === 400);
     $fiche = console($env, $session, 'GET', ['page' => 'licence', 'id' => $id])['corps'];
-    check('suspendre : avertissement (cle a ressaisir)', strpos($fiche, 'saisit de nouveau la meme cle') !== false
-        && strpos($fiche, 'jamais vu sa cle') === false);
+    check('suspendre : explication (cle conservee, revocation definitive)',
+        strpos($fiche, 'sans effacer sa cle') !== false && strpos($fiche, 'Revoquer est definitif') !== false
+        && strpos($fiche, 'name="jusqu"') !== false);
     action($env, $session, 'licence_suspendre', ['id' => $id]);
-    check('suspendre : poste bloque', appel($env, 'valider', ['cle' => $cle])['p']['code'] === 'suspendue');
+    $p = appel($env, 'valider', ['cle' => $cle])['p'];
+    check('suspendre : poste bloque, sans date de fin', $p['code'] === 'suspendue'
+        && array_key_exists('suspendue_jusqu', $p) && $p['suspendue_jusqu'] === null);
+    check('suspendre : fiche "sans date de fin"', strpos(console($env, $session, 'GET', ['page' => 'licence', 'id' => $id])['corps'],
+        '(sans date de fin)') !== false);
     action($env, $session, 'licence_reactiver', ['id' => $id]);
     check('reactiver', appel($env, 'valider', ['cle' => $cle])['p']['ok'] === true);
+    // Suspension datee (D61) : fin de journee dans le fuseau de config.php, reactivation automatique.
+    check('suspendre jusqu\'au : date passee refusee', action($env, $session, 'licence_suspendre', ['id' => $id,
+        'jusqu' => '2020-01-01'])['code'] === 400 && licence_lire($env['db'], $id)['statut'] === 'active');
+    action($env, $session, 'licence_suspendre', ['id' => $id, 'jusqu' => date('Y-m-d', T0 + 10 * JOUR)]);
+    $fin = (int)licence_lire($env['db'], $id)['suspendue_jusqu'];
+    check('suspendre jusqu\'au : fin de journee', date('Y-m-d H:i:s', $fin) === date('Y-m-d', T0 + 10 * JOUR) . ' 23:59:59');
+    check('suspendre jusqu\'au : journalise', strpos((string)db_valeur($env['db'], "SELECT detail FROM journal "
+        . "WHERE action = 'licence_suspendue' ORDER BY id DESC LIMIT 1"), 'jusqu\'au ' . date_fr($fin)) !== false);
+    $p = appel($env, 'valider', ['cle' => $cle], ['maintenant' => T0 + 5 * JOUR])['p'];
+    check('suspension datee : refus signe avec la date de fin', $p['code'] === 'suspendue' && $p['suspendue_jusqu'] === $fin);
+    $r = console($env, $session, 'GET', ['page' => 'licences'], [], ['maintenant' => T0 + 5 * JOUR]);
+    check('suspension datee : liste avec la date de fin', strpos($r['corps'], 'jusqu\'au ' . date_fr($fin)) !== false);
+    action($env, $session, 'licence_suspendre', ['id' => $id, 'jusqu' => date('Y-m-d', T0 + 20 * JOUR)],
+        ['maintenant' => T0 + 5 * JOUR]);
+    check('suspension : nouvelle date de fin', date('Y-m-d', (int)licence_lire($env['db'], $id)['suspendue_jusqu'])
+        === date('Y-m-d', T0 + 20 * JOUR));
+    $p = appel($env, 'valider', ['cle' => $cle], ['maintenant' => T0 + 21 * JOUR])['p'];
+    $lic = licence_lire($env['db'], $id);
+    check('fin de suspension : licence reactivee d\'elle-meme', $p['ok'] === true && $lic['statut'] === 'active'
+        && $lic['suspendue_jusqu'] === null);
+    check('fin de suspension : journalisee par le systeme', db_valeur($env['db'], "SELECT acteur FROM journal "
+        . "WHERE action = 'licence_reactivee' ORDER BY id DESC LIMIT 1") === 'systeme');
+    action($env, $session, 'licence_suspendre', ['id' => $id, 'jusqu' => date('Y-m-d', T0 + 25 * JOUR)],
+        ['maintenant' => T0 + 21 * JOUR]);
+    console($env, $session, 'GET', ['page' => 'tableau'], [], ['maintenant' => T0 + 26 * JOUR]);
+    check('fin de suspension : aussi a l\'ouverture de la console', licence_lire($env['db'], $id)['statut'] === 'active');
+    action($env, $session, 'licence_suspendre', ['id' => $id, 'jusqu' => date('Y-m-d', T0 + 40 * JOUR)],
+        ['maintenant' => T0 + 26 * JOUR]);
+    action($env, $session, 'licence_reactiver', ['id' => $id], ['maintenant' => T0 + 27 * JOUR]);
+    $lic = licence_lire($env['db'], $id);
+    check('reactiver avant la date : date de fin effacee', $lic['statut'] === 'active' && $lic['suspendue_jusqu'] === null);
     $r = action($env, $session, 'licence_liberer', ['id' => $id]);
     check('liberer le poste', $r['code'] === 303 && licence_lire($env['db'], $id)['machine'] === null);
     check('apres liberation : nouvel ordinateur', appel($env, 'activer', ['cle' => $cle, 'machine' => MACHINE_B])['p']['ok'] === true);
@@ -1074,6 +1107,36 @@ function test_rotation(): void
         && preg_grep('#ailleurs#', $chemins) === []);
 }
 
+function test_migration_schema(): void
+{
+    $env = environnement();
+    // Base creee par une version precedente du serveur : sans suspendue_jusqu, user_version 0.
+    $schema = (string)file_get_contents(RACINE . '/www/prive/schema.sql');
+    $ancien = str_replace('PRAGMA user_version = 1;', '', (string)preg_replace('/,\s*suspendue_jusqu INTEGER\);[^\n]*/',
+        ');', $schema));
+    check('migration : schema precedent reconstitue', strpos($ancien, 'suspendue_jusqu') === false);
+    @mkdir(dirname($env['config']['base']), 0700, true);
+    $db = db_connecter($env['config']['base']);
+    $db->exec($ancien);
+    $p = db_inserer($db, 'produits', ['code' => 'P', 'nom' => 'P', 'cree_le' => T0]);
+    $d = db_inserer($db, 'distributions', ['produit_id' => $p, 'code' => 'P-A', 'libelle' => 'A', 'cree_le' => T0]);
+    db_inserer($db, 'licences', ['distribution_id' => $d, 'cle_hash' => 'h', 'cle_indice' => 'ABCD', 'titulaire' => 'T',
+        'statut' => 'suspendue', 'origine' => 'console', 'cree_le' => T0, 'modifie_le' => T0]);
+    $db = null;
+    $db = db_ouvrir($env['config']['base']);
+    $colonnes = array_column(db_lignes($db, 'PRAGMA table_info(licences)'), 'name');
+    check('migration : colonne suspendue_jusqu ajoutee', in_array('suspendue_jusqu', $colonnes, true));
+    check('migration : version du schema', (int)db_valeur($db, 'PRAGMA user_version') === SCHEMA_VERSION);
+    check('migration : donnees conservees', db_ligne($db, 'SELECT statut, suspendue_jusqu FROM licences')
+        === ['statut' => 'suspendue', 'suspendue_jusqu' => null]);
+    licences_fin_suspension($db, T0 + 365 * JOUR);
+    check('migration : suspension sans date jamais levee automatiquement',
+        db_valeur($db, 'SELECT statut FROM licences') === 'suspendue');
+    $db = null;
+    check('migration : reouverture sans effet', (int)db_valeur(db_ouvrir($env['config']['base']), 'PRAGMA user_version') === 1);
+    check('base neuve : deja a jour', (int)db_valeur(serveur()['db'], 'PRAGMA user_version') === SCHEMA_VERSION);
+}
+
 function test_restauration_apres_rotation(): void
 {
     $env = serveur();
@@ -1129,11 +1192,74 @@ function test_restauration_apres_rotation(): void
         && (int)db_valeur($env2['db'], 'SELECT MAX(kid) FROM cles_signature') === 1);
 }
 
+function test_console_aide(): void
+{
+    $env = serveur(['emails_par_jour' => 42, 'sauvegardes_conservees' => 12]);
+    $session = [];
+    $r = console($env, $session, 'GET', ['page' => 'aide']);
+    $corps = $r['corps'];
+    check('aide : page 200', $r['code'] === 200);
+    check('aide : titre Aide', strpos($corps, '<title>Aide - Licences ETDEL</title>') !== false
+        && strpos($corps, '<h1>Aide</h1>') !== false);
+    check('aide : ASCII pur', preg_match('/[^\x00-\x7F]/', $corps) === 0);
+    check('aide : aucune valeur oubliee', strpos($corps, '{{') === false && strpos($corps, '}}') === false);
+    check('aide : ni script ni style en ligne, aucune ressource externe', preg_match('/<script(?![^>]*src=)/', $corps) === 0
+        && strpos($corps, 'style="') === false && strpos($corps, 'javascript:') === false
+        && preg_match('/(src|href)="(https?:)?\/\//', $corps) === 0);
+    $ancres = ['demarrage', 'tableau', 'demandes', 'licences', 'etats', 'produits', 'application', 'tolerance', 'serveurs',
+        'cles', 'journal', 'sauvegarde', 'reglages', 'securite', 'depannage', 'glossaire'];
+    preg_match_all('/<section id="([a-z]+)"/', $corps, $sections);
+    check('aide : sections dans l\'ordre', $sections[1] === $ancres);
+    $sommaire = preg_match('#<nav id="sommaire" class="aide-sommaire"[^>]*>.*?</nav>#s', $corps, $m) === 1 ? $m[0] : '';
+    foreach ($ancres as $ancre) {
+        check('aide : section ' . $ancre . ' avec titre', preg_match('#<section id="' . $ancre . '"[^>]*><h2>#', $corps) === 1);
+        check('aide : sommaire vers ' . $ancre, strpos($sommaire, 'href="#' . $ancre . '"') !== false);
+    }
+    check('aide : sommaire sans lien en trop', substr_count($sommaire, '<a ') === count($ancres));
+    preg_match_all('/href="#([A-Za-z0-9_-]+)"/', $corps, $liens);
+    $cassees = array_filter(array_unique($liens[1]), static function (string $id) use ($corps): bool {
+        return strpos($corps, 'id="' . $id . '"') === false;
+    });
+    check('aide : aucun lien interne casse', $cassees === []);
+    check('aide : FAQ depliable', substr_count($corps, '<details>') >= 10);
+    $faq = preg_match('#<summary>Une licence revoquee peut-elle etre reactivee \?</summary>(.*?)</details>#s', $corps, $m) === 1
+        ? $m[1] : '';
+    check('aide : FAQ revocation definitive', strpos($faq, 'Non. La revocation est definitive') !== false
+        && strpos($faq, 'Creer une cle') !== false && strpos($faq, 'Demander une licence') !== false
+        && strpos($faq, 'Pas de nouvel') !== false && strpos($faq, 'Suspendre') !== false);
+    check('aide : reglages lus dans config.php', strpos($corps, '42 e-mails par jour') !== false
+        && strpos($corps, 'les 12 plus recentes') !== false);
+    check('aide : constantes lues dans le code', strpos($corps, MOT_DE_PASSE_MIN . ' caracteres minimum') !== false
+        && strpos($corps, MOTIF_REFUS_MAX . ' caracteres au plus') !== false
+        && strpos($corps, API_LIMITES['demander'][0] . ' demandes de licence par jour') !== false);
+    check('aide : libelles des confirmations', strpos($corps, h(ADMIN_ACTIONS['licence_revoquer'])) !== false);
+    check('aide : utilisateur connecte affiche', strpos(console($env, $session, 'GET', ['page' => 'aide'], [],
+        ['utilisateur' => 'a.b-c'])['corps'], '(a.b-c)') !== false);
+    check('aide : menu, onglet actif', strpos($corps, '<a href="index.php?page=aide" class="actif">Aide</a>') !== false);
+    check('aide : pas de lien vers elle-meme', strpos($corps, 'class="aide-lien"') === false);
+    $pages = ['tableau' => 'tableau', 'demandes' => 'demandes', 'licences' => 'licences', 'licence_nouvelle' => 'licences',
+        'produits' => 'produits', 'produit' => 'produits', 'distribution' => 'produits', 'serveurs' => 'serveurs',
+        'cles' => 'cles', 'journal' => 'journal', 'sauvegarde' => 'sauvegarde', 'reglages' => 'reglages'];
+    foreach ($pages as $page => $ancre) {
+        $r = console($env, $session, 'GET', ['page' => $page]);
+        check('aide : menu sur ' . $page, strpos($r['corps'], 'href="index.php?page=aide"') !== false);
+        check('aide : lien contextuel ' . $page . ' vers #' . $ancre, strpos($r['corps'],
+            '<a class="aide-lien" href="index.php?page=aide#' . $ancre . '">Aide sur cet ecran</a>') !== false);
+    }
+    check('aide : lien contextuel par defaut (tableau de bord)',
+        strpos(console($env, $session, 'GET')['corps'], 'href="index.php?page=aide#tableau"') !== false);
+    check('aide : pas de lien sur une page inconnue',
+        strpos(console($env, $session, 'GET', ['page' => 'rien'])['corps'], 'class="aide-lien"') === false);
+    $sans = ['action' => 'produit_enregistrer', 'code' => 'AIDE', 'nom' => 'A', 'csrf' => csrf_jeton($session), 'confirme' => '0'];
+    check('aide : pas de lien sur la page de confirmation',
+        strpos(console($env, $session, 'POST', [], $sans)['corps'], 'class="aide-lien"') === false);
+}
+
 $tests = ['test_fichiers', 'test_formats', 'test_installation', 'test_ping_et_requetes_invalides', 'test_activer_valider',
     'test_statuts_versions_surcharges', 'test_demandes', 'test_notifications', 'test_limites', 'test_sauvegarde',
     'test_signature', 'test_console_acces', 'test_console_demandes', 'test_console_licences',
     'test_console_produits_serveurs', 'test_console_reglages_exports', 'test_rotation',
-    'test_restauration_apres_rotation'];
+    'test_restauration_apres_rotation', 'test_migration_schema', 'test_console_aide'];
 foreach ($tests as $test) {
     try {
         $test();

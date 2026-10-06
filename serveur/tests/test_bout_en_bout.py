@@ -82,6 +82,8 @@ def php_cli(prive, code, *args):
 def garde(url, publique, dossier, machine, poste="PC-BANC"):
     return L.Garde("DEMO", "DEMO-BANC", "1.0.0", _urls=[url], _cle_publique=publique,
                    _dossiers=[os.path.join(dossier, "a"), os.path.join(dossier, "b")],
+                   # Journal dans le dossier du test, jamais dans le %LOCALAPPDATA% reel.
+                   _dossier_journal=os.path.join(dossier, "a"),
                    _machine=machine, _poste=poste, _fil=False)
 
 
@@ -138,9 +140,11 @@ def tests_demo(url, publique, db, maintenant, racine):
         pomper(1.5)
         check("demo : option export_pdf de la distribution",
               str(boutons(root)["Exporter en PDF (option export_pdf)"].cget("state")) == "normal")
-        integration.ouvrir_licence()
+        boutons(root)["Fenetre Licence"].invoke()
         pomper(0.5)
-        check("demo : fenetre Licence (Ctrl+Maj+L)", integration.fenetre_licence is not None)
+        check("demo : bouton Fenetre Licence", integration.fenetre_licence is not None)
+        check("demo : bouton de remise a zero de la licence locale",
+              "Supprimer la licence de ce poste (essais)" in boutons(root))
         lignes = db.execute("SELECT nom_ordinateur, version_appli FROM licences WHERE cle_hash = ?",
                             (hashlib.sha256(cle.encode()).hexdigest(),)).fetchone()
         check("demo : poste et version vus par le serveur", lignes[1] == demo_appli.APP_VERSION and lignes[0])

@@ -1506,6 +1506,12 @@ def tests_tk():
 
 
 def main():
+    # Tout chemin par defaut (journal, etat local) reste dans un dossier temporaire :
+    # les tests ne touchent jamais l'etat ni le journal reels du poste.
+    bac = tempfile.mkdtemp(prefix="etdel_test_env_")
+    _TEMPORAIRES.append(bac)
+    for variable in ("APPDATA", "LOCALAPPDATA", "PROGRAMDATA"):
+        os.environ[variable] = os.path.join(bac, variable)
     tests = [test_ed25519, test_formats, test_fichier, test_publication, test_non_configure, test_activation,
              test_donnees_transmises, test_tolerance, test_tolerance_par_licence, test_recul_horloge,
              test_avance_horloge_corrigee, test_preavis_superieur_a_la_tolerance, test_deux_instances,

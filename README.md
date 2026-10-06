@@ -36,9 +36,9 @@ Le serveur complet tourne sur le poste de développement, directement depuis `se
    ```
 4. `http://127.0.0.1:8090/install.php` : installation (l'URL proposée est `http://127.0.0.1:8090/api/v1/`) ; noter la clé publique affichée.
 5. `http://127.0.0.1:8090/admin/` : créer le produit `DEMO` et la distribution `DEMO-BANC` (option `export_pdf` par exemple), puis une clé.
-6. `python client/demo_appli.py --serveur http://127.0.0.1:8090/api/v1/ --cle-publique <clé publique>` : activer la clé, ou envoyer une demande et la traiter dans la console.
+6. Application de démonstration : double-cliquer `client/lancer_demo_banc.bat` (ou `python client/demo_appli.py --banc`). Elle se branche sur le banc avec la première clé publique de l'installation, comme une application livrée, et suit les rotations par bulletins. Boutons « Fenetre Licence » (même fenêtre que Ctrl+Maj+L) et « Supprimer la licence de ce poste (essais) », qui efface l'état local de la démo et la relance (côté serveur, la licence reste liée au poste et l'essai déjà accordé n'est pas redonné). Hors banc : `--serveur <url> --cle-publique <clé>`.
 
-Pour repartir de zéro : arrêter le serveur, supprimer `serveur/www/prive/data/`, `serveur/www/prive/cles/`, `serveur/www/prive/.htpasswd`, `serveur/www/prive/install.verrou`, et remettre `serveur/www/admin/.htaccess` depuis Git (`git checkout serveur/www/admin/.htaccess`).
+Pour repartir de zéro : arrêter le serveur, supprimer `serveur/www/prive/data/`, `serveur/www/prive/cles/`, `serveur/www/prive/.htpasswd`, `serveur/www/prive/install.verrou`, remettre `serveur/www/admin/.htaccess` depuis Git (`git checkout serveur/www/admin/.htaccess`), et, côté poste, supprimer `%APPDATA%\ETDEL`, `%LOCALAPPDATA%\ETDEL` et `%PROGRAMDATA%\ETDEL` (ou utiliser le bouton de la démo).
 
 HTTP clair n'est accepté par le module qu'en boucle locale (`127.0.0.1`, `localhost`).
 

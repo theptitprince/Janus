@@ -1,7 +1,8 @@
 <?php
 // aide.php - Ecran Aide de la console, pour quelqu'un qui la decouvre : le modele en deux minutes,
-//            les taches courantes pas a pas, chaque ecran et chaque reglage, ce que voit l'utilisateur
-//            dans l'application, la tolerance hors ligne, le depannage (FAQ, codes de refus), le glossaire.
+//            les taches courantes pas a pas, chaque ecran et chaque reglage, les licences hors ligne
+//            (postes jamais connectes), ce que voit l'utilisateur dans l'application, la tolerance hors
+//            ligne, le depannage (FAQ, codes de refus), le glossaire.
 // ETDEL (c) 2026
 
 declare(strict_types=1);
@@ -15,6 +16,7 @@ const AIDE_ANCRES = [
     'licences' => 'licences',
     'licence' => 'licences',
     'licence_nouvelle' => 'licences',
+    'licence_hors_ligne' => 'horsligne',
     'produits' => 'produits',
     'produit' => 'produits',
     'administration' => 'administration',
@@ -34,6 +36,7 @@ function aide_sections(): array
         'tableau' => 'Ecran Accueil',
         'demandes' => 'Ecran Demandes',
         'licences' => 'Ecran Licences et page d\'une licence',
+        'horsligne' => 'Licences hors ligne : postes jamais connectes a Internet',
         'etats' => 'Suspendre, revoquer, changer d\'ordinateur, remplacer la cle : comparaison',
         'produits' => 'Ecran Produits : vos applications et leurs regles',
         'administration' => 'Ecran Administration',
@@ -120,6 +123,11 @@ function aide_valeurs(array $ctx): array
         '{{VERSION_SERVEUR}}' => h(VERSION_SERVEUR),
         '{{VERSION_API}}' => (string)VERSION_API,
         '{{CONFIRMATIONS}}' => '<ul class="aide-colonnes">' . $confirmations . '</ul>',
+        // Licences hors ligne : libelles des confirmations et mention des actions, tels que la console les affiche.
+        '{{HL_CONF_CREER}}' => h(ADMIN_ACTIONS['licence_hors_ligne_creer']),
+        '{{HL_CONF_CODE}}' => h(ADMIN_ACTIONS['licence_hors_ligne_code']),
+        '{{HL_CONF_POSTE}}' => h(ADMIN_ACTIONS['licence_hors_ligne_poste']),
+        '{{HL_MENTION}}' => h(HORS_LIGNE_MENTION),
     ];
 }
 
@@ -189,13 +197,19 @@ function aide_section_comprendre(): string
         <li><strong>Vous la creez dans la console</strong> : "Nouvelle licence", choisir le produit, le client et la duree,
         puis "Creer la cle". Vous transmettez la cle (e-mail, telephone) ; l'utilisateur la saisit dans l'application ("J'ai
         une cle", puis "Activer"). C'est la seule voie pour une application sans fenetre (mode console).</li>
+        <li><strong>Son ordinateur n'a jamais Internet : licence hors ligne.</strong> L'utilisateur vous dicte
+        l'"Identifiant du poste" affiche par l'application ; Licences, "Licence hors ligne" cree pour ce poste un code court a
+        dicter par telephone et un code long a envoyer par e-mail. L'utilisateur saisit l'un ou l'autre par "J'ai une cle" :
+        l'application le verifie sans Internet. Voir <a href="#t-hors-ligne">Poste toujours hors ligne</a>.</li>
         </ol>
         <h3>Ensuite</h3>
         <ul>
         <li>L'application controle sa licence aupres du serveur 3 secondes apres chaque lancement, puis toutes les 6 heures.
         Ce que vous changez ici (prolongation, suspension, revocation, options) l'atteint a ce controle.</li>
         <li>Sans Internet, elle continue de fonctionner pendant la tolerance hors ligne du produit ({{DEFAUT_TOLERANCE}} jours
-        par defaut), puis se bloque jusqu'a ce qu'elle puisse de nouveau joindre le serveur.</li>
+        par defaut), puis se bloque jusqu'a ce qu'elle puisse de nouveau joindre le serveur. Une licence hors ligne n'a pas
+        de tolerance : elle vaut jusqu'a son echeance, avec ou sans Internet (voir <a href="#horsligne">Licences hors
+        ligne</a>).</li>
         <li>L'utilisateur voit sa licence a tout moment par les touches Ctrl+Maj+L (fenetre "Licence"). Il peut y lire sa
         cle et y transferer sa licence vers un autre ordinateur.</li>
         <li>Toute action qui modifie quelque chose demande une confirmation et est inscrite au journal avec votre identifiant
@@ -209,7 +223,7 @@ function aide_section_comprendre(): string
         <li><a href="#tableau">Accueil</a> : demandes a traiter, chiffres, licences qui expirent bientot.</li>
         <li><a href="#demandes">Demandes</a> : la pastille donne le nombre de demandes en attente.</li>
         <li><a href="#licences">Licences</a> : retrouver une licence, la prolonger, la suspendre, afficher sa cle, en creer
-        une.</li>
+        une, ou creer une licence hors ligne pour un ordinateur sans Internet.</li>
         <li><a href="#produits">Produits</a> : vos applications et leurs regles.</li>
         <li>Aide : cette page.</li>
         <li><a href="#administration">Administration</a> : ecrans techniques (adresses du serveur, cles de signature,
@@ -228,9 +242,10 @@ function aide_section_taches(): string
         <li>Administration, Reglages : saisir votre adresse dans "Adresse(s) de notification", "Enregistrer", puis "Envoyer
         un e-mail de test" et verifier sa reception (voir <a href="#reglages">Reglages</a>).</li>
         <li>Administration : verifier que chaque ligne du "Controle d'exposition" indique "protege".</li>
-        <li>Administration, Cles de signature : copier les trois lignes LICENCE_URL, LICENCE_URL_SECOURS et
-        LICENCE_CLE_PUBLIQUE et les donner au developpeur, qui les reporte une fois en tete de
-        <code>etdel_licence.py</code>. Sans elles, l'application fonctionne sans licence.</li>
+        <li>Administration, Cles de signature : copier les quatre lignes LICENCE_URL, LICENCE_URL_SECOURS,
+        LICENCE_CLE_PUBLIQUE et LICENCE_SECRET_HORS_LIGNE et les donner au developpeur, qui les reporte une fois en tete de
+        <code>etdel_licence.py</code>. Sans les trois premieres, l'application fonctionne sans licence ; sans la quatrieme,
+        elle refuse les codes hors ligne courts (voir <a href="#horsligne">Licences hors ligne</a>).</li>
         <li>Si ce n'est pas deja fait, creer la tache planifiee OVH de sauvegarde quotidienne ; le lendemain, verifier dans
         Administration, Sauvegarde qu'une sauvegarde apparait. Faire aussi par FTP la copie de secours hors ligne (voir
         <a href="#sauvegarde">Sauvegarde et restauration</a>).</li>
@@ -369,6 +384,60 @@ function aide_section_taches(): string
         invalide", efface la cle et se ferme ; au lancement suivant, "Licence requise", "J'ai une cle", saisir la nouvelle
         cle.</li>
         </ol>
+        <h3 id="t-hors-ligne">Poste toujours hors ligne : licence hors ligne</h3>
+        <p>Pour un ordinateur qui n'a jamais (ou presque jamais) Internet : atelier isole, bateau, reseau ferme. Une cle
+        ordinaire ne peut pas s'y activer, car l'activation passe par le serveur. La licence hors ligne la remplace par un code
+        que l'application verifie elle-meme, sans Internet, et qui contient sa date de fin et ses options. Ce code ne
+        fonctionne que sur cet ordinateur et pour ce produit.</p>
+        <ol>
+        <li><strong>Obtenir l'identifiant du poste.</strong> Sur l'ordinateur isole, l'utilisateur lance l'application : la
+        fenetre "Licence requise" affiche en bas "Identifiant du poste : XXXX-XXXX", avec "Copier" (une application deja en
+        service le montre dans sa fenetre Licence : touches Ctrl+Maj+L, ligne "Identifiant du poste"). Il vous le dicte ou
+        vous l'envoie : 8 caracteres, jamais les lettres I, L, O ni U. Il est different pour chaque application d'un meme
+        ordinateur : demander celui de l'application a activer.</li>
+        <li><strong>Creer la licence hors ligne.</strong> Licences, bouton "Licence hors ligne" (ou, sur la page du produit,
+        "Licence hors ligne pour ce produit"). Remplir "Produit", "Identifiant du poste (affiche par l'application, par
+        exemple SHXT-2380)" (majuscules ou minuscules, tiret facultatif ; un O est lu 0, un I ou un L est lu 1), "Client
+        (titulaire de la licence)", "Duree en jours (vide = illimitee)" (la duree par defaut du produit est proposee) et la
+        case "Toutes les options (decochee : aucune option)", cochee d'office. Cliquer "Creer les codes", puis confirmer
+        ("{{HL_CONF_CREER}}").</li>
+        <li><strong>Noter les codes.</strong> La page affiche "Code court, a dicter par telephone" (ETDHL-XXXX-XXXX-XXXX-XXXX)
+        et "Code long, a envoyer par e-mail (copier-coller)" (ETDHL2- suivi de 109 caracteres), chacun avec "Copier", puis
+        le produit, l'identifiant du poste, le client, l'echeance (dernier jour de validite) et les options. Les deux codes
+        sont equivalents : en transmettre un seul, au choix. Ils restent consultables sur la page de la licence ("Afficher
+        les codes").</li>
+        <li><strong>Transmettre un code.</strong> Par telephone : dicter le code court, ETDHL puis les quatre groupes de 4
+        caracteres. Memes regles que pour une cle : un O entendu est un zero, un I ou un L est un 1, majuscules, tirets et
+        espaces sont indifferents, et le dernier caractere est une somme de controle (une faute de frappe est signalee
+        aussitot). Par e-mail : coller le code long (bouton "Copier") dans le message ; l'utilisateur l'amene sur
+        l'ordinateur isole (par une cle USB, par exemple) et le colle tel quel, espaces et retours a la ligne compris.</li>
+        <li><strong>Ce que fait l'utilisateur.</strong> Dans la fenetre "Licence requise" : "J'ai une cle", taper ou coller le
+        code dans le champ "Cle de licence", puis "Activer". Aucune connexion n'est necessaire : "Verification du code...",
+        puis l'application s'ouvre. Sa fenetre Licence affiche "Licence hors ligne valable jusqu'au JJ/MM/AAAA" (ou "Licence
+        hors ligne illimitee"). S'il a tape le code court sans ETDHL, l'application le reconnait quand meme.</li>
+        <li><strong>Si le code est refuse.</strong> "Code hors ligne refuse : il ne correspond pas a cet ordinateur
+        (identifiant du poste XXXX-XXXX) ou contient une erreur de saisie." : comparer l'identifiant cite avec la ligne
+        "Poste" de la page de la licence. Meme identifiant : faire relire le code (un code long correct peut aussi etre
+        refuse par une application construite avant une rotation de la cle de signature et jamais connectee depuis : dicter
+        alors le code court). Identifiant different : verifier d'abord que le code est tape dans la bonne application (un
+        meme ordinateur a un identifiant different pour chaque application) ; si oui, l'identifiant a ete mal dicte ou mal
+        saisi : page de la licence, "Nouveau code pour un autre ordinateur", saisir l'identifiant que cette application
+        affiche, puis transmettre les nouveaux codes. "Codes hors ligne courts non pris en charge par cette application :
+        demandez le code long (ETDHL2-...) a ETDEL" : envoyer le code long par e-mail.</li>
+        <li><strong>Prolonger avec un nouveau code.</strong> Un ordinateur qui ne se connecte jamais ne recoit rien du
+        serveur : "Prolonger" ne l'atteint pas. A l'echeance, l'application affiche la fenetre "Licence hors ligne expiree"
+        ("Licence hors ligne expiree le JJ/MM/AAAA : demandez un nouveau code a ETDEL"). Page de la licence, "Nouveau code
+        hors ligne pour ce poste" : "Duree en jours (vide = illimitee)", comptee a partir d'aujourd'hui, et la case des
+        options ; "Creer le nouveau code", puis confirmer ("{{HL_CONF_CODE}}"). Transmettre l'un des deux nouveaux codes ;
+        l'utilisateur clique "J'ai une cle" dans la fenetre "Licence hors ligne expiree" et le saisit. Tant que la licence
+        est valable, l'application ne propose pas de saisir un code : creer le nouveau code quand l'utilisateur appelle, a
+        l'echeance ou peu avant, puisque sa duree court des sa creation.</li>
+        <li><strong>Si l'ordinateur se connecte un jour</strong>, meme une seule fois : rien a faire. L'application controle
+        alors sa licence aupres du serveur, comme une licence ordinaire ; ce contact la lie a cet ordinateur, et une
+        prolongation, une suspension ou une revocation faite dans la console l'atteint. Sans Internet, rien ne change : ni
+        bandeau, ni blocage avant l'echeance. Detail : <a href="#hl-connexion">Si l'ordinateur se connecte un jour</a>.</li>
+        </ol>
+        <p>Limites a connaitre avant de choisir une licence hors ligne : <a href="#hl-limites">Limites</a>.</p>
         HTML;
 }
 
@@ -388,7 +457,8 @@ function aide_section_tableau(): string
         <li><strong>Licences expirant sous 30 jours</strong> : licences actives dont l'echeance tombe dans les 30 prochains
         jours (les suspendues n'y sont pas), la plus proche d'abord, 100 au plus : Client (lien vers la licence), Produit,
         Echeance, Reste (en jours), Ordinateur. L'application previent l'utilisateur 15 jours avant l'echeance : c'est le
-        moment de prolonger.</li>
+        moment de prolonger. Une licence hors ligne y porte l'etiquette "hors ligne" : son application ne previent pas
+        (voir <a href="#horsligne">Licences hors ligne</a>).</li>
         </ul>
         <p>Le controle d'exposition (fichiers proteges) est dans <a href="#administration">Administration</a>.</p>
         HTML;
@@ -490,17 +560,21 @@ function aide_section_licences(): string
     $html = <<<'HTML'
         <h3>Liste et recherche</h3>
         <ul>
-        <li>Bouton "Nouvelle licence" (voir plus bas). Quand la liste est filtree sur un produit (filtre "Produit", ou lien
-        "Voir ses licences" de sa page), l'ecran propose a la place "Nouvelle licence pour ce produit" (produit actif
-        seulement) et "Retour au produit".</li>
+        <li>Boutons "Nouvelle licence" (voir plus bas) et "Licence hors ligne" (ordinateur sans Internet, voir
+        <a href="#horsligne">Licences hors ligne</a>). Quand la liste est filtree sur un produit (filtre "Produit", ou lien
+        "Voir ses licences" de sa page), l'ecran propose a la place "Nouvelle licence pour ce produit" et "Licence hors ligne
+        pour ce produit" (produit actif seulement), et "Retour au produit".</li>
         <li>"Recherche" porte sur le client, l'e-mail, les 4 derniers caracteres de la cle, l'identifiant de poste, le nom
         de l'ordinateur et la note (pas sur la cle complete). "Statut" : tous, actives, expirees, suspendues, revoquees.
         "Produit" : tous, ou un produit, inactifs compris. Bouton "Filtrer".</li>
-        <li>Colonnes : Client (lien vers la page de la licence), Produit, Cle (4 derniers caracteres), Ordinateur
+        <li>Colonnes : Client (lien vers la page de la licence), Produit, Cle (4 derniers caracteres ; suivis de l'etiquette
+        "hors ligne" pour une licence hors ligne, dont ce sont les 4 derniers caracteres du code court), Ordinateur
         (identifiant de poste et nom ; "non lie" tant que la cle n'a pas ete activee, et apres un changement d'ordinateur ou
-        une "Nouvelle cle"), Echeance ("perpetuelle" s'il n'y en a
-        pas), Statut (Active, Expiree, Suspendue ou Revoquee ; une licence suspendue porte en plus "jusqu'au JJ/MM/AAAA" ou
-        "(sans date de fin)"), Dernier contact (dernier controle reussi de l'ordinateur).</li>
+        une "Nouvelle cle" ; licence hors ligne : l'identifiant du poste saisi dans la console, suivi de "jamais connecte"
+        tant que le serveur n'a accepte aucun controle avec son code, ou de "non lie" si la licence a deja eu un contact mais
+        n'est plus liee, par exemple apres un transfert), Echeance ("perpetuelle" s'il n'y en a pas, "illimitee" pour une
+        licence hors ligne), Statut (Active, Expiree, Suspendue ou Revoquee ; une licence suspendue porte en plus "jusqu'au
+        JJ/MM/AAAA" ou "(sans date de fin)"), Dernier contact (dernier controle reussi de l'ordinateur).</li>
         <li>La liste s'arrete a 500 lignes, triees par client : affiner la recherche, ou utiliser "Exporter les licences
         (CSV)", qui donne toutes les licences quels que soient les filtres.</li>
         </ul>
@@ -521,7 +595,7 @@ function aide_section_licences(): string
         </ul>
         <p>Saisie dans l'application : fenetre "Licence requise", "J'ai une cle", taper ou coller la cle, "Activer". La
         saisie est possible dans la fenetre d'activation ("Licence requise", "Demande en attente", "Demande refusee",
-        "Licence a verifier", "Licence suspendue"), pas pendant un essai ni quand une licence fonctionne : pour un ordinateur
+        "Licence a verifier", "Licence suspendue", "Licence hors ligne expiree"), pas pendant un essai ni quand une licence fonctionne : pour un ordinateur
         en essai, accepter plutot sa demande. Format ETDEL-XXXX-XXXX-XXXX-XXXX ; majuscules, minuscules, tirets et espaces
         sont indifferents ; O est lu 0, I et L sont lus 1. Pendant la frappe, une ligne sous le champ guide l'utilisateur
         ("Cle incomplete : N/16 caracteres", "Caractere non valide : X", "Cle incorrecte : verifiez chaque caractere.",
@@ -529,6 +603,8 @@ function aide_section_licences(): string
         detecte sans contacter le serveur ("Cle invalide : verifiez la saisie (ETDEL-XXXX-XXXX-XXXX-XXXX)" au clic sur
         "Activer"), mais pas deux caracteres inverses : le serveur repond alors "Cle invalide".</p>
         <h3>Page d'une licence : le resume</h3>
+        <p>Ci-dessous, la page d'une licence ordinaire (cle ETDEL). Celle d'une licence hors ligne a son propre resume et ses
+        propres actions : voir <a href="#hl-fiche">Page d'une licence hors ligne</a>.</p>
         <ul>
         <li><strong>Statut</strong> : Active, Expiree, Suspendue (avec "jusqu'au JJ/MM/AAAA" ou "(sans date de fin)") ou
         Revoquee.</li>
@@ -583,6 +659,174 @@ function aide_section_licences(): string
     return $html;
 }
 
+function aide_section_horsligne(): string
+{
+    $html = <<<'HTML'
+        <p>Une licence hors ligne sert un ordinateur qui n'a jamais (ou rarement) Internet. Elle figure dans Licences comme
+        les autres, mais au lieu d'une cle elle a deux codes, calcules pour un seul poste (son "Identifiant du poste") et
+        verifies par l'application elle-meme, sans Internet. Pas a pas : <a href="#t-hors-ligne">Poste toujours hors
+        ligne</a>.</p>
+        <h3>Cle ou licence hors ligne ?</h3>
+        HTML;
+    $html .= aide_tableau(<<<'T'
+        Point | Licence ordinaire (cle ETDEL-...) | Licence hors ligne (code ETDHL-... ou ETDHL2-...)
+        Activation | par le serveur : Internet necessaire au moment de saisir la cle | sur l'ordinateur, sans Internet
+        Ordinateur | le premier qui active la cle | seulement celui dont l'identifiant a ete saisi dans la console
+        Echeance | transmise par le serveur | inscrite dans le code ; si l'ordinateur se connecte, celle du serveur la remplace
+        Sans Internet | tolerance hors ligne, bandeau, puis blocage | aucun effet : valable jusqu'a l'echeance, sans bandeau ni blocage
+        Prolonger, suspendre, revoquer | atteint l'ordinateur a son controle suivant | n'atteint l'ordinateur que s'il se connecte un jour
+        Prolonger un ordinateur jamais connecte | sans objet | "Nouveau code hors ligne pour ce poste"
+        Remplacer la cle | "Nouvelle cle" | "Nouveau code hors ligne pour ce poste"
+        Autre ordinateur | "Changer d'ordinateur", ou "Transferer cette licence" dans l'application | "Nouveau code pour un autre ordinateur" (apres "Transferer cette licence" dans l'application, si l'ancien ordinateur a deja ete connecte)
+        Options | celles du produit, ou propres a la licence | toutes ou aucune, choisi a la creation
+        T);
+    $html .= <<<'HTML'
+        <h3>Les deux codes</h3>
+        <ul>
+        <li><strong>Code court</strong> : ETDHL-XXXX-XXXX-XXXX-XXXX (16 caracteres apres ETDHL), fait pour etre dicte. Meme
+        alphabet que les cles (jamais I, L, O ni U ; majuscules, minuscules, tirets et espaces indifferents) ; le dernier
+        caractere est une somme de controle. L'application le verifie avec le secret LICENCE_SECRET_HORS_LIGNE inscrit dans
+        son module (voir <a href="#cles">Cles de signature</a>) ; une application construite sans ce secret refuse les codes
+        courts et accepte les codes longs.</li>
+        <li><strong>Code long</strong> : ETDHL2- suivi de 109 caracteres en groupes de 4 (143 caracteres en tout), fait pour
+        etre copie-colle depuis un e-mail. Il est signe par la cle de signature du serveur ; l'application le verifie avec
+        la cle publique inscrite dans son module ou adoptee lors d'une connexion.</li>
+        <li>Les deux codes disent la meme chose : pour quel produit et quel identifiant de poste, jusqu'a quand (ou
+        illimitee), avec toutes les options ou aucune. Le nom du client n'y figure pas. Saisi sur un autre ordinateur ou dans
+        une autre application, un code est refuse.</li>
+        <li><strong>Echeance</strong> : le code vaut jusqu'a la fin de son dernier jour de validite, celui qui tombe "Duree
+        en jours" apres sa creation (fin du jour en temps universel, soit 1 h ou 2 h du matin a Paris le lendemain). La
+        console et l'application affichent cette meme date. Ressaisir le code ne l'allonge pas : il faut un nouveau code.
+        Reculer l'horloge de l'ordinateur ne fait pas gagner plus de 48 heures, comme pour une cle (voir
+        <a href="#horloge">Horloge de l'ordinateur</a>).</li>
+        </ul>
+        <h3>Ecran Licence hors ligne</h3>
+        <p>Bouton "Licence hors ligne" de l'ecran Licences, ou "Licence hors ligne pour ce produit" sur la page d'un produit
+        actif (ou dans la liste filtree sur ce produit). L'ecran rappelle en tete a quoi sert une licence hors ligne et ou
+        l'utilisateur lit son identifiant, et en bas ce qui se passe si l'ordinateur se connecte un jour.</p>
+        HTML;
+    $html .= aide_tableau(<<<'T'
+        Champ | Valeurs | A savoir
+        Produit | produits actifs ; deja choisi s'il n'y en a qu'un ou si vous venez d'un produit | l'application de l'ordinateur ; changer de produit change la duree proposee
+        Identifiant du poste (affiche par l'application, par exemple SHXT-2380) | 8 caracteres, tiret facultatif, majuscules ou minuscules ; O lu 0, I et L lus 1 ; la lettre U est refusee | celui de l'application concernee sur l'ordinateur concerne. La console ne peut pas verifier qu'il est juste : mal dicte, il donne des codes que l'application refuse
+        Client (titulaire de la licence) | 120 caracteres, obligatoire | n'est pas dans le code : l'application ne l'affiche qu'apres une connexion
+        Duree en jours (vide = illimitee) | 1 a 36500, ou vide | preremplie avec la duree par defaut du produit ; vide = licence hors ligne illimitee, sans echeance
+        Toutes les options (decochee : aucune option) | case, cochee d'office | cochee : toutes les options de l'application, presentes et futures ; decochee : aucune option
+        T);
+    $html .= <<<'HTML'
+        <p>"Creer les codes", confirmation "{{HL_CONF_CREER}}". Une saisie refusee (identifiant de moins ou de plus de 8
+        caracteres, lettre U, client vide, produit non choisi) reaffiche le formulaire avec ce qui a ete saisi, sous le
+        message, par exemple "Identifiant du poste : les 8 caracteres affiches par l'application (fenetre d'activation ou
+        fenetre Licence), par exemple SHXT-2380 : chiffres et lettres, sans la lettre U. Rien n'a ete cree." : corriger le
+        champ et recommencer. Un produit inactif est refuse.</p>
+        <p>La page de resultat dit "Licence hors ligne creee pour le poste XXXX-XXXX. Transmettez au client l'un des deux
+        codes, au choix : ...", puis montre "Code court, a dicter par telephone" et "Code long, a envoyer par e-mail
+        (copier-coller)", chacun avec "Copier", et le recapitulatif : Produit, Identifiant du poste, Client, Echeance
+        ("(dernier jour de validite)", ou "illimitee") et Options ("toutes" ou "aucune"). Liens "Voir la licence", "Creer une
+        autre licence hors ligne" et "Retour au produit". Cas rare : si une autre licence du meme poste et du meme produit a
+        deja exactement la meme fin et les memes options, la fin est repoussee d'un jour pour que les codes different (la
+        page le signale) ; pour une licence illimitee, la creation est refusee ("... indiquez une duree").</p>
+        <h3 id="hl-fiche">Page d'une licence hors ligne</h3>
+        <ul>
+        <li><strong>Statut</strong> : comme pour une cle (Active, Expiree, Suspendue, Revoquee).</li>
+        <li><strong>Type</strong> : etiquette "hors ligne" et le rappel "Licence hors ligne : son code est verifie par
+        l'application sans Internet. Prolonger, Suspendre et Revoquer n'atteignent l'ordinateur que s'il se connecte un
+        jour."</li>
+        <li><strong>Client</strong> et <strong>Produit</strong>.</li>
+        <li><strong>Codes</strong> : ETDHL-****-****-****-XXXX ou ETDHL2-****-...-XXXX-X (les fins que montre aussi
+        l'application) et le bouton "Afficher les codes". Comme "Afficher la cle" : pas de confirmation, mais chaque affichage
+        est inscrit au journal (cle_affichee, "code hors ligne ...XXXX"). La page se recharge avec les deux codes complets,
+        chacun avec "Copier". Le code court est conserve chiffre comme les cles ; le code long est recalcule a chaque
+        affichage. Apres une rotation de la cle de signature, le code long ne peut plus etre recalcule a l'identique : la
+        page affiche "Code long non reaffichable : la cle de signature a change depuis sa creation..." (le code long deja
+        transmis reste valable sur les ordinateurs qui connaissent l'ancienne cle). Licence revoquee : codes masques, sans
+        bouton.</li>
+        <li><strong>Poste</strong> : tant que le serveur n'a accepte aucun controle avec un code de cette licence,
+        l'identifiant saisi dans la console, avec "(identifiant saisi a la creation ; jamais connecte au serveur : les codes
+        ne fonctionnent que sur ce poste)" (apres "Nouveau code pour un autre ordinateur", c'est le nouvel identifiant) ; ou
+        l'identifiant et le nom de l'ordinateur, avec "(lie depuis son premier contact avec le serveur)" ; ou, pour une
+        licence qui a deja eu un contact mais n'est plus liee (transfert depuis l'application, ou nouveau code pour un autre
+        ordinateur pas encore connecte), "(liee a aucun ordinateur : ...)".</li>
+        <li><strong>Echeance</strong> : le dernier jour de validite et les jours restants, "(depassee)", ou "illimitee".</li>
+        <li><strong>Options</strong> : "toutes", "aucune", ou la liste fixee dans les reglages avances.</li>
+        <li><strong>Dernier contact</strong> : "jamais" tant que l'ordinateur ne s'est pas connecte.</li>
+        </ul>
+        <p>"Que voulez-vous faire ?" : chaque action qui depend du serveur porte la mention "{{HL_MENTION}}"</p>
+        HTML;
+    $html .= aide_tableau(<<<'T'
+        Bouton | Quand | Ce qu'il fait | Confirmation
+        Nouveau code hors ligne pour ce poste | licence active ou suspendue | "Duree en jours (vide = illimitee)", comptee a partir d'aujourd'hui (celle du produit est proposee), et "Toutes les options (decochee : aucune option)", puis "Creer le nouveau code" : un nouveau code court et un nouveau code long pour le meme poste, affiches avec "Copier". Ils remplacent les anciens sur la meme licence (meme numero, meme historique, statut conserve) : le serveur ne reconnait plus l'ancien code, mais un ordinateur jamais connecte le garde jusqu'a son echeance. C'est ainsi qu'on prolonge un ordinateur qui ne se connecte jamais. Une duree et des options qui redonneraient le code actuel sont refusees ("Le nouveau code serait identique au code actuel...") | {{HL_CONF_CODE}}
+        Nouveau code pour un autre ordinateur | licence active ou suspendue | "Identifiant du nouveau poste (par exemple SHXT-2380)", la duree et la case des options, puis "Creer le code pour ce poste" : la licence passe a ce poste, n'est plus liee a aucun ordinateur et recoit de nouveaux codes ; les anciens ne sont plus reconnus par le serveur. Pour un identifiant mal dicte, un ordinateur perdu ou remplace, ou apres "Transferer cette licence" dans l'application (l'action vient alors en premier sur la page) | {{HL_CONF_POSTE}}
+        Prolonger | licence a echeance | comme pour une cle ("+30 jours", "+1 an", "Fixer la date"), mais l'ordinateur ne l'apprend que s'il se connecte ; sinon, utiliser "Nouveau code hors ligne pour ce poste" | Prolonger la licence
+        Suspendre, Reactiver, Changer la date de fin | comme pour une cle | l'ordinateur ne l'apprend que s'il se connecte : il est alors bloque et garde son code. Une suspension datee qu'il a recue se leve d'elle-meme a sa date, meme sans nouvelle connexion | Suspendre la licence, Reactiver la licence
+        Revoquer | licence active ou suspendue | definitif. A sa connexion suivante, l'ordinateur efface son code et ne peut plus le ressaisir ; un ordinateur qui ne se connecte jamais garde son code jusqu'a son echeance | Revoquer definitivement la licence
+        T);
+    $html .= <<<'HTML'
+        <p>"Nouvelle cle" et "Changer d'ordinateur" n'existent pas pour une licence hors ligne : ses codes ne valent que pour
+        le poste saisi. Licence hors ligne revoquee : la page le dit ("Un poste qui ne se connecte jamais garde son code
+        jusqu'a son echeance.") et propose "Nouvelle licence hors ligne pour ce poste", qui ouvre l'ecran Licence hors ligne
+        pre-rempli (produit, client, identifiant du poste) ; apres "Creer les codes", la licence revoquee affiche "Deja
+        remplacee par la licence n. Y".</p>
+        <p>"Reglages avances" : comme pour une cle, sans "Tolerance hors ligne" (une licence hors ligne n'en a pas). Les
+        options modifiees ici n'atteignent l'ordinateur que s'il se connecte.</p>
+        <h3 id="hl-connexion">Si l'ordinateur se connecte un jour</h3>
+        <p>Avec une licence hors ligne, l'application garde son cycle de controle habituel (3 secondes apres le lancement,
+        puis toutes les 6 heures apres un controle reussi, 15 minutes apres un echec, et "Verifier maintenant") : elle
+        envoie son code au serveur. Sans reponse (pas d'Internet, serveur injoignable), rien ne change : ni bandeau, ni
+        compte a rebours, ni blocage ; seul un controle demande le signale ("Verifier maintenant" dans la fenetre Licence :
+        "Serveur de licences injoignable : la licence hors ligne reste valable." ; voir aussi
+        <a href="#application">Ce que voit l'utilisateur</a>). Des que le serveur repond :</p>
+        HTML;
+    $html .= aide_tableau(<<<'T'
+        Situation sur le serveur | Ce qui se passe sur l'ordinateur
+        Premier contact, licence active | si cet ordinateur est bien le poste saisi dans la console, la licence se lie a lui (journal : activation, "premier contact avec le serveur") ; un autre ordinateur qui presenterait le code est refuse (refus_autre_poste). L'application recoit la reponse signee habituelle : le client s'affiche ("Titulaire"), l'echeance et les options du serveur s'appliquent, "Transferer cette licence" devient possible
+        Echeance prolongee ou avancee dans la console | la nouvelle echeance remplace celle du code, dans un sens comme dans l'autre, et reste valable ensuite, meme de nouveau sans Internet
+        Licence suspendue | application bloquee (fenetre "Licence suspendue"), code conserve ; elle se debloque a un controle reussi apres "Reactiver", ou d'elle-meme a la date de fin d'une suspension datee
+        Licence revoquee | "Licence revoquee" ; le code est efface et ne se ressaisit plus sur cet ordinateur ("Code hors ligne revoque, remplace ou transfere : demandez un nouveau code a ETDEL")
+        Code remplace par un nouveau code, ou inconnu du serveur | "Cle invalide" ; le code est efface et ne se ressaisit plus ; saisir le nouveau code par "J'ai une cle"
+        Echeance du serveur passee | "Licence hors ligne expiree : demandez un nouveau code a ETDEL" ; "Prolonger" dans la console puis "Reessayer" (avec Internet) suffit, ou un nouveau code
+        T);
+    $html .= <<<'HTML'
+        <p>Tant que l'ordinateur ne s'est jamais connecte, la licence vaut jusqu'a l'echeance de son code ; ensuite, jusqu'a la
+        derniere echeance recue du serveur.</p>
+        <h3 id="hl-limites">Limites</h3>
+        <ul>
+        <li><strong>Non revocable tant que l'ordinateur ne se connecte pas.</strong> Un code transmis vaut sur son poste
+        jusqu'a son echeance, ou toujours s'il est illimite : suspendre, revoquer, raccourcir ou remplacer le code n'y change
+        rien tant que l'ordinateur ne joint pas le serveur. Preferer des durees raisonnables et des codes renouveles.</li>
+        <li><strong>Le code court peut etre fabrique par quelqu'un qui decompile une application</strong> : le secret qui le
+        verifie est inscrit dans l'application. Ce secret est le meme pour toutes les applications du serveur : qui l'a
+        extrait d'une seule peut fabriquer des codes courts pour n'importe quel produit et n'importe quel identifiant de
+        poste. La protection est seulement dissuasive. Un code fabrique est inconnu du
+        serveur : il est efface des que l'ordinateur se connecte. <strong>Le code long, lui, ne peut pas etre
+        fabrique</strong> : la cle privee qui le signe ne quitte jamais le serveur.</li>
+        <li><strong>Apres une rotation de la cle de signature</strong>, un ordinateur jamais connecte ne connait que la cle
+        publique inscrite dans son application : les codes longs crees ensuite ne fonctionnent que dans les applications
+        construites avec la nouvelle cle publique (ou qui l'ont adoptee en se connectant). Pour les autres, transmettre le
+        code court, qui n'est pas concerne. Les codes longs crees avant la rotation restent valables sur les ordinateurs qui
+        les ont deja saisis, et se saisissent encore dans les applications qui ne connaissent que l'ancienne cle ; mais un
+        ordinateur qui a adopte la nouvelle cle refuse l'ancienne pour une nouvelle saisie 90 jours apres la rotation
+        (transmettre alors le code court), et la console ne peut plus les reafficher.</li>
+        <li><strong>Pas de preavis</strong> : l'application ne previent pas avant l'echeance d'une licence hors ligne ; elle
+        se bloque a la date. Surveiller les "Licences expirant sous 30 jours" de l'Accueil.</li>
+        <li>Le nom du client n'est pas dans le code : la ligne "Titulaire" de la fenetre Licence reste "-" tant que
+        l'ordinateur ne s'est pas connecte.</li>
+        <li>Une copie de la base (ecran Sauvegarde) permet de retrouver par calcul un code court : la ranger en lieu sur,
+        comme les codes eux-memes.</li>
+        </ul>
+        <h3>Journal</h3>
+        <p>licence_hors_ligne_creee (votre identifiant ; detail : client, poste, echeance, options, 4 derniers caracteres du
+        code court), code_hors_ligne_remplace (ancien et nouveau code par leurs 4 derniers caracteres ; ancien et nouveau
+        poste pour un autre ordinateur), cle_affichee ("Afficher les codes"), activation par "poste:XXXX-XXXX" ("premier
+        contact avec le serveur", ou "de nouveau" pour une licence deja vue par le serveur : apres un transfert, ou un
+        nouveau code pour un autre ordinateur), refus_autre_poste (code presente par un autre
+        ordinateur, avec le poste pour lequel il a ete etabli), licence_transferee, et secret_hors_ligne_cree (acteur
+        "systeme", une seule fois). Un code n'y figure jamais en entier, pas plus que dans les e-mails ou les exports : 4
+        derniers caracteres seulement. L'export des licences a une colonne "hors ligne" (oui ou non).</p>
+        HTML;
+    return $html;
+}
+
 function aide_section_etats(): string
 {
     $html = <<<'HTML'
@@ -604,11 +848,16 @@ function aide_section_etats(): string
         suivant de l'ordinateur : au plus 6 heures s'il est connecte (plus 25 secondes pour l'affichage), au plus la
         tolerance hors ligne du produit s'il ne l'est pas. L'echeance, elle, est verifiee par l'application elle-meme, meme
         hors ligne. Seul "Transferer cette licence", fait dans l'application, est immediat.</li>
+        <li><strong>Licence hors ligne</strong> : ces actions n'atteignent l'ordinateur que s'il se connecte un jour ; un
+        ordinateur jamais connecte garde son code jusqu'a son echeance. Une suspension datee qu'il a recue se leve d'elle-meme
+        a sa date, meme sans nouvelle connexion. On le prolonge, ou on change son code, par "Nouveau code hors ligne pour ce
+        poste" ; "Nouvelle cle" et "Changer d'ordinateur" n'existent pas pour elle (voir
+        <a href="#horsligne">Licences hors ligne</a>).</li>
         <li><strong>Remise en service</strong> : une reactivation ou une prolongation n'atteint l'ordinateur qu'a son
         controle suivant. Un ordinateur bloque ne refait un controle automatique que 6 heures apres le dernier refus : pour un
         deblocage immediat, faire cliquer "Reessayer" ou relancer l'application (controle 3 secondes apres le lancement). Il
         doit pouvoir joindre le serveur : un ordinateur deja bloque par une suspension le reste tant qu'il ne s'est pas
-        connecte, meme apres la date de fin.</li>
+        connecte, meme apres la date de fin (sauf licence hors ligne, voir le point precedent).</li>
         <li><strong>La revocation est definitive</strong> : "Reactiver" ne s'applique qu'a une licence suspendue, et la meme
         cle ressaisie est refusee pour toujours ("Licence revoquee"). La licence reste visible (filtre "revoquees",
         compteur, journal, exports). Un ordinateur qui n'a jamais eu d'essai pour ce produit en obtient un s'il envoie une
@@ -623,7 +872,7 @@ function aide_section_etats(): string
         <li>Chaque action est inscrite au journal : licence_suspendue (detail "active -> suspendue, jusqu'au JJ/MM/AAAA" ou
         "..., sans date de fin" ; un changement de date de fin donne "suspendue -> suspendue, ..."), licence_reactivee (avec
         votre identifiant, ou par "systeme" avec le detail "fin de la suspension programmee"), licence_revoquee,
-        poste_libere, licence_transferee, cle_remplacee, licence_prolongee.</li>
+        poste_libere, licence_transferee, cle_remplacee, licence_prolongee, code_hors_ligne_remplace.</li>
         </ul>
         HTML;
     return $html;
@@ -663,8 +912,10 @@ function aide_section_produits(): string
         <li>Code ("definitif : c'est le code que l'application envoie"), Nom, Etat (Actif ou Inactif).</li>
         <li>"Ligne a inserer dans l'application, juste apres la creation de la fenetre principale :", par exemple
         <code>etdel_licence.installer(root, produit="MONAPPLI", version=APP_VERSION)</code>, avec "Copier" : a donner au
-        developpeur. Les trois lignes de configuration du module sont sur l'ecran <a href="#cles">Cles de signature</a>.</li>
-        <li>"Voir ses licences (N)" et "Nouvelle licence pour ce produit" (produit actif seulement).</li>
+        developpeur. Les quatre lignes de configuration du module sont sur l'ecran <a href="#cles">Cles de
+        signature</a>.</li>
+        <li>"Voir ses licences (N)", "Nouvelle licence pour ce produit" et "Licence hors ligne pour ce produit" (produit actif
+        seulement).</li>
         <li>"Regles" : le formulaire decrit ci-dessous, puis "Enregistrer", confirmation "Enregistrer le produit", message
         "Produit enregistre.". Le code ne se modifie jamais : il est inscrit dans l'application.</li>
         </ul>
@@ -675,10 +926,10 @@ function aide_section_produits(): string
     $html .= aide_tableau(<<<'T'
         Champ | Valeurs | Effet | Quelle valeur choisir
         Nom du produit | 120 caracteres, obligatoire | nom affiche dans la console | le nom commercial de l'application
-        Duree de licence par defaut (jours, vide = perpetuelle) | 1 a 36500, ou vide | duree proposee pour chaque nouvelle licence (creation dans la console, acceptation d'une demande), modifiable a chaque fois ; sans effet sur les licences existantes | 365 pour un abonnement annuel, 30 pour un mois, vide pour une licence achetee une fois pour toutes
+        Duree de licence par defaut (jours, vide = perpetuelle) | 1 a 36500, ou vide | duree proposee pour chaque nouvelle licence (creation dans la console, acceptation d'une demande, licence hors ligne et nouveau code hors ligne), modifiable a chaque fois ; sans effet sur les licences existantes | 365 pour un abonnement annuel, 30 pour un mois, vide pour une licence achetee une fois pour toutes
         Essai pendant une demande (jours, 0 = aucun) | 0 a 365 | l'application est utilisable pendant ce nombre de jours apres l'envoi d'une demande, en attendant votre reponse ; une seule fois par ordinateur pour ce produit ; vaut pour les demandes a venir | 15 pour une application diffusee largement (le temps d'essayer et de traiter la demande) ; 0 si vous creez vous-meme les cles de clients connus, sinon tout ordinateur qui a l'application peut l'utiliser pendant l'essai
         Options (codes separes par des virgules, * = toutes) | codes en minuscules, chiffres et _ (40 caracteres par code), ou * seul | fonctions activees dans l'application, pendant l'essai et pour les licences qui n'ont pas leurs propres options ; une option absente vaut "non" ; * active toutes les options, y compris celles qui seront ajoutees plus tard | vide si l'application n'a pas d'options. Les codes sont fixes par le developpeur dans l'application (par exemple export_pdf) : lui en demander la liste. La console ne verifie pas les codes : un code mal orthographie n'active rien, sans message. * pour une edition complete ou un usage interne
-        Tolerance hors ligne (jours, 0 a 365) | reglage avance | duree pendant laquelle l'application fonctionne sans joindre le serveur ; 0 donne quand meme {{TOLERANCE_MIN_H}} heures (voir <a href="#tolerance">Hors ligne</a>) | 15 convient a la plupart des cas ; 30 a 90 pour des clients souvent sans Internet ; moins si une suspension ou une revocation doit atteindre vite un ordinateur qui reste deconnecte
+        Tolerance hors ligne (jours, 0 a 365) | reglage avance | duree pendant laquelle l'application fonctionne sans joindre le serveur ; 0 donne quand meme {{TOLERANCE_MIN_H}} heures (voir <a href="#tolerance">Hors ligne</a>). Sans effet sur les licences hors ligne, qui n'ont pas de tolerance | 15 convient a la plupart des cas ; 30 a 90 pour des clients souvent sans Internet ; moins si une suspension ou une revocation doit atteindre vite un ordinateur qui reste deconnecte
         Preavis (jours, 0 a 365) | reglage avance | l'application previent l'utilisateur ce nombre de jours avant la fin de la tolerance hors ligne (jamais avant la moitie de celle-ci) | 5 ; ce reglage ne concerne pas l'echeance, annoncee 15 jours avant (valeur fixe)
         Message d'accueil (facultatif, affiche dans la fenetre Licence de l'application) | reglage avance, {{ACCUEIL_MAX}} caracteres | texte affiche dans la fenetre Licence de l'application, sans accents | par exemple un numero d'assistance ; vide si inutile
         Actif | reglage avance, case | decochee : ses licences sont bloquees au controle suivant (cle conservee), ses demandes et activations sont refusees ("Produit inconnu ou inactif sur le serveur de licences") et on ne peut plus lui creer de licence ; recocher debloque tout | cochee ; decocher seulement pour arreter un produit, ou un produit cree par erreur
@@ -706,8 +957,8 @@ function aide_section_administration(): string
         <ul>
         <li><a href="#serveurs">Serveurs</a> : adresses de l'API diffusees aux applications ; en ajouter une, changer de
         domaine sans recompiler les applications.</li>
-        <li><a href="#cles">Cles de signature</a> : lignes a inscrire une fois dans le module de l'application ; nouvelle
-        cle de signature en cas de doute sur la securite de l'hebergement.</li>
+        <li><a href="#cles">Cles de signature</a> : lignes a inscrire une fois dans le module de l'application (cle publique
+        et secret des codes hors ligne) ; nouvelle cle de signature en cas de doute sur la securite de l'hebergement.</li>
         <li><a href="#journal">Journal</a> : tout ce qui a ete fait, depuis la console et par les applications ; recherche
         et export CSV.</li>
         <li><a href="#sauvegarde">Sauvegarde</a> : copie de la base a telecharger ; liste des sauvegardes quotidiennes.</li>
@@ -716,8 +967,9 @@ function aide_section_administration(): string
         </ul>
         <h3>Controle d'exposition</h3>
         <p>Le navigateur essaie de telecharger, par leur URL et sans identifiants, les fichiers qui ne doivent jamais l'etre :
-        config.php, .htpasswd, cle privee de signature active, secret qui chiffre les cles, base licenses.db et son journal
-        -wal, dossier des sauvegardes, schema.sql et lib/commun.php. Chaque ligne affiche un resultat :</p>
+        config.php, .htpasswd, cle privee de signature active, secret qui chiffre les cles, secret des codes hors ligne, base
+        licenses.db et son journal -wal, dossier des sauvegardes, schema.sql et lib/commun.php. Chaque ligne affiche un
+        resultat :</p>
         HTML;
     $html .= aide_tableau(<<<'T'
         Resultat | Signification | Que faire
@@ -786,8 +1038,8 @@ function aide_section_serveurs(): string
         l'attente.</li>
         <li>Pour basculer : dans l'ancienne console, decocher "Diffusee" pour toutes les URL de l'ancien hebergement
         (principale et secours), puis "Telecharger une copie de la base".</li>
-        <li>Envoyer sur le nouvel hebergement tout le dossier prive/ de l'ancien (cles, secret des cles, config.php,
-        .htpasswd, install.verrou), en mettant cette copie a la place de prive/data/licenses.db (sans licenses.db-wal ni
+        <li>Envoyer sur le nouvel hebergement tout le dossier prive/ de l'ancien (cles, secret des cles, secret des codes hors
+        ligne, config.php, .htpasswd, install.verrou), en mettant cette copie a la place de prive/data/licenses.db (sans licenses.db-wal ni
         licenses.db-shm). Remplacer admin/.htaccess (celui du depot ferme la console) par la copie faite a l'installation, en
         corrigeant sa ligne AuthUserFile : elle contient le chemin complet de prive/.htpasswd sur l'ancien hebergement.
         Verifier que https://NOUVEAU-DOMAINE/install.php repond "Installation deja effectuee" et que la console s'ouvre.
@@ -798,7 +1050,8 @@ function aide_section_serveurs(): string
         <p>Sans les cles de signature d'origine, les applications rejetteraient les reponses du nouveau serveur ; sans le
         secret des cles (prive/cles/secret_demandes.key), la console ne pourrait plus ni creer une cle (Nouvelle licence,
         acceptation d'une demande, Nouvelle cle) ni en afficher une, et les cles des demandes acceptees pas encore remises
-        n'arriveraient plus aux ordinateurs.</p>
+        n'arriveraient plus aux ordinateurs ; sans le secret des codes hors ligne (prive/cles/secret_hors_ligne.key), la
+        console refuserait de creer une licence ou un code hors ligne.</p>
         HTML;
 }
 
@@ -812,9 +1065,21 @@ function aide_section_cles(): string
         <h3>Ecran Cles de signature</h3>
         <ul>
         <li>"Cle publique active (kid N)" avec un bouton "Copier".</li>
-        <li>"Lignes a reporter une fois en tete de etdel_licence.py :" LICENCE_URL, LICENCE_URL_SECOURS et
-        LICENCE_CLE_PUBLIQUE, avec un bouton "Copier". A faire une seule fois dans le module, avant de livrer : sans ces
-        lignes, le module ne fait rien et l'application fonctionne sans licence.</li>
+        <li>"Lignes a reporter une fois en tete de etdel_licence.py :" LICENCE_URL, LICENCE_URL_SECOURS, LICENCE_CLE_PUBLIQUE
+        et LICENCE_SECRET_HORS_LIGNE, avec un bouton "Copier". A faire une seule fois dans le module, avant de livrer : sans
+        les trois premieres, le module ne fait rien et l'application fonctionne sans licence.</li>
+        <li>LICENCE_SECRET_HORS_LIGNE est le secret qui verifie les codes hors ligne courts (voir
+        <a href="#horsligne">Licences hors ligne</a>). Il est cree une fois pour toutes : a l'installation, ou, pour un
+        serveur installe avant les licences hors ligne, au premier affichage de cet ecran ou a la premiere licence hors ligne
+        (journal : secret_hors_ligne_cree). Il ne change jamais, meme apres une rotation. Une application construite sans cette ligne refuse les codes courts
+        ("Codes hors ligne courts non pris en charge par cette application...") mais accepte les codes longs. L'ecran
+        rappelle la limite assumee : quelqu'un qui decompile une application peut fabriquer des codes courts ; le code long,
+        signe, est infalsifiable. Si le fichier du secret (prive/cles/secret_hors_ligne.key) a ete perdu ou remplace une fois
+        cree (la base garde son empreinte des sa creation, meme si aucun code n'existe encore : des applications livrees
+        l'embarquent peut-etre deja), l'ecran affiche en rouge "Secret des codes hors ligne absent ..." (ou "Secret des
+        codes hors ligne different de celui cree pour ce serveur ...") et ne propose pas de quatrieme ligne : remettre le fichier depuis la copie de secours (voir
+        <a href="#sauvegarde">Sauvegarde et restauration</a>). Le serveur ne le recree jamais de lui-meme, puisque les
+        applications livrees embarquent l'ancien.</li>
         <li>"Historique" : kid, cle publique, active depuis, retiree le (avec la date jusqu'a laquelle les ordinateurs
         l'acceptent encore), bulletin ("premiere cle" ou "signe par la cle precedente").</li>
         </ul>
@@ -833,8 +1098,15 @@ function aide_section_cles(): string
         <p>Consequences : les applications deja livrees adoptent la nouvelle cle a leur connexion suivante, sans mise a jour,
         et acceptent encore l'ancienne pendant 90 jours ; une rotation apres une fuite ne neutralise donc pas l'ancienne cle
         immediatement. Les bulletins sont diffuses pendant 12 mois : un ordinateur reste hors ligne plus longtemps devra
-        recevoir une version a jour de l'application. La rotation est irreversible. Elle ne change rien aux cles de
-        licence.</p>
+        recevoir une version a jour de l'application. La rotation est irreversible. Elle ne change rien aux cles de licence
+        ni aux codes hors ligne courts.</p>
+        <p>Codes hors ligne longs : ils sont signes par la cle de signature active. Un ordinateur jamais connecte ne connait
+        que la cle publique inscrite dans son application : apres une rotation, les codes longs crees ensuite ne fonctionnent
+        que dans les applications construites avec la nouvelle cle publique (ou qui l'ont adoptee en se connectant) ; pour
+        les autres, transmettre le code court. Les codes longs crees avant la rotation restent valables sur les ordinateurs
+        qui les ont deja saisis (nouvelle saisie : voir <a href="#hl-limites">Limites</a>), mais la page de leur licence
+        affiche "Code long non reaffichable..." ; "Nouveau code hors ligne pour ce poste" en
+        cree de nouveaux.</p>
         <p>Apres une rotation, reporter la nouvelle ligne LICENCE_CLE_PUBLIQUE dans etdel_licence.py pour toute version livree
         ensuite. Un executable qui embarque une cle remplacee ne s'active sur un nouvel ordinateur (ou sur un ordinateur qui a
         perdu ses fichiers de licence) que pendant les 12 mois de diffusion du bulletin. Au-dela, il rejette toutes les
@@ -850,18 +1122,21 @@ function aide_section_journal(): string
         <ul>
         <li>Les actions de la console, avec votre identifiant de connexion et l'IP de votre navigateur : demande_acceptee,
         demande_refusee, licence_creee, licence_remplacee (sur une licence revoquee servie par "Nouvelle licence pour ce
-        client"), licence_prolongee, licence_modifiee, licence_suspendue, licence_reactivee, licence_revoquee, poste_libere
-        ("Changer d'ordinateur"), cle_remplacee ("Nouvelle cle"), cle_affichee ("Afficher la cle"), produit_cree,
-        produit_modifie, url_ajoutee, url_modifiee, reglages, email_test, mot_de_passe, cle_rotation,
-        sauvegarde_telechargee.</li>
+        client" ou "Nouvelle licence hors ligne pour ce poste"), licence_prolongee, licence_modifiee, licence_suspendue, licence_reactivee, licence_revoquee, poste_libere
+        ("Changer d'ordinateur"), cle_remplacee ("Nouvelle cle"), cle_affichee ("Afficher la cle", "Afficher les codes"),
+        licence_hors_ligne_creee ("Licence hors ligne"), code_hors_ligne_remplace ("Nouveau code hors ligne pour ce poste",
+        "Nouveau code pour un autre ordinateur"), produit_cree, produit_modifie, url_ajoutee, url_modifiee, reglages,
+        email_test, mot_de_passe, cle_rotation, sauvegarde_telechargee.</li>
         <li>Les evenements des ordinateurs (acteur "poste:XXXX-XXXX") : demande, activation (premiere liaison d'une cle a un
-        ordinateur), refus_autre_poste (cle saisie sur un autre ordinateur, avec le nom de celui-ci), licence_transferee
-        (transfert depuis l'application), transfert_refuse (trop de transferts recents).</li>
+        ordinateur ; pour une licence hors ligne, son premier contact avec le serveur), refus_autre_poste (cle ou code hors
+        ligne presente par un autre ordinateur, avec le nom de celui-ci), licence_transferee (transfert depuis
+        l'application), transfert_refuse (trop de transferts recents).</li>
         <li>Le serveur (acteur "systeme") : produit_cree_automatiquement, licence_reactivee (fin d'une suspension datee ;
         detail "fin de la suspension programmee"), email_envoye, email_echec, email_plafond, sauvegarde,
-        cles_resynchronisees.</li>
+        cles_resynchronisees, secret_hors_ligne_cree (secret des codes hors ligne cree).</li>
         <li>L'assistant d'installation : installation, mot_de_passe_reinitialise.</li>
-        <li>Une cle n'y figure jamais en entier : seulement ses 4 derniers caracteres ("cle ...XXXX").</li>
+        <li>Une cle ou un code hors ligne n'y figure jamais en entier : seulement ses 4 derniers caracteres ("cle ...XXXX",
+        "code hors ligne ...XXXX").</li>
         <li>Un controle reussi d'un ordinateur n'est pas inscrit : pour savoir quand il s'est connecte, lire "Dernier
         contact" sur la licence.</li>
         </ul>
@@ -874,14 +1149,14 @@ function aide_section_journal(): string
         <ul>
         <li>"Exporter (CSV)" (Journal) : applique les filtres en cours, du plus ancien au plus recent.</li>
         <li>"Exporter les licences (CSV)" (Licences) : toutes les licences, quels que soient les filtres de l'ecran ; statut
-        calcule (expiree compris) ; colonne "fin de cle" (4 derniers caracteres, jamais la cle) ; colonne options remplie
-        seulement pour une surcharge.</li>
+        calcule (expiree compris) ; colonne "fin de cle" (4 derniers caracteres, jamais la cle ni le code hors ligne) ;
+        colonne options remplie seulement pour une surcharge ; colonne "hors ligne" (oui pour une licence hors ligne).</li>
         <li>"Exporter les demandes (CSV)" (Demandes) : toutes les demandes, par numero.</li>
         <li>Format : separateur point-virgule, UTF-8 avec BOM (le fichier s'ouvre directement dans un tableur francais),
         dates AAAA-MM-JJ HH:MM, nom du fichier licences-AAAAMMJJ-HHMM.csv (ou demandes-, journal-). Une cellule qui commence
         par =, +, - ou @ est precedee d'une apostrophe : c'est voulu, aucune formule ne s'execute.</li>
-        <li>Consulter un ecran ou exporter ne demande pas de confirmation et n'est pas inscrit au journal ; seul "Afficher la
-        cle" l'est.</li>
+        <li>Consulter un ecran ou exporter ne demande pas de confirmation et n'est pas inscrit au journal ; seuls "Afficher la
+        cle" et "Afficher les codes" le sont.</li>
         </ul>
         HTML;
 }
@@ -902,10 +1177,12 @@ function aide_section_sauvegarde(): string
         <p>Au moins une fois par semaine : "Telecharger une copie de la base", confirmer. Le fichier recu se nomme
         licenses-AAAAMMJJ-HHMM.db (heure de {{FUSEAU}}). Les sauvegardes quotidiennes restent sur l'hebergement : seule cette
         copie protege contre la perte de l'hebergement. Elle contient des donnees personnelles (clients, e-mails, IP,
-        empreintes des ordinateurs), les hachages des cles et les cles chiffrees (celles que montre "Afficher la cle", et
-        celles des demandes acceptees pas encore remises) : la ranger en lieu sur. Elle ne contient jamais de cle en clair,
-        ni le secret qui dechiffre les cles, ni la cle privee de signature : ils restent dans prive/, hors de la base. Le
-        telechargement est inscrit au journal (sauvegarde_telechargee).</p>
+        empreintes des ordinateurs), les hachages des cles et des codes hors ligne, les cles et les codes courts chiffres
+        (ceux que montrent "Afficher la cle" et "Afficher les codes", et les cles des demandes acceptees pas encore
+        remises) : la ranger en lieu sur (elle permet aussi de retrouver par calcul un code hors ligne court). Elle ne
+        contient jamais de cle en clair, ni le secret qui dechiffre les cles, ni le secret des codes hors ligne, ni la cle
+        privee de signature : ils restent dans prive/, hors de la base. Le telechargement est inscrit au journal
+        (sauvegarde_telechargee).</p>
         <h3>Restauration (par FTP)</h3>
         <ol>
         <li>Renommer prive/data/licenses.db (par securite) ; supprimer prive/data/licenses.db-wal et
@@ -927,7 +1204,13 @@ function aide_section_sauvegarde(): string
         affiche "Cle deja utilisee sur un autre ordinateur" et efface sa cle ; refaire "Changer d'ordinateur", puis faire
         ressaisir la cle ;</li>
         <li>"Nouvelle cle" faite apres la date de la copie : annulee ; l'ancienne cle fonctionne de nouveau et la nouvelle est
-        refusee ("Cle invalide") ; refaire "Nouvelle cle" si besoin.</li>
+        refusee ("Cle invalide") ; refaire "Nouvelle cle" si besoin ;</li>
+        <li>licence hors ligne creee apres la date de la copie : elle n'existe plus ; un ordinateur jamais connecte continue
+        de fonctionner avec son code, mais s'il se connecte, il recoit "Cle invalide" et efface le code ; lui creer une
+        nouvelle licence hors ligne ;</li>
+        <li>"Nouveau code hors ligne" fait apres la date de la copie : annule ; le serveur reconnait de nouveau l'ancien code
+        et refuse le nouveau, qu'un ordinateur qui se connecte efface ("Cle invalide") ; refaire "Nouveau code hors ligne
+        pour ce poste" et transmettre le code obtenu.</li>
         </ul>
         <p>Une copie anterieure a une rotation de cle de signature se recale d'elle-meme grace aux fichiers signature_N.json
         (journal : cles_resynchronisees).</p>
@@ -941,8 +1224,9 @@ function aide_section_sauvegarde(): string
         "Installation deja effectuee", et la procedure Mot de passe perdu ne s'ouvre plus ; a defaut de copie, recreer par
         FTP un fichier de ce nom, au contenu indifferent) ;</li>
         <li>prive/reinitialisation.utilisee s'il existe (jetons de reinitialisation deja utilises) ;</li>
-        <li>prive/cles/ : cles privees de signature (signature_N.key), fiches publiques (signature_N.json) et secret qui
-        chiffre les cles de licence (secret_demandes.key). A refaire apres chaque rotation ;</li>
+        <li>prive/cles/ : cles privees de signature (signature_N.key), fiches publiques (signature_N.json), secret qui
+        chiffre les cles de licence (secret_demandes.key) et secret des codes hors ligne (secret_hors_ligne.key, inscrit dans
+        les applications : irremplacable). A refaire apres chaque rotation ;</li>
         <li>admin/.htaccess genere par l'installation (celui du depot ferme la console).</li>
         </ul>
         <p>En cas de reconstruction complete de l'hebergement, remettre la base et ces fichiers. Sans les cles de signature,
@@ -951,7 +1235,9 @@ function aide_section_sauvegarde(): string
         plus etre remises ; avec un autre secret (fichier remplace), "Afficher la cle" repondrait "Cle complete illisible
         (secret du serveur remplace ?)" pour les cles deja conservees. Qui
         detient a la fois une copie de la base et ce secret peut lire toutes les cles conservees : garder ces deux copies
-        separees.</p>
+        separees. Sans le secret des codes hors ligne, ou avec un autre, la console refuse de creer une licence ou un code
+        hors ligne ("Secret des codes hors ligne absent ..." ou "... different ...") : ne jamais en fabriquer un nouveau,
+        puisque les applications deja livrees embarquent celui-ci ; le remettre depuis la copie de secours.</p>
         HTML;
 }
 
@@ -1010,8 +1296,8 @@ function aide_section_securite(): string
         apres chaque ecriture ; une requete venue d'un autre site est refusee ("Origine de la requete refusee."). Chaque
         ecriture demande une confirmation : boite du navigateur, ou, sans JavaScript, page "Confirmation" avec "Confirmer :
         ..." et "Annuler". "Changer le mot de passe" ne passe pas par cette page (la double saisie en tient lieu) ; "Afficher
-        la cle" n'a pas de confirmation, puisqu'elle ne modifie rien, mais elle est inscrite au journal. Libelles des
-        confirmations :
+        la cle" et "Afficher les codes" n'ont pas de confirmation, puisqu'ils ne modifient rien, mais ils sont inscrits au
+        journal. Libelles des confirmations :
         {{CONFIRMATIONS}}</li>
         <li><strong>Rien n'est telechargeable</strong> : le dossier prive/ (base, cles, configuration, sauvegardes) est refuse
         par le serveur web ; le controle d'exposition (Administration) le verifie. Variante plus sure : placer prive/ a cote
@@ -1022,6 +1308,12 @@ function aide_section_securite(): string
         copie volee de la base ne donne aucune cle utilisable. La cle complete n'apparait que sur la page ouverte par "Afficher la
         cle", jamais dans le journal, les e-mails, les exports ni l'adresse d'une page. Qui controle tout l'hebergement
         (base et prive/cles/) peut en revanche lire les cles conservees : proteger les comptes OVH et FTP.</li>
+        <li><strong>Codes hors ligne</strong> : memes regles que les cles (hachages des deux codes, code court chiffre, code
+        long recalcule a l'affichage, 4 derniers caracteres seulement dans le journal, les e-mails et les exports). Le code
+        long est signe par la cle privee du serveur : personne ne peut en fabriquer. Le code court est verifie par un secret
+        inscrit dans les applications, le meme pour toutes : quelqu'un qui decompile une application peut fabriquer des
+        codes courts pour n'importe quel produit et n'importe quel identifiant de poste (protection dissuasive, limite
+        assumee) ; un tel code est efface des que l'ordinateur se connecte. Une copie de la base permet de retrouver par calcul un code court deja cree : proteger les copies.</li>
         <li><strong>Reponses signees</strong> : toutes les reponses aux applications sont signees, refus compris ; les
         requetes sont horodatees ({{ECART_MIN}} minutes d'ecart au plus).</li>
         <li><strong>Limites par adresse IP</strong> (IPv4, ou prefixe /64 en IPv6), en fenetres fixes, tentatives refusees
@@ -1043,8 +1335,8 @@ function aide_section_application(): string
         <h3>Ou l'utilisateur voit sa licence</h3>
         <ul>
         <li><strong>Fenetre d'activation</strong> (titre "Licence - PRODUIT") : s'ouvre au lancement quand l'application ne
-        peut pas etre utilisee ; la fenetre principale reste alors cachee. En bas, l'identifiant du poste avec "Copier". La
-        fermer par la croix quitte l'application.</li>
+        peut pas etre utilisee ; la fenetre principale reste alors cachee. En bas, l'identifiant du poste avec "Copier"
+        (c'est lui qu'il faut pour une licence hors ligne). La fermer par la croix quitte l'application.</li>
         <li><strong>Bandeau</strong> en haut de la fenetre principale, seulement pendant un essai (bleu clair) ou un
         avertissement (couleur de l'application), avec le lien "Details" ; un clic ouvre la fenetre Licence. Il ne se ferme
         pas.</li>
@@ -1054,19 +1346,39 @@ function aide_section_application(): string
         (ETDEL-****-****-****-XXXX), avec "Afficher la cle" / "Masquer la cle" ; Nom de l'ordinateur, suivi du lien
         "Transferer cette licence" quand le transfert est possible ; le message d'accueil du produit ; "Verifier maintenant"
         et son resultat ; la zone "Diagnostic" avec "Copier le diagnostic" ; "Fermer" (ou Echap). On n'y saisit rien.
-        Certaines applications affichent le meme cadre dans leurs reglages, sans le lien de transfert.</li>
+        Certaines applications affichent le meme cadre dans leurs reglages, sans le lien de transfert. Licence hors ligne :
+        la ligne s'appelle "Code hors ligne" (ETDHL-****-****-****-XXXX, ou ETDHL2-****-...-XXXX-X pour un code long), avec
+        "Afficher le code" / "Masquer le code" ; Echeance montre le dernier jour de validite ou "Illimitee" ; Titulaire et
+        Dernier controle restent "-" et "Jamais" tant que l'ordinateur ne s'est pas connecte ; "Transferer cette licence"
+        n'apparait qu'apres une premiere connexion ; le diagnostic porte "(licence hors ligne)".</li>
         <li><strong>Page "J'ai une cle"</strong> (fenetres "Licence requise", "Demande en attente", "Demande refusee",
-        "Licence a verifier", "Licence suspendue") : champ "Cle de licence" (mis en forme pendant la frappe : majuscules,
+        "Licence a verifier", "Licence suspendue", "Licence hors ligne expiree") : champ "Cle de licence" (mis en forme pendant la frappe : majuscules,
         tirets, ETDEL-), boutons "Retour" et "Activer" (ou Entree). Pendant l'envoi : "Connexion au serveur...". Une faute de
         frappe est signalee sans contacter le serveur ; un refus du serveur s'affiche sous le champ (voir
         <a href="#codes">les codes de refus</a>) et la cle n'est pas enregistree. Si la cle est acceptee, la fenetre se ferme
-        et l'application s'ouvre.</li>
+        et l'application s'ouvre. Le meme champ accepte un code hors ligne (indication "ou code hors ligne (ETDHL-...,
+        ETDHL2-...)") : voir ci-dessous.</li>
+        <li><strong>Code hors ligne dans "J'ai une cle"</strong> : des que la saisie commence par ETDHL, la ligne sous le champ
+        dit "Code hors ligne : ETDHL-XXXX-XXXX-XXXX-XXXX (les tirets s'ajoutent seuls)" ou, pour ETDHL2, "Code hors ligne
+        long : collez-le en entier", puis "Code incomplet : N/16 caracteres" (N/109 pour un code long), "Code incorrect :
+        verifiez chaque caractere." ou "Format correct : cliquez sur Activer.". "Activer" verifie le code sur l'ordinateur, sans Internet ("Verification du
+        code..."). Refus possibles, affiches sous le champ : "Code hors ligne refuse : il ne correspond pas a cet ordinateur
+        (identifiant du poste XXXX-XXXX) ou contient une erreur de saisie." (code d'un autre poste, d'une autre application,
+        ou mal saisi) ; "Codes hors ligne courts non pris en charge par cette application : demandez le code long (ETDHL2-...)
+        a ETDEL" ; "Code hors ligne expire le JJ/MM/AAAA : demandez un nouveau code a ETDEL" ; "Code hors ligne revoque,
+        remplace ou transfere : demandez un nouveau code a ETDEL" (code que le serveur a deja retire de cet ordinateur) ;
+        "Code hors ligne invalide : verifiez la saisie". Ressaisir le code deja enregistre (ou son autre forme) ne change
+        rien, et ne leve pas une suspension.</li>
         <li><strong>Fenetre "Transferer cette licence"</strong> (lien du meme nom) : la cle complete a noter ("Copier"),
         l'avertissement "L'application sera desactivee sur cet ordinateur." et "Cet ordinateur doit etre connecte a
         Internet.", boutons "Annuler" et "Transferer". Pendant l'envoi : "Transfert en cours...". Succes : page "Licence
         transferee" avec la cle, puis "Fermer l'application". Echec : le message s'affiche (par exemple "Transfert
         impossible : serveur de licences injoignable. Connectez l'ordinateur a Internet puis reessayez.") et rien ne change.
-        Voir <a href="#t-transfert">Transferer une licence</a>.</li>
+        Voir <a href="#t-transfert">Transferer une licence</a>. Licence hors ligne (deja connectee une fois) : pas de code a
+        noter, puisqu'il ne vaut que pour cet ordinateur ; la fenetre dit "Le code hors ligne ne vaut que pour cet
+        ordinateur : communiquez a ETDEL l'identifiant du poste du nouvel ordinateur pour obtenir son code." et, apres le
+        transfert, "Licence transferee : communiquez a ETDEL l'identifiant du poste du nouvel ordinateur pour obtenir son
+        code." Dans la console : "Nouveau code pour un autre ordinateur" sur la page de la licence.</li>
         </ul>
         <h3>Statut par statut</h3>
         HTML;
@@ -1077,24 +1389,29 @@ function aide_section_application(): string
         Demande en attente (En attente) | demande en attente, sans essai ou essai termine | fenetre "Demande en attente" : "Demande envoyee le JJ/MM/AAAA. Le traitement peut prendre plusieurs jours.", puis "La periode d'essai est terminee." ou "Aucune periode d'essai n'est disponible pour ce poste.", "La reponse est verifiee automatiquement chaque minute.", boutons "J'ai une cle" et "Verifier maintenant" ; application inutilisable | accepter ou refuser la demande
         Demande refusee (Refusee) | demande refusee | fenetre "Demande refusee" : "ETDEL n'a pas donne suite a la demande de licence.", le motif, "J'ai une cle" et "Nouvelle demande" | aucune action
         Valide (Valide) | licence en regle | rien : l'application s'ouvre normalement | aucune action
+        Licence hors ligne valable (Valide) | code hors ligne saisi, echeance a venir (voir <a href="#horsligne">Licences hors ligne</a>) | rien : l'application s'ouvre normalement ; la fenetre Licence affiche "Licence hors ligne valable jusqu'au JJ/MM/AAAA" ou "Licence hors ligne illimitee". Aucun bandeau, ni avant l'echeance ni sans Internet ; "Verifier maintenant" sans Internet repond "Serveur de licences injoignable : la licence hors ligne reste valable." | aucune action ; a l'echeance, "Nouveau code hors ligne pour ce poste"
+        Licence hors ligne expiree (Bloquee) | echeance du code atteinte (ou celle recue du serveur, si l'ordinateur s'est connecte) | en cours d'utilisation : boite "Licence" avec le message, puis fermeture ; au lancement : fenetre "Licence hors ligne expiree" : "L'application ne peut pas s'ouvrir pour le moment.", "Licence hors ligne expiree le JJ/MM/AAAA : demandez un nouveau code a ETDEL", boutons "Reessayer" et "J'ai une cle" ; le code est conserve | "Nouveau code hors ligne pour ce poste", saisi par "J'ai une cle" ; ou, si l'ordinateur peut se connecter, "Prolonger" puis "Reessayer"
         Avertissement (Attention) | echeance dans moins de 15 jours, ou fin de la tolerance hors ligne proche | bandeau "Licence valable jusqu'au JJ/MM/AAAA (N jour(s) restant(s)). Contactez ETDEL pour la prolonger." ou "Licence non verifiee depuis N jour(s) : connectez l'ordinateur a Internet avant le JJ/MM/AAAA." | prolonger, ou faire connecter l'ordinateur
         Bloquee (Bloquee) | echeance passee, tolerance epuisee, licence suspendue, produit inactif | en cours d'utilisation : boite "Licence" avec le message, puis fermeture ; au lancement : fenetre "Licence a verifier" ("Licence suspendue" pour une suspension) : "L'application ne peut pas s'ouvrir pour le moment.", le message, "J'ai une cle" et "Reessayer" (et, pour une suspension, "Changer d'ordinateur : Transferer cette licence") ; la cle est conservee | prolonger, "Reactiver", cocher "Actif" sur le produit, ou faire connecter l'ordinateur ; suspension datee : rien a faire. L'ordinateur se debloque seul, sans ressaisie, a son premier controle apres le changement (3 secondes apres un lancement, sinon jusqu'a 6 heures plus tard ; "Reessayer" le fait tout de suite)
         Revoquee (Revoquee, ou Transferee) | licence revoquee, cle liberee, liee a un autre ordinateur, inconnue ou remplacee ; ou licence transferee depuis cet ordinateur | message ("Licence revoquee", "Ce poste n'est plus autorise pour cette licence", "Cle deja utilisee sur un autre ordinateur" ou "Cle invalide") puis fermeture ; la cle est effacee ; au lancement suivant : "Licence requise". Si la fenetre d'activation est deja ouverte, pas de fermeture : elle passe a "Licence requise", avec le message. Apres un transfert : page "Licence transferee" (pastille "Transferee"), puis "Fermer l'application" | nouvelle cle ou nouvelle demande
-        Non configure (Non configuree) | LICENCE_CLE_PUBLIQUE vide, ou LICENCE_URL et LICENCE_URL_SECOURS vides toutes les deux, dans etdel_licence.py | rien : le module ne fait rien et l'application fonctionne sans licence | reporter les trois lignes de l'ecran Cles avant de livrer
+        Non configure (Non configuree) | LICENCE_CLE_PUBLIQUE vide, ou LICENCE_URL et LICENCE_URL_SECOURS vides toutes les deux, dans etdel_licence.py | rien : le module ne fait rien et l'application fonctionne sans licence | reporter les quatre lignes de l'ecran Cles avant de livrer
         T);
     $html .= <<<'HTML'
         <h3>Ce que l'utilisateur peut vous dicter</h3>
         <ul>
         <li><strong>Sa cle</strong> : fenetre Licence, ligne Cle (ETDEL-****-****-****-XXXX, ou en entier apres "Afficher la
         cle"). Les 4 derniers caracteres sont ceux de la colonne Cle des Licences : les taper dans "Recherche" retrouve la
-        licence.</li>
+        licence. Licence hors ligne : ligne "Code hors ligne", meme principe (4 derniers caracteres du code court ; pour un
+        code long, la fin affichee ETDHL2-****-...-XXXX-X figure sur la page de la licence).</li>
         <li><strong>Identifiant du poste</strong> (XXXX-XXXX) : fenetre Licence, ou en bas de la fenetre d'activation. Il ne
         contient jamais les lettres I, L, O ni U (un O dicte est un zero, un I ou un L est un 1). Il est different pour chaque
         produit sur un meme ordinateur : demander celui de la bonne application. Il correspond a la colonne "Identifiant"
         (Demandes) ou "Ordinateur" (Licences). Pour le retrouver : Licences, taper l'identifiant AVEC son tiret dans
         "Recherche", puis "Filtrer". Rien dans Licences : chercher dans les demandes en attente (Ctrl+F du navigateur), puis
         dans le Journal (acteur "poste:XXXX-XXXX"). Apres un changement d'ordinateur, la licence ne porte plus l'identifiant :
-        seul le journal le garde (poste_libere, licence_transferee).</li>
+        seul le journal le garde (poste_libere, licence_transferee). Une licence hors ligne, elle, porte toujours l'identifiant
+        saisi dans la console (a sa creation, ou par "Nouveau code pour un autre ordinateur"), meme si l'ordinateur ne s'est
+        jamais connecte. C'est aussi l'identifiant a saisir dans l'ecran Licence hors ligne.</li>
         <li><strong>Ligne de diagnostic</strong> (zone "Diagnostic", bouton "Copier le diagnostic") : version du module,
         produit et version de l'application, poste, statut, echeance, dernier controle, serveur qui a repondu, numero (kid) de
         la cle de signature et, a la fin, la raison du dernier echec : par exemple "serveur injoignable (...)" (pour chaque
@@ -1108,18 +1425,21 @@ function aide_section_application(): string
         d'activation affiche "Verifie le JJ/MM/AAAA HH:MM : pas encore de reponse." (demande en attente) ou "... : situation
         inchangee.", ou la raison de l'echec. Dans la fenetre Licence : "Licence verifiee aupres du serveur.", "Verifie :
         demande toujours en cours de traitement.", "Verification terminee." ou la raison de l'echec ; sans cle ni demande, le
-        bouton est grise ("Aucune licence a verifier sur ce poste.").</p>
+        bouton est grise ("Aucune licence a verifier sur ce poste."). Licence hors ligne, sans Internet : la fenetre Licence
+        repond "Serveur de licences injoignable : la licence hors ligne reste valable." ; "Reessayer" dans la fenetre "Licence
+        hors ligne expiree" repond "Serveur de licences injoignable : saisissez le nouveau code avec "J'ai une cle"."</p>
         <h3>Quand l'application se ferme-t-elle ?</h3>
-        <p>Si, en cours d'utilisation, la licence devient expiree, suspendue ou revoquee, si la cle est liberee ou remplacee,
-        ou si le produit est desactive, l'application affiche une boite "Licence" avec le message, puis se ferme apres le
+        <p>Si, en cours d'utilisation, la licence devient expiree (licence hors ligne comprise, a son echeance, meme sans
+        Internet), suspendue ou revoquee, si la cle ou le code est libere ou remplace, ou si le produit est desactive, l'application affiche une boite "Licence" avec le message, puis se ferme apres le
         clic sur OK (au plus 25 secondes apres le controle) : le travail non enregistre peut etre perdu. Apres un transfert,
         c'est l'utilisateur qui la ferme ("Fermer l'application"). Si une demande est refusee ou si l'essai se termine en
         cours d'utilisation, la fenetre principale est remplacee par la fenetre d'activation.</p>
-        <p>Application en mode console (sans fenetre) : controle au lancement seulement ; sans licence, la cle est demandee au
-        clavier si le programme est lance dans une console interactive ; sinon (tache planifiee, entree redirigee), il
+        <p>Application en mode console (sans fenetre) : controle au lancement seulement ; sans licence, la cle (ou un code
+        hors ligne) est demandee au clavier si le programme est lance dans une console interactive, apres l'identifiant du
+        poste ; de meme, pour un nouveau code, quand une licence hors ligne est bloquee (expiree, ou suspendue). Sinon (tache planifiee, entree redirigee), il
         s'arrete aussitot avec le code de sortie 3. Aucune demande ni aucun transfert n'est possible : il faut lui creer une
-        cle, et passer par "Changer d'ordinateur" dans la console. Une licence inutilisable arrete le programme (code de
-        sortie 3).</p>
+        cle (ou une licence hors ligne), et passer par "Changer d'ordinateur" dans la console. Une licence inutilisable
+        arrete le programme (code de sortie 3).</p>
         HTML;
     return $html;
 }
@@ -1160,6 +1480,11 @@ function aide_section_tolerance(): string
         <p>Pendant la tolerance, un ordinateur deconnecte n'apprend rien de ce que vous faites dans la console (suspension,
         revocation, changement d'ordinateur) : il ne l'apprend qu'en se reconnectant, ou se bloque a la fin de la
         tolerance.</p>
+        <p><strong>Licence hors ligne</strong> : ni tolerance ni preavis. Elle vaut jusqu'a son echeance (celle du code, ou la
+        derniere recue du serveur si l'ordinateur s'est connecte), meme sans aucun controle reussi : pas de bandeau "Licence
+        non verifiee", pas de blocage faute d'Internet, et pas non plus de bandeau 15 jours avant l'echeance. Les controles
+        ont lieu aux memes moments que pour une cle ; quand ils echouent, rien ne change (voir
+        <a href="#hl-connexion">Si l'ordinateur se connecte un jour</a>).</p>
         <h3>Cycle de controle</h3>
         HTML;
     $html .= aide_tableau(<<<'T'
@@ -1177,7 +1502,7 @@ function aide_section_tolerance(): string
         <p>Un controle est "reussi" des que le serveur a tranche, y compris par un refus. Exemple : apres le refus d'une
         licence expiree, le controle automatique suivant n'a lieu que 6 heures plus tard ; apres une prolongation, faire
         cliquer "Reessayer" ou relancer l'application.</p>
-        <h3>Horloge de l'ordinateur</h3>
+        <h3 id="horloge">Horloge de l'ordinateur</h3>
         <ul>
         <li>Le serveur refuse toute requete dont l'heure differe de la sienne de plus de {{ECART_MIN}} minutes : le controle
         echoue et l'ordinateur reessaie 15 minutes plus tard, sans rien afficher tant que la licence reste utilisable. Le
@@ -1279,7 +1604,10 @@ function aide_section_depannage(): string
         controle, sans contacter le serveur. "Cle invalide" seul : le serveur ne connait pas cette cle pour cette
         application : cle d'un autre produit, cle remplacee par "Nouvelle cle", cle jamais creee, base restauree d'avant sa
         creation, ou deux caracteres inverses a la saisie (faire relire la cle : "Afficher la cle" sur la licence). Verifier
-        que le produit de la licence est bien celui de l'application (code affiche dans sa fenetre Licence).</p>
+        que le produit de la licence est bien celui de l'application (code affiche dans sa fenetre Licence). Licence hors
+        ligne qui se connecte : son code a ete remplace par "Nouveau code hors ligne pour ce poste" ou "Nouveau code pour un
+        autre ordinateur" (transmettre le code actuel), ou le serveur ne le connait pas (code fabrique, base restauree
+        d'avant sa creation) ; le code est efface de l'ordinateur.</p>
         </details>
         <details>
         <summary>Le client voit "Produit inconnu ou inactif sur le serveur de licences".</summary>
@@ -1352,7 +1680,84 @@ function aide_section_depannage(): string
         <summary>Le client travaille longtemps sans Internet.</summary>
         <p>Augmenter la tolerance hors ligne de sa licence (Reglages avances de la licence) ou du produit, jusqu'a 365 jours.
         Le changement n'atteint l'ordinateur qu'a son controle reussi suivant : le faire connecter une fois. Pendant cette
-        tolerance, une suspension ou une revocation ne l'atteint pas non plus.</p>
+        tolerance, une suspension ou une revocation ne l'atteint pas non plus. S'il n'a jamais Internet, une licence hors
+        ligne convient mieux (question suivante).</p>
+        </details>
+        <details>
+        <summary>Un ordinateur n'a jamais Internet : comment lui donner une licence ?</summary>
+        <p>Une licence hors ligne (voir <a href="#t-hors-ligne">Poste toujours hors ligne</a>) : se faire dicter
+        l'identifiant du poste affiche par l'application (en bas de la fenetre "Licence requise"), puis Licences, "Licence
+        hors ligne", "Creer les codes". Dicter le code court par telephone, ou envoyer le code long par e-mail ; l'utilisateur
+        le saisit par "J'ai une cle", sans Internet. Une cle ordinaire ne peut pas s'activer sans Internet.</p>
+        </details>
+        <details>
+        <summary>Code court ou code long : lequel transmettre ?</summary>
+        <p>Ils donnent la meme licence : un seul suffit. Par telephone, le code court (16 caracteres apres ETDHL). Par e-mail,
+        le code long, a copier-coller (109 caracteres apres ETDHL2) ; il ne peut pas etre fabrique, contrairement au code
+        court. Application qui refuse le code court ("Codes hors ligne courts non pris en charge par cette
+        application...") : elle a ete construite sans LICENCE_SECRET_HORS_LIGNE, envoyer le code long. Application ancienne
+        jamais connectee apres une rotation de la cle de signature : le code long recent est refuse, dicter le code
+        court.</p>
+        </details>
+        <details>
+        <summary>L'application refuse le code hors ligne.</summary>
+        <p>"Code hors ligne refuse : il ne correspond pas a cet ordinateur (identifiant du poste XXXX-XXXX) ou contient une
+        erreur de saisie." : comparer l'identifiant cite avec la ligne "Poste" de la page de la licence. Identique : faire
+        relire le code (pour le code long, le recoller en entier) ; un code long correct reste refuse par une application qui
+        ne connait pas la cle de signature qui l'a signe (application construite avant une rotation et jamais connectee
+        depuis) : dicter le code court. Different : si le code est saisi dans une autre application que celle de la
+        licence (code du produit dans le titre de la fenetre, "Licence - PRODUIT"), le faire saisir dans la bonne ; sinon
+        l'identifiant a ete mal dicte, ou le code est saisi sur un autre ordinateur : page de la licence, "Nouveau code
+        pour un autre ordinateur" avec l'identifiant cite, puis transmettre les nouveaux codes. "Code hors ligne expire le JJ/MM/AAAA" :
+        le code est deja perime (cree trop tot, duree trop courte, ou horloge de l'ordinateur en avance) ; "Nouveau code hors
+        ligne pour ce poste". "Code hors ligne revoque, remplace ou transfere : demandez un nouveau code a ETDEL" : ce code
+        a ete retire de cet ordinateur lors d'une connexion au serveur. Code remplace : transmettre le code actuel
+        ("Afficher les codes") ; licence revoquee : "Nouvelle licence hors ligne pour ce poste" ; apres un transfert :
+        "Nouveau code hors ligne pour ce poste". "Codes hors ligne courts non pris en charge..." : envoyer le code long.</p>
+        </details>
+        <details>
+        <summary>Comment prolonger une licence hors ligne ?</summary>
+        <p>Si l'ordinateur ne se connecte jamais : page de la licence, "Nouveau code hors ligne pour ce poste", nouvelle duree
+        comptee a partir d'aujourd'hui, "Creer le nouveau code", puis transmettre l'un des deux codes ; l'utilisateur le
+        saisit par "J'ai une cle" dans la fenetre "Licence hors ligne expiree" (l'application ne propose pas de saisir un
+        code tant que la licence est valable). Si l'ordinateur peut se connecter, meme ponctuellement : "Prolonger" suffit ;
+        la nouvelle echeance l'atteint a son controle suivant ("Reessayer" pour tout de suite).</p>
+        </details>
+        <details>
+        <summary>Peut-on suspendre ou revoquer une licence hors ligne ?</summary>
+        <p>Oui dans la console, mais l'ordinateur ne l'apprend que s'il se connecte un jour. Un ordinateur qui ne se connecte
+        jamais garde son code jusqu'a son echeance (ou toujours, si elle est illimitee) : c'est la limite assumee des
+        licences hors ligne. D'ou l'interet de durees raisonnables, renouvelees par de nouveaux codes : il suffit alors de ne
+        plus en donner. S'il se connecte : suspension, revocation, remplacement du code et echeance avancee s'appliquent
+        comme pour une cle.</p>
+        </details>
+        <details>
+        <summary>Licence hors ligne : le client a reinstalle l'application, Windows, ou change d'ordinateur.</summary>
+        <p>Application reinstallee ou fichiers de licence perdus, sur le meme Windows : l'identifiant du poste ne change pas ;
+        si l'application redemande une licence, lui redonner le meme code ("Afficher les codes" sur la page de la licence),
+        qu'il saisit par "J'ai une cle". Windows reinstalle, disque systeme
+        reformate ou autre ordinateur : l'identifiant change ; se faire dicter le nouveau, puis "Nouveau code pour un autre
+        ordinateur" sur la page de la licence. Si l'ancien ordinateur fonctionne et s'est deja connecte une fois, il peut
+        d'abord "Transferer cette licence" depuis l'application ; la page de la licence propose ensuite "Nouveau code pour
+        un autre ordinateur" en premier.</p>
+        </details>
+        <details>
+        <summary>La page d'une licence hors ligne affiche "Code long non reaffichable".</summary>
+        <p>La cle de signature a change (rotation) depuis la creation des codes : la console ne peut plus recalculer le code
+        long d'origine. Il reste valable sur les ordinateurs qui l'ont deja saisi, et se saisit encore dans les applications
+        qui ne connaissent que l'ancienne cle (voir <a href="#hl-limites">Limites</a>) ; le code court s'affiche
+        toujours. Pour un nouveau code long : "Nouveau code hors ligne pour ce poste" (le code long obtenu ne fonctionne que
+        dans les applications qui connaissent la nouvelle cle publique ; sinon, transmettre le code court).</p>
+        </details>
+        <details>
+        <summary>La console affiche "Secret des codes hors ligne absent" ou "different".</summary>
+        <p>Le fichier prive/cles/secret_hors_ligne.key a ete perdu ou remplace (changement d'hebergement, restauration sans
+        prive/cles/) apres sa creation : la base en garde l'empreinte depuis l'installation (ou depuis sa creation pour un
+        serveur plus ancien), meme si aucun code hors ligne n'a encore ete cree. Tant que c'est le cas, la console refuse de creer une
+        licence ou un code hors ligne, et l'ecran Cles de signature ne propose pas la ligne LICENCE_SECRET_HORS_LIGNE. Le
+        remettre par FTP depuis la copie de secours hors ligne (voir <a href="#sauvegarde">Sauvegarde et restauration</a>).
+        Ne jamais en fabriquer un autre : les applications deja livrees embarquent celui-ci. Les licences et codes existants
+        continuent de fonctionner.</p>
         </details>
         <details>
         <summary>Passer une licence de perpetuelle a datee, ou l'inverse.</summary>
@@ -1430,12 +1835,12 @@ function aide_section_depannage(): string
         HTML;
     $html .= aide_tableau(<<<'T'
         Code | Situation | Ce que voit l'utilisateur | Que faire
-        cle_invalide | cle mal formee, inconnue du serveur, d'un autre produit, ou remplacee par "Nouvelle cle" | "Cle invalide" ; si la cle etait deja enregistree, elle est effacee et l'application se ferme. Pour un transfert : "Transfert refuse : cle inconnue du serveur de licences." | verifier le produit de la licence ; transmettre la bonne cle ("Afficher la cle")
-        revoquee | licence revoquee | "Licence revoquee" ; cle effacee | "Nouvelle licence pour ce client" ou nouvelle demande (la revocation est definitive)
-        suspendue | licence suspendue, avec ou sans date de fin (la date est transmise a l'application) | au lancement : fenetre "Licence suspendue" avec "Licence suspendue jusqu'au JJ/MM/AAAA. Elle sera reactivee automatiquement a cette date." ou "Licence suspendue. Contactez ETDEL pour la reactiver." ; en cours d'utilisation, ce message puis fermeture ; cle conservee, ordinateur bloque meme hors ligne. A la saisie par "J'ai une cle" : "Licence suspendue", la cle n'est pas enregistree | "Reactiver", ou attendre la date de fin ; l'ordinateur se debloque seul a son controle suivant ("Reessayer" pour tout de suite), sans ressaisie
+        cle_invalide | cle mal formee, inconnue du serveur, d'un autre produit, ou remplacee par "Nouvelle cle" ; code hors ligne remplace par un nouveau code, ou inconnu du serveur | "Cle invalide" ; si la cle (ou le code) etait deja enregistree, elle est effacee et l'application se ferme ; un code hors ligne efface ne se ressaisit plus sur cet ordinateur. Pour un transfert : "Transfert refuse : cle inconnue du serveur de licences." | verifier le produit de la licence ; transmettre la bonne cle ("Afficher la cle") ou le code actuel ("Afficher les codes")
+        revoquee | licence revoquee | "Licence revoquee" ; cle ou code hors ligne efface (un code hors ligne ressaisi est ensuite refuse : "Code hors ligne revoque, remplace ou transfere : demandez un nouveau code a ETDEL") | "Nouvelle licence pour ce client", "Nouvelle licence hors ligne pour ce poste" ou nouvelle demande (la revocation est definitive)
+        suspendue | licence suspendue, avec ou sans date de fin (la date est transmise a l'application) | au lancement : fenetre "Licence suspendue" avec "Licence suspendue jusqu'au JJ/MM/AAAA. Elle sera reactivee automatiquement a cette date." ou "Licence suspendue. Contactez ETDEL pour la reactiver." ; en cours d'utilisation, ce message puis fermeture ; cle conservee, ordinateur bloque meme hors ligne. A la saisie par "J'ai une cle" : "Licence suspendue", la cle n'est pas enregistree | "Reactiver", ou attendre la date de fin ; l'ordinateur se debloque seul a son controle suivant ("Reessayer" pour tout de suite), sans ressaisie ; licence hors ligne : a la date de fin recue, meme sans connexion
         poste_revoque | la cle a ete liberee ("Changer d'ordinateur" dans la console) : elle n'est plus liee a cet ordinateur | "Ce poste n'est plus autorise pour cette licence" ; cle effacee. Pour un transfert depuis l'application, ce code vaut succes (cle deja liberee) | normal apres un changement d'ordinateur ; sinon faire ressaisir la cle
-        cle_liee_autre_poste | cle deja liee a un autre ordinateur, ou empreinte de l'ordinateur changee | "Cle deja utilisee sur un autre ordinateur" ; cle effacee. Pour un transfert : "Transfert refuse : la licence est liee a un autre ordinateur." | "Changer d'ordinateur" si c'est legitime, sinon une autre licence
-        expiree | echeance atteinte | "Licence expiree. Contactez ETDEL pour la renouveler." ; cle conservee | "Prolonger", puis "Reessayer"
+        cle_liee_autre_poste | cle deja liee a un autre ordinateur, ou empreinte de l'ordinateur changee ; code hors ligne presente par un autre ordinateur que le poste saisi dans la console | "Cle deja utilisee sur un autre ordinateur" ; cle effacee. Pour un transfert : "Transfert refuse : la licence est liee a un autre ordinateur." | "Changer d'ordinateur" si c'est legitime (licence hors ligne : "Nouveau code pour un autre ordinateur"), sinon une autre licence
+        expiree | echeance atteinte | "Licence expiree. Contactez ETDEL pour la renouveler." (licence hors ligne : "Licence hors ligne expiree : demandez un nouveau code a ETDEL") ; cle conservee | "Prolonger", puis "Reessayer" ; ou, pour un ordinateur qui ne se connecte plus, "Nouveau code hors ligne pour ce poste"
         produit_inconnu | code produit inconnu du serveur (seule une demande cree un produit), produit inactif, ou code qui ne differe d'un produit existant que par les majuscules | "Produit inconnu ou inactif sur le serveur de licences" ; cle conservee ; ni demande ni activation possible | cocher "Actif" sur le produit ; verifier le code de la ligne installer(...) de l'application
         demande_en_cours | une demande de cet ordinateur est deja en attente pour ce produit | "Une demande est deja en attente pour ce poste" | traiter la demande en attente
         demande_inconnue | demande introuvable (base restauree), cle deja remise, ou remplacee par "Nouvelle cle" avant sa remise | l'application oublie sa demande et revient a "Licence requise" | nouvelle demande, ou cle transmise
@@ -1458,7 +1863,7 @@ function aide_section_glossaire(): string
         'Regles' => 'Reglages d\'un produit : duree par defaut, essai, options, tolerance hors ligne, preavis, message '
             . 'd\'accueil, actif.',
         'Licence' => 'Droit d\'utiliser un produit sur un seul ordinateur, avec un client, une echeance (ou perpetuelle), '
-            . 'un statut et une cle.',
+            . 'un statut et une cle (ou, pour une licence hors ligne, un code hors ligne).',
         'Cle' => 'ETDEL-XXXX-XXXX-XXXX-XXXX : 16 caracteres (jamais I, L, O ni U) dont une somme de controle ; se lie au '
             . 'premier ordinateur qui l\'active. Le serveur en garde le hachage, les 4 derniers caracteres et une copie '
             . 'chiffree (Afficher la cle).',
@@ -1470,7 +1875,26 @@ function aide_section_glossaire(): string
             . 'reinstalle ou si le volume systeme est reformate ; un disque copie a l\'identique (clonage) la garde en '
             . 'general ; le nom de l\'ordinateur n\'y entre pas.',
         'Identifiant de poste' => 'XXXX-XXXX, tire de l\'empreinte et du code du produit, facile a dicter (jamais de I, L, '
-            . 'O ni U). Different pour chaque produit sur un meme ordinateur.',
+            . 'O ni U). Different pour chaque produit sur un meme ordinateur. Les codes hors ligne sont calcules pour lui.',
+        'Licence hors ligne' => 'Licence d\'un ordinateur jamais (ou rarement) connecte a Internet ("Licence hors ligne" '
+            . 'dans Licences) : deux codes equivalents, verifies par l\'application sans Internet, qui ne valent que pour un '
+            . 'identifiant de poste et un produit. Ni tolerance ni bandeau ; ce que change la console ne l\'atteint que si '
+            . 'l\'ordinateur se connecte un jour.',
+        'Code hors ligne court' => 'ETDHL-XXXX-XXXX-XXXX-XXXX, a dicter par telephone : il contient la fin de la licence et '
+            . 'ses options, et se verifie avec le secret LICENCE_SECRET_HORS_LIGNE de l\'application. Quelqu\'un qui '
+            . 'decompile une application peut en fabriquer (protection dissuasive).',
+        'Code hors ligne long' => 'ETDHL2- suivi de 109 caracteres, a envoyer par e-mail : memes informations que le code '
+            . 'court, signees par la cle de signature du serveur ; impossible a fabriquer. Apres une rotation, les nouveaux '
+            . 'codes longs ne valent que pour les applications qui connaissent la nouvelle cle publique.',
+        'LICENCE_SECRET_HORS_LIGNE' => 'Quatrieme ligne de l\'ecran Cles de signature, a reporter dans etdel_licence.py : '
+            . 'le secret qui verifie les codes hors ligne courts (fichier prive/cles/secret_hors_ligne.key du serveur). Il '
+            . 'ne change jamais.',
+        'Premier contact' => 'Premier controle reussi d\'un ordinateur equipe d\'une licence hors ligne : la licence se lie '
+            . 'a lui s\'il est bien le poste saisi dans la console, et il recoit ensuite echeance, options, suspension et '
+            . 'revocation comme une licence ordinaire.',
+        'Nouveau code hors ligne' => 'Nouveaux codes (court et long) d\'une licence hors ligne, avec une nouvelle duree : '
+            . 'ils remplacent les anciens sur la meme licence ; c\'est ainsi qu\'on prolonge un ordinateur jamais '
+            . 'connecte.',
         'Demande' => 'Demande de licence envoyee depuis l\'application ("Demander une licence"), a accepter ou refuser '
             . 'dans Demandes.',
         'Essai' => 'Utilisation accordee pendant l\'attente d\'une demande, une seule fois par ordinateur et par produit.',
@@ -1478,7 +1902,8 @@ function aide_section_glossaire(): string
             . '"non". Une licence suit les options de son produit, sauf surcharge. Le joker * active toutes les options, '
             . 'presentes et futures.',
         'Surcharge' => 'Tolerance ou options propres a une licence, qui ne suivent plus celles du produit.',
-        'Tolerance (hors ligne)' => 'Duree d\'utilisation sans controle reussi aupres du serveur.',
+        'Tolerance (hors ligne)' => 'Duree d\'utilisation sans controle reussi aupres du serveur. Une licence hors ligne '
+            . 'n\'en a pas : elle vaut jusqu\'a son echeance.',
         'Preavis' => 'Nombre de jours avant la fin de la tolerance hors ligne ou l\'application affiche un bandeau.',
         'Echeance' => 'Date de fin d\'une licence ; aucune pour une licence perpetuelle.',
         'Controle' => 'Echange de l\'application avec le serveur : 3 secondes apres le lancement, puis toutes les 6 heures.',

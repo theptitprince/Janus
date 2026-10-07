@@ -18,11 +18,34 @@ class AdminErreur extends RuntimeException
 {
 }
 
+/**
+ * Erreur de saisie d'un formulaire de creation : la page d'erreur le reaffiche, pre-rempli avec la saisie, sous
+ * le message (rien n'est perdu ; le jeton CSRF n'est pas renouvele sur une erreur, le formulaire reste valable).
+ */
+class AdminErreurFormulaire extends AdminErreur
+{
+    /** @var string */
+    public $titre;
+    /** @var string */
+    public $formulaire;
+
+    public function __construct(string $message, string $titre, string $formulaire)
+    {
+        parent::__construct($message);
+        $this->titre = $titre;
+        $this->formulaire = $formulaire;
+    }
+}
+
 // Libelles des actions d'ecriture : servent a la confirmation et au journal.
 const ADMIN_ACTIONS = [
     'demande_accepter' => 'Accepter la demande et creer la cle',
     'demande_refuser' => 'Refuser la demande',
     'licence_creer' => 'Creer une cle de licence',
+    'licence_hors_ligne_creer' => 'Creer une licence hors ligne',
+    'licence_hors_ligne_code' => 'Nouveau code hors ligne pour ce poste (l\'ancien code ne sera plus reconnu)',
+    'licence_hors_ligne_poste' => 'Nouveau code hors ligne pour un autre ordinateur (les codes actuels ne seront plus '
+        . 'reconnus)',
     'licence_prolonger' => 'Prolonger la licence',
     'licence_modifier' => 'Modifier la licence',
     'licence_suspendre' => 'Suspendre la licence',
@@ -70,6 +93,7 @@ const ADMIN_MENU_PARENT = [
     'demande' => 'demandes',
     'licence' => 'licences',
     'licence_nouvelle' => 'licences',
+    'licence_hors_ligne' => 'licences',
     'produit' => 'produits',
     'serveurs' => 'administration',
     'cles' => 'administration',
@@ -99,6 +123,19 @@ const LIBELLE_TITULAIRE = 'Client (titulaire de la licence)';
 const CLE_NON_DISPONIBLE = 'Cle complete non disponible (licence creee avant cette fonction). Le client peut la lire '
     . 'dans l\'application : touches Ctrl+Maj+L, puis Afficher la cle. Sinon, Nouvelle cle en cree une autre, que '
     . 'l\'ordinateur du client devra saisir (l\'ancienne cesse de fonctionner).';
+// Licence hors ligne : le code est verifie par l'application sans Internet ; ce qui change sur le serveur ne
+// l'atteint que par un controle reussi.
+const HORS_LIGNE_TYPE = 'Licence hors ligne : son code est verifie par l\'application sans Internet. Prolonger, '
+    . 'Suspendre et Revoquer n\'atteignent l\'ordinateur que s\'il se connecte un jour.';
+const HORS_LIGNE_MENTION = 'Licence hors ligne : n\'atteint le poste que s\'il se connecte un jour a Internet.';
+const HORS_LIGNE_EXPLICATION = 'Pour un ordinateur jamais (ou rarement) connecte a Internet. L\'application y affiche '
+    . 'son "Identifiant du poste" (fenetre d\'activation, ou fenetre Licence : touches Ctrl+Maj+L) ; le client vous le '
+    . 'dicte ou vous l\'envoie. La console cree alors deux codes equivalents : un code court a dicter par telephone, et '
+    . 'un code long a envoyer par e-mail. Le client saisit l\'un ou l\'autre avec "J\'ai une cle" : l\'application le '
+    . 'verifie sans Internet, et ce code ne fonctionne que sur ce poste et pour ce produit.';
+const HORS_LIGNE_LIMITE = 'Si l\'ordinateur se connecte un jour a Internet, l\'application controle aussi sa licence '
+    . 'aupres du serveur : une prolongation, une suspension ou une revocation faite ici l\'atteint alors. S\'il ne se '
+    . 'connecte jamais, seul un nouveau code change sa licence.';
 
 // ---------------------------------------------------------------------------
 // Point d'entree et reponses
@@ -222,6 +259,8 @@ function admin_traiter(array $ctx, array &$session): array
             return admin_page_brute(405, 'Methode refusee', 'GET ou POST uniquement.');
         }
         return admin_get($ctx);
+    } catch (AdminErreurFormulaire $e) {
+        return admin_page($ctx, $e->titre, '<p class="erreur">' . h($e->getMessage()) . '</p>' . $e->formulaire, 400);
     } catch (AdminErreur | InvalidArgumentException $e) {
         return admin_page($ctx, 'Action impossible', '<p class="erreur">' . h($e->getMessage()) . '</p>'
             . '<p><a href="index.php" data-retour>Retour</a></p>', 400);
@@ -254,6 +293,8 @@ function admin_get(array $ctx): array
             return admin_page($ctx, 'Licence n. ' . $id, admin_ecran_licence($ctx, $id));
         case 'licence_nouvelle':
             return admin_page($ctx, 'Nouvelle licence', admin_ecran_licence_nouvelle($ctx));
+        case 'licence_hors_ligne':
+            return admin_page($ctx, 'Licence hors ligne', admin_ecran_licence_hors_ligne($ctx));
         case 'produits':
             return admin_page($ctx, 'Produits', admin_ecran_produits($ctx));
         case 'produit':
@@ -515,7 +556,7 @@ function etiquette(string $statut): string
 {
     $libelles = ['active' => 'Active', 'expiree' => 'Expiree', 'suspendue' => 'Suspendue', 'revoquee' => 'Revoquee',
         'en_attente' => 'En attente', 'acceptee' => 'Acceptee', 'refusee' => 'Refusee', 'actif' => 'Actif',
-        'inactif' => 'Inactif', 'auto' => 'cree automatiquement'];
+        'inactif' => 'Inactif', 'auto' => 'cree automatiquement', 'hors_ligne' => 'hors ligne'];
     return '<span class="etiquette ' . h($statut) . '">' . h($libelles[$statut] ?? $statut) . '</span>';
 }
 
@@ -648,8 +689,10 @@ function admin_ecran_tableau(array $ctx): string
         . "ON d.id = l.distribution_id JOIN produits p ON p.id = d.produit_id WHERE l.statut = 'active' "
         . "AND l.echeance > ? AND l.echeance <= ? ORDER BY l.echeance LIMIT 100", [$n, $n + 30 * JOUR]) as $l) {
         $lignes[] = ['<a href="index.php?page=licence&amp;id=' . (int)$l['id'] . '">' . h($l['titulaire']) . '</a>',
-            h($l['produit_code']), h(date_fr((int)$l['echeance'])), (int)jours_restants((int)$l['echeance'], $n) . ' j',
-            h(($l['id_poste'] ?? '') . ' ' . ($l['nom_ordinateur'] ?? ''))];
+            h($l['produit_code']), h(echeance_fr((int)$l['echeance'], licence_hors_ligne($l))),
+            (int)jours_restants((int)$l['echeance'], $n) . ' j',
+            h(($l['id_poste'] ?? '') . ' ' . ($l['nom_ordinateur'] ?? ''))
+                . (licence_hors_ligne($l) ? ' ' . etiquette('hors_ligne') : '')];
     }
     return $html . tableau_html(['Client', 'Produit', 'Echeance', 'Reste', 'Ordinateur'], $lignes, 'Aucune.');
 }
@@ -660,8 +703,8 @@ function admin_ecran_administration(array $ctx): string
     $ecrans = [
         'serveurs' => ['Serveurs', 'Adresses de l\'API diffusees aux applications : en ajouter une, changer d\'adresse '
             . 'sans recompiler les applications.'],
-        'cles' => ['Cles de signature', 'Cle publique a inscrire dans les applications ; nouvelle cle en cas de doute '
-            . 'sur la securite de l\'hebergement.'],
+        'cles' => ['Cles de signature', 'Cle publique et secret des codes hors ligne a inscrire dans les applications ; '
+            . 'nouvelle cle en cas de doute sur la securite de l\'hebergement.'],
         'journal' => ['Journal', 'Tout ce qui a ete fait, depuis la console et par les applications ; recherche et '
             . 'export CSV.'],
         'sauvegarde' => ['Sauvegarde', 'Telecharger une copie de la base ; liste des sauvegardes quotidiennes.'],
@@ -695,7 +738,7 @@ function exposition_chemins(array $config, PDO $db): array
     $racine = rtrim($normaliser(dirname((string)$config['prive'])), '/') . '/';
     $kid = (int)db_valeur($db, 'SELECT COALESCE(MAX(kid), 1) FROM cles_signature WHERE retiree_le IS NULL');
     $fichiers = [$config['prive'] . '/config.php', $config['htpasswd'], signature_fichier($config, $kid),
-        secret_fichier($config), $config['base'], $config['base'] . '-wal',
+        secret_fichier($config), secret_hors_ligne_fichier($config), $config['base'], $config['base'] . '-wal',
         rtrim((string)$config['dossier_sauvegardes'], '/') . '/', $config['prive'] . '/schema.sql',
         $config['prive'] . '/lib/commun.php'];
     $chemins = [];
@@ -847,11 +890,22 @@ function admin_ecran_licences(array $ctx): string
         . ' ORDER BY l.titulaire COLLATE NOCASE, l.id LIMIT 500';
     $lignes = [];
     foreach (db_lignes($db, $sql, $parametres) as $l) {
+        $hors_ligne = licence_hors_ligne($l);
+        if ($l['machine'] !== null) {
+            $ordinateur = '<code>' . h($l['id_poste']) . '</code> ' . h($l['nom_ordinateur']);
+        } elseif ($hors_ligne) {
+            // Licence hors ligne : le poste est connu des la creation, meme s'il ne se connecte jamais.
+            $ordinateur = '<code>' . h($l['id_poste']) . '</code> <span class="discret">'
+                . ($l['dernier_contact'] === null ? 'jamais connecte' : 'non lie') . '</span>';
+        } else {
+            $ordinateur = '<span class="discret">non lie</span>';
+        }
         $lignes[] = ['<a href="index.php?page=licence&amp;id=' . (int)$l['id'] . '">' . h($l['titulaire']) . '</a>',
-            h($l['produit_code']), '<code>...' . h($l['cle_indice']) . '</code>',
-            $l['machine'] === null ? '<span class="discret">non lie</span>'
-                : '<code>' . h($l['id_poste']) . '</code> ' . h($l['nom_ordinateur']),
-            $l['echeance'] === null ? 'perpetuelle' : h(date_fr((int)$l['echeance'])),
+            h($l['produit_code']), '<code>...' . h($l['cle_indice']) . '</code>'
+                . ($hors_ligne ? ' ' . etiquette('hors_ligne') : ''),
+            $ordinateur,
+            $l['echeance'] === null ? ($hors_ligne ? 'illimitee' : 'perpetuelle')
+                : h(echeance_fr((int)$l['echeance'], $hors_ligne)),
             etiquette(licence_statut_affiche($l, $ctx['maintenant'])) . suspension_detail($l),
             h(date_fr($l['dernier_contact'] === null ? null
                 : (int)$l['dernier_contact'], true))];
@@ -870,10 +924,12 @@ function admin_ecran_licences(array $ctx): string
     if (isset($produits[$produit])) {
         $boutons = '<p class="raccourcis">' . (isset(produits_choix($db, true)[$produit])
                 ? '<a class="bouton principal" href="index.php?page=licence_nouvelle&amp;produit=' . $produit
-                    . '">Nouvelle licence pour ce produit</a>' : '')
+                    . '">Nouvelle licence pour ce produit</a><a class="bouton" href="index.php?page=licence_hors_ligne'
+                    . '&amp;produit=' . $produit . '">Licence hors ligne pour ce produit</a>' : '')
             . '<a class="bouton" href="index.php?page=produit&amp;id=' . $produit . '">Retour au produit</a></p>';
     } else {
-        $boutons = '<p><a class="bouton principal" href="index.php?page=licence_nouvelle">Nouvelle licence</a></p>';
+        $boutons = '<p class="raccourcis"><a class="bouton principal" href="index.php?page=licence_nouvelle">Nouvelle '
+            . 'licence</a><a class="bouton" href="index.php?page=licence_hors_ligne">Licence hors ligne</a></p>';
     }
     return $boutons . $filtres
         . tableau_html(['Client', 'Produit', 'Cle', 'Ordinateur', 'Echeance', 'Statut', 'Dernier contact'],
@@ -884,22 +940,30 @@ function admin_ecran_licences(array $ctx): string
 /**
  * Fiche d'une licence, pour un debutant : resume en tete, puis un bouton par action
  * (il deplie une explication et son formulaire), puis les reglages avances replies.
- * $cle : cle complete, affichee a la demande (Afficher la cle) ; sinon masquee.
+ * $cle : cle complete, affichee a la demande (Afficher la cle) ; sinon masquee. Licence hors ligne : $codes,
+ * ses deux codes (licence_hors_ligne_codes), affiches a la demande (Afficher les codes).
  */
-function admin_ecran_licence(array $ctx, int $id, ?string $cle = null): string
+function admin_ecran_licence(array $ctx, int $id, ?string $cle = null, ?array $codes = null): string
 {
     $lic = licence_lire($ctx['db'], $id);
     $n = $ctx['maintenant'];
+    $hors_ligne = licence_hors_ligne($lic);
     if ($lic['echeance'] === null) {
-        $echeance = 'perpetuelle';
+        $echeance = $hors_ligne ? 'illimitee' : 'perpetuelle';
     } elseif ($lic['statut'] === 'revoquee') {
         // Jours restants sans objet : la licence ne sert plus, quelle que soit son echeance.
-        $echeance = h(date_fr((int)$lic['echeance'])) . ' (sans objet : licence revoquee)';
+        $echeance = h(echeance_fr((int)$lic['echeance'], $hors_ligne)) . ' (sans objet : licence revoquee)';
     } elseif ((int)$lic['echeance'] <= $n) {
-        $echeance = h(date_fr((int)$lic['echeance'])) . ' (depassee)';
+        $echeance = h(echeance_fr((int)$lic['echeance'], $hors_ligne)) . ' (depassee)';
     } else {
         $jours = (int)jours_restants((int)$lic['echeance'], $n);
-        $echeance = h(date_fr((int)$lic['echeance'])) . ' (' . $jours . ($jours > 1 ? ' jours restants)' : ' jour restant)');
+        $echeance = h(echeance_fr((int)$lic['echeance'], $hors_ligne)) . ' (' . $jours
+            . ($jours > 1 ? ' jours restants)' : ' jour restant)');
+    }
+    if ($hors_ligne) {
+        return admin_ecran_licence_hors_ligne_fiche($ctx, $lic, $echeance, $codes) . '<h2>Que voulez-vous faire ?</h2>'
+            . admin_licence_actions($ctx, $lic) . '<details class="avance"><summary>Reglages avances</summary>'
+            . admin_licence_avance($ctx, $lic) . '</details>';
     }
     $html = fiche_html([
         'Statut' => etiquette(licence_statut_affiche($lic, $n)) . suspension_detail($lic),
@@ -921,15 +985,72 @@ function admin_ecran_licence(array $ctx, int $id, ?string $cle = null): string
  */
 function licence_cle_masquee(array $ctx, array $lic): string
 {
-    $masquee = '<code>ETDEL-****-****-****-' . h($lic['cle_indice']) . '</code>';
+    $hors_ligne = licence_hors_ligne($lic);
+    $masquee = '<code>' . ($hors_ligne ? 'ETDHL' : 'ETDEL') . '-****-****-****-' . h($lic['cle_indice']) . '</code>';
+    if ($hors_ligne) {
+        // Fin du code long telle que l'application l'affiche (ETDHL2-****-...-XXXX-X) quand il y a ete saisi.
+        try {
+            $long = licence_hors_ligne_codes($ctx['db'], $ctx['config'], $lic)['long'] ?? null;
+        } catch (RuntimeException $e) {
+            $long = null;
+        }
+        if ($long !== null) {
+            $masquee .= ' ou <code>ETDHL2-****-...-' . h(substr($long, -6)) . '</code>';
+        }
+    }
     if ($lic['statut'] === 'revoquee') {
         return $masquee;
     }
     if ($lic['cle_chiffree'] === null) {
         return $masquee . ' <span class="discret">' . h(CLE_NON_DISPONIBLE) . '</span>';
     }
-    return $masquee . ' ' . f_formulaire($ctx, 'licence_afficher_cle', f_bouton('Afficher la cle'),
-        ['id' => (int)$lic['id']], 'en-ligne');
+    return $masquee . ' ' . f_formulaire($ctx, 'licence_afficher_cle', f_bouton($hors_ligne ? 'Afficher les codes'
+        : 'Afficher la cle'), ['id' => (int)$lic['id']], 'en-ligne');
+}
+
+/** Les deux codes d'une licence hors ligne, chacun avec son bouton Copier ; $long null : non reaffichable. */
+function codes_hors_ligne_html(string $court, ?string $long): string
+{
+    return '<p>Code court, a dicter par telephone :</p>' . bloc_copie('code_court', $court)
+        . '<p>Code long, a envoyer par e-mail (copier-coller) :</p>'
+        . ($long !== null ? bloc_copie('code_long', $long) : '<p class="discret">' . h(CODE_LONG_NON_DISPONIBLE) . '</p>');
+}
+
+/** Options d'une licence hors ligne, en clair : toutes, aucune, ou la liste fixee depuis la console. */
+function hors_ligne_options_affichees(array $lic): string
+{
+    $options = $lic['options'] === null ? options_lire($lic['produit_options']) : options_lire($lic['options']);
+    return in_array(OPTION_TOUTES, $options, true) ? 'toutes' : options_affichees($options);
+}
+
+/**
+ * Resume en tete de la fiche d'une licence hors ligne : type, client, produit, codes (masques, ou affiches
+ * par Afficher les codes), poste, echeance, options, dernier contact.
+ */
+function admin_ecran_licence_hors_ligne_fiche(array $ctx, array $lic, string $echeance, ?array $codes): string
+{
+    if ($lic['machine'] !== null) {
+        $poste = '<code>' . h($lic['id_poste']) . '</code> ' . h($lic['nom_ordinateur'])
+            . ' <span class="discret">(lie depuis son premier contact avec le serveur)</span>';
+    } elseif ($lic['dernier_contact'] === null) {
+        $poste = '<code>' . h($lic['id_poste']) . '</code> <span class="discret">(identifiant saisi a la creation ; '
+            . 'jamais connecte au serveur : les codes ne fonctionnent que sur ce poste)</span>';
+    } else {
+        $poste = '<code>' . h($lic['id_poste']) . '</code> <span class="discret">(liee a aucun ordinateur : liberee par un '
+            . 'transfert depuis l\'application, ou nouveau poste pas encore connecte ; les codes ne fonctionnent que sur ce '
+            . 'poste. Pour le nouvel ordinateur d\'un transfert : "Nouveau code pour un autre ordinateur")</span>';
+    }
+    return fiche_html([
+        'Statut' => etiquette(licence_statut_affiche($lic, $ctx['maintenant'])) . suspension_detail($lic),
+        'Type' => etiquette('hors_ligne') . ' ' . h(HORS_LIGNE_TYPE),
+        'Client' => h($lic['titulaire']),
+        'Produit' => lien_produit((int)$lic['produit_id'], $lic['produit_code'], $lic['produit_nom']),
+        'Codes' => $codes !== null ? codes_hors_ligne_html($codes['court'], $codes['long']) : licence_cle_masquee($ctx, $lic),
+        'Poste' => $poste,
+        'Echeance' => $echeance,
+        'Options' => h(hors_ligne_options_affichees($lic)),
+        'Dernier contact' => $lic['dernier_contact'] === null ? 'jamais' : h(date_fr((int)$lic['dernier_contact'], true)),
+    ]);
 }
 
 /**
@@ -947,6 +1068,16 @@ function admin_action_licence_afficher_cle(array $ctx): array
     if ($lic['cle_chiffree'] === null) {
         throw new AdminErreur(CLE_NON_DISPONIBLE);
     }
+    if (licence_hors_ligne($lic)) {
+        // Code court dechiffre, code long recalcule (signature deterministe) : jamais dans le journal.
+        $codes = licence_hors_ligne_codes($ctx['db'], $ctx['config'], $lic);
+        if ($codes === null) {
+            throw new AdminErreur('Code hors ligne illisible (secret du serveur remplace ?) : utilisez "Nouveau code hors '
+                . 'ligne pour ce poste" pour en generer un.');
+        }
+        admin_journal($ctx, 'cle_affichee', 'licence ' . $id, licence_designation($lic));
+        return admin_page($ctx, 'Licence n. ' . $id, admin_ecran_licence($ctx, $id, null, $codes));
+    }
     $cle = cle_dechiffrer((string)$lic['cle_chiffree'], secret_demandes($ctx['config']));
     if ($cle === null || cle_hash($cle) !== $lic['cle_hash']) {
         throw new AdminErreur('Cle complete illisible (secret du serveur remplace ?) : utilisez Nouvelle cle pour en '
@@ -963,26 +1094,47 @@ function action_depliable(string $titre, string $explication, string $formulaire
         . h($explication) . '</p>' . $formulaire . '</div></details>';
 }
 
+/**
+ * Actions de la fiche. Licence hors ligne : "Nouveau code hors ligne pour ce poste" d'abord ; Prolonger,
+ * Suspendre, Reactiver et Revoquer portent la mention qu'ils n'atteignent le poste que s'il se connecte un
+ * jour ; ni Nouvelle cle ni Changer d'ordinateur (le code ne vaut que pour le poste saisi).
+ */
 function admin_licence_actions(array $ctx, array $lic): string
 {
     $id = (int)$lic['id'];
+    $hors_ligne = licence_hors_ligne($lic);
     if ($lic['statut'] === 'revoquee') {
         // Revocation definitive (D61) : on sert de nouveau le client par une nouvelle licence (D67). Deja
         // remplacee : la remplacante est indiquee et le bouton passe au second plan (pas de doublon par megarde).
         $remplacantes = array_map(static function (int $autre): string {
             return 'la <a href="index.php?page=licence&amp;id=' . $autre . '">licence n. ' . $autre . '</a>';
         }, licence_remplacantes($ctx['db'], $id));
-        return '<p>Cette licence est revoquee : c\'est definitif, elle ne peut plus etre reactivee. Pour servir de '
-            . 'nouveau ce client, creez-lui une nouvelle licence, avec une nouvelle cle a lui transmettre.</p>'
+        $lien = '<p><a class="bouton' . ($remplacantes === [] ? ' principal' : '') . '" href="index.php?page=';
+        return ($hors_ligne
+                ? '<p>Cette licence hors ligne est revoquee : c\'est definitif, elle ne peut plus etre reactivee. Un poste '
+                    . 'qui ne se connecte jamais garde son code jusqu\'a son echeance. Pour servir de nouveau ce poste, '
+                    . 'creez une nouvelle licence hors ligne, avec de nouveaux codes a transmettre.</p>'
+                : '<p>Cette licence est revoquee : c\'est definitif, elle ne peut plus etre reactivee. Pour servir de '
+                    . 'nouveau ce client, creez-lui une nouvelle licence, avec une nouvelle cle a lui transmettre.</p>')
             . ($remplacantes === [] ? '' : '<p><strong>Deja remplacee par ' . implode(', ', $remplacantes) . '.</strong></p>')
-            . '<p><a class="bouton' . ($remplacantes === [] ? ' principal' : '') . '" href="index.php?page=licence_nouvelle'
-            . '&amp;modele=' . $id . '">Nouvelle licence pour ce client</a></p>';
+            . ($hors_ligne
+                ? $lien . 'licence_hors_ligne&amp;modele=' . $id . '">Nouvelle licence hors ligne pour ce poste</a></p>'
+                : $lien . 'licence_nouvelle&amp;modele=' . $id . '">Nouvelle licence pour ce client</a></p>');
     }
+    // Licence hors ligne : ce qui change ici n'atteint le poste que par un controle reussi. Liberee par un
+    // transfert depuis l'application : le code pour le nouvel ordinateur vient en premier.
+    $mention = $hors_ligne ? ' ' . HORS_LIGNE_MENTION : '';
     $html = '';
+    if ($hors_ligne) {
+        $transferee = $lic['machine'] === null && $lic['dernier_contact'] !== null;
+        $html = $transferee ? admin_action_autre_poste_formulaire($ctx, $lic) . admin_action_nouveau_code_formulaire($ctx, $lic)
+            : admin_action_nouveau_code_formulaire($ctx, $lic) . admin_action_autre_poste_formulaire($ctx, $lic);
+    }
     if ($lic['echeance'] !== null) {
         $html .= action_depliable('Prolonger', 'Ajoute du temps a partir de l\'echeance actuelle (ou d\'aujourd\'hui si '
-            . 'elle est deja passee). Le client n\'a rien a faire : l\'application recoit la nouvelle date a son prochain '
-            . 'controle.',
+            . 'elle est deja passee). ' . ($hors_ligne ? HORS_LIGNE_MENTION . ' Pour un poste qui ne se connecte jamais, '
+            . 'utilisez plutot "Nouveau code hors ligne pour ce poste".' : 'Le client n\'a rien a faire : l\'application '
+            . 'recoit la nouvelle date a son prochain controle.'),
             '<div class="rangee">'
             . f_formulaire($ctx, 'licence_prolonger', f_bouton('+30 jours', 'principal'), ['id' => $id, 'mode' => '30'],
                 'en-ligne')
@@ -992,12 +1144,14 @@ function admin_licence_actions(array $ctx, array $lic): string
             . f_formulaire($ctx, 'licence_prolonger', f_champ('date', 'Ou choisir la nouvelle echeance', '', 'date',
                 'required') . f_bouton('Fixer la date'), ['id' => $id, 'mode' => 'date']));
     }
-    $html .= action_depliable('Nouvelle cle', 'Pour une cle diffusee ou transmise par erreur : une nouvelle cle remplace '
-        . 'l\'ancienne, qui ne fonctionnera plus. Le client la saisit dans l\'application et elle s\'active sur le premier '
-        . 'ordinateur ou elle est saisie ; elle reste consultable ici (Afficher la cle).',
-        f_formulaire($ctx, 'licence_nouvelle_cle', f_bouton('Creer une nouvelle cle', 'principal'), ['id' => $id],
-            'en-ligne'));
-    if ($lic['machine'] !== null) {
+    if (!$hors_ligne) {
+        $html .= action_depliable('Nouvelle cle', 'Pour une cle diffusee ou transmise par erreur : une nouvelle cle '
+            . 'remplace l\'ancienne, qui ne fonctionnera plus. Le client la saisit dans l\'application et elle s\'active sur '
+            . 'le premier ordinateur ou elle est saisie ; elle reste consultable ici (Afficher la cle).',
+            f_formulaire($ctx, 'licence_nouvelle_cle', f_bouton('Creer une nouvelle cle', 'principal'), ['id' => $id],
+                'en-ligne'));
+    }
+    if ($lic['machine'] !== null && !$hors_ligne) {
         $html .= action_depliable('Changer d\'ordinateur', 'Le plus simple, si l\'ancien ordinateur fonctionne encore : '
             . 'dans l\'application, fenetre Licence (touches Ctrl+Maj+L), bouton "Transferer cette licence" ; la cle est '
             . 'liberee aussitot et l\'application se desactive sur cet ordinateur (' . TRANSFERTS_MAX . ' transferts au plus '
@@ -1008,28 +1162,73 @@ function admin_licence_actions(array $ctx, array $lic): string
             f_formulaire($ctx, 'licence_liberer', f_bouton('Liberer cette cle', 'principal'), ['id' => $id], 'en-ligne'));
     }
     if ($lic['statut'] === 'active') {
-        $html .= action_depliable('Suspendre', 'Bloque l\'application du client a son prochain controle, sans effacer sa '
-            . 'cle. Sans date, elle reste bloquee jusqu\'a ce que vous cliquiez sur "Reactiver" ; avec une date, elle se '
-            . 'debloque toute seule a la fin de ce jour-la.',
+        $html .= action_depliable('Suspendre', 'Bloque l\'application du client a son prochain controle, sans effacer '
+            . ($hors_ligne ? 'son code' : 'sa cle') . '. Sans date, elle reste bloquee jusqu\'a ce que vous cliquiez sur '
+            . '"Reactiver" ; avec une date, elle se debloque toute seule a la fin de ce jour-la.' . $mention,
             f_formulaire($ctx, 'licence_suspendre', f_champ('jusqu', 'Jusqu\'au (facultatif)', '', 'date')
                 . f_bouton('Suspendre', 'principal'), ['id' => $id]));
     } else {
         $html .= action_depliable('Reactiver', 'Met fin a la suspension : l\'application du client se debloque a son '
-            . 'prochain controle, sans rien ressaisir.',
+            . 'prochain controle, sans rien ressaisir.' . $mention,
             f_formulaire($ctx, 'licence_reactiver', f_bouton('Reactiver', 'principal'), ['id' => $id], 'en-ligne'));
         // Date de fin actuelle pre-remplie : valider sans y toucher ne supprime pas la reactivation automatique.
         $fin = $lic['suspendue_jusqu'] === null ? '' : date('Y-m-d', (int)$lic['suspendue_jusqu']);
         $html .= action_depliable('Changer la date de fin', 'La licence reste suspendue jusqu\'a cette date, puis se '
-            . 'reactive toute seule. Effacer la date pour une suspension sans fin prevue.',
+            . 'reactive toute seule. Effacer la date pour une suspension sans fin prevue.' . $mention,
             f_formulaire($ctx, 'licence_suspendre', f_champ('jusqu', 'Nouvelle date de fin (vide = sans date)', $fin, 'date')
                 . f_bouton('Changer la date de fin', 'principal'), ['id' => $id]));
     }
-    $html .= action_depliable('Revoquer', 'Definitif : la licence ne pourra plus etre reactivee et l\'ordinateur du '
-        . 'client efface sa cle a son prochain controle. Pour servir de nouveau ce client ensuite, utilisez le bouton '
-        . '"Nouvelle licence pour ce client" qui apparaitra sur cette page.',
+    $html .= action_depliable('Revoquer', $hors_ligne
+        ? 'Definitif : la licence ne pourra plus etre reactivee et l\'ordinateur efface son code a son prochain controle '
+            . 'reussi.' . $mention . ' Pour servir de nouveau ce poste ensuite, utilisez le bouton "Nouvelle licence hors '
+            . 'ligne pour ce poste" qui apparaitra sur cette page.'
+        : 'Definitif : la licence ne pourra plus etre reactivee et l\'ordinateur du client efface sa cle a son prochain '
+            . 'controle. Pour servir de nouveau ce client ensuite, utilisez le bouton "Nouvelle licence pour ce client" '
+            . 'qui apparaitra sur cette page.',
         f_formulaire($ctx, 'licence_revoquer', f_bouton('Revoquer definitivement', 'danger'), ['id' => $id], 'en-ligne'),
         'action action-danger');
     return '<div class="actions">' . $html . '</div>';
+}
+
+/**
+ * "Nouveau code hors ligne pour ce poste" : nouvelle duree (proposee : celle du produit) et options ; le
+ * nouveau code remplace l'ancien sur la meme ligne. C'est ainsi qu'on prolonge un poste jamais connecte.
+ */
+function admin_action_nouveau_code_formulaire(array $ctx, array $lic): string
+{
+    $produit = produit_lire($ctx['db'], (int)$lic['produit_id']);
+    $toutes = in_array(OPTION_TOUTES, options_lire($lic['options']), true);
+    return action_depliable('Nouveau code hors ligne pour ce poste', 'Cree un nouveau code court et un nouveau code long '
+        . 'pour le meme poste (' . $lic['id_poste'] . '), avec une nouvelle duree comptee a partir d\'aujourd\'hui : '
+        . 'c\'est ainsi qu\'on prolonge la licence d\'un poste qui ne se connecte jamais. Le client saisit le nouveau code '
+        . 'avec "J\'ai une cle". Le serveur ne reconnait plus l\'ancien code : un poste qui se connecterait encore avec '
+        . 'lui le perdrait.',
+        f_formulaire($ctx, 'licence_hors_ligne_code', f_champ('duree_j', 'Duree en jours (vide = illimitee)',
+            $produit['duree_defaut_j'] ?? '', 'number', 'min="1" max="36500"')
+            . f_case('toutes_options', 'Toutes les options (decochee : aucune option)', $toutes)
+            . f_bouton('Creer le nouveau code', 'principal'), ['id' => (int)$lic['id']]));
+}
+
+/**
+ * "Nouveau code pour un autre ordinateur" : identifiant du nouveau poste (saisie tolerante), duree et options ;
+ * le nouveau code remplace l'ancien sur la meme ligne, qui passe a ce poste. C'est la suite d'un transfert
+ * depuis l'application, ou le remplacement d'un ordinateur perdu.
+ */
+function admin_action_autre_poste_formulaire(array $ctx, array $lic): string
+{
+    $produit = produit_lire($ctx['db'], (int)$lic['produit_id']);
+    $toutes = in_array(OPTION_TOUTES, options_lire($lic['options']), true);
+    return action_depliable('Nouveau code pour un autre ordinateur', 'Apres un transfert depuis l\'application, ou si '
+        . 'l\'ordinateur ' . $lic['id_poste'] . ' est perdu ou remplace : saisissez l\'identifiant du poste affiche par '
+        . 'l\'application sur le nouvel ordinateur. La licence passe a ce poste, avec un nouveau code court et un nouveau '
+        . 'code long (nouvelle duree comptee a partir d\'aujourd\'hui). Les codes actuels ne sont plus reconnus par le '
+        . 'serveur : un ordinateur qui se connecterait encore avec eux les perdrait.',
+        f_formulaire($ctx, 'licence_hors_ligne_poste', f_champ('id_poste', 'Identifiant du nouveau poste (par exemple '
+            . 'SHXT-2380)', '', 'text', 'maxlength="20" required autocomplete="off" spellcheck="false"')
+            . f_champ('duree_j', 'Duree en jours (vide = illimitee)', $produit['duree_defaut_j'] ?? '', 'number',
+                'min="1" max="36500"')
+            . f_case('toutes_options', 'Toutes les options (decochee : aucune option)', $toutes)
+            . f_bouton('Creer le code pour ce poste', 'principal'), ['id' => (int)$lic['id']]));
 }
 
 /** Reglages avances de la fiche licence : modification, informations techniques, historique. */
@@ -1037,19 +1236,21 @@ function admin_licence_avance(array $ctx, array $lic): string
 {
     $id = (int)$lic['id'];
     $options = $lic['options'] === null ? options_lire($lic['produit_options']) : options_lire($lic['options']);
+    // Licence hors ligne : pas de tolerance (sans reponse du serveur, l'application s'en tient a son code).
+    $hors_ligne = licence_hors_ligne($lic);
     $html = '';
     if ($lic['statut'] !== 'revoquee') {
         $html .= '<h2>Modifier</h2>' . f_formulaire($ctx, 'licence_modifier',
             f_champ('titulaire', LIBELLE_TITULAIRE, $lic['titulaire'], 'text', 'maxlength="120" required')
             . f_champ('email', 'E-mail', $lic['email'] ?? '', 'email')
             . f_zone('note', 'Note interne', $lic['note'] ?? '', 500)
-            . f_champ('tolerance_j', 'Tolerance hors ligne en jours (vide = celle du produit)', $lic['tolerance_j'] ?? '',
-                'number', 'min="0" max="365"')
+            . ($hors_ligne ? '' : f_champ('tolerance_j', 'Tolerance hors ligne en jours (vide = celle du produit)',
+                $lic['tolerance_j'] ?? '', 'number', 'min="0" max="365"'))
             . f_case('options_produit', 'Options du produit', $lic['options'] === null)
             . f_champ('options', 'Options propres a la licence (* = toutes)', implode(', ', $options))
             . f_bouton('Enregistrer'), ['id' => $id]);
     }
-    $html .= '<h2>Informations techniques</h2>' . fiche_html([
+    $informations = [
         'Produit' => h(produit_libelle((string)$lic['produit_code'], (string)$lic['produit_nom'])),
         'E-mail' => h($lic['email']),
         'Note' => '<span class="message">' . h($lic['note']) . '</span>',
@@ -1064,7 +1265,11 @@ function admin_licence_avance(array $ctx, array $lic): string
         'Lie le' => h(date_fr($lic['lie_le'] === null ? null : (int)$lic['lie_le'], true)),
         'Creee le' => h(date_fr((int)$lic['cree_le'], true)),
         'Modifiee le' => h(date_fr((int)$lic['modifie_le'], true)),
-    ]);
+    ];
+    if ($hors_ligne) {
+        unset($informations['Tolerance hors ligne']);
+    }
+    $html .= '<h2>Informations techniques</h2>' . fiche_html($informations);
     $lignes = [];
     foreach (db_lignes($ctx['db'], 'SELECT * FROM journal WHERE cible = ? ORDER BY id DESC LIMIT 50', ['licence ' . $id]) as $j) {
         $lignes[] = [h(date_fr((int)$j['date'], true)), h($j['acteur']), h($j['action']), h($j['detail'])];
@@ -1235,8 +1440,8 @@ function admin_action_licence_prolonger(array $ctx): array
         throw new AdminErreur('Prolongation invalide.');
     }
     db_maj($ctx['db'], 'licences', ['echeance' => $echeance, 'modifie_le' => $ctx['maintenant']], 'id', $id);
-    admin_journal($ctx, 'licence_prolongee', 'licence ' . $id,
-        date_fr((int)$lic['echeance']) . ' -> ' . date_fr($echeance));
+    admin_journal($ctx, 'licence_prolongee', 'licence ' . $id, echeance_fr((int)$lic['echeance'], licence_hors_ligne($lic))
+        . ' -> ' . echeance_fr($echeance, licence_hors_ligne($lic)));
     return admin_redirection('index.php?page=licence&id=' . $id . '&ok=prolongee');
 }
 
@@ -1314,6 +1519,11 @@ function admin_action_licence_liberer(array $ctx): array
 {
     $id = (int)($ctx['post']['id'] ?? 0);
     $lic = licence_lire($ctx['db'], $id);
+    if (licence_hors_ligne($lic)) {
+        throw new AdminErreur('Licence hors ligne : ses codes ne fonctionnent que sur le poste ' . $lic['id_poste']
+            . '. Pour un autre ordinateur, creez une licence hors ligne pour son identifiant (Licences, Licence hors '
+            . 'ligne).');
+    }
     if ($lic['machine'] === null) {
         throw new AdminErreur('Cette cle n\'est liee a aucun ordinateur.');
     }
@@ -1340,6 +1550,10 @@ function admin_action_licence_nouvelle_cle(array $ctx): array
             throw new AdminErreur('Licence revoquee : sa cle ne peut plus etre remplacee. Utiliser "Nouvelle licence pour '
                 . 'ce client" sur la fiche de la licence.');
         }
+        if (licence_hors_ligne($lic)) {
+            throw new AdminErreur('Licence hors ligne : utilisez "Nouveau code hors ligne pour ce poste" sur la fiche de '
+                . 'la licence.');
+        }
         $cle = cle_generer();
         db_maj($db, 'licences', ['cle_hash' => cle_hash($cle), 'cle_indice' => substr($cle, -4),
             'cle_chiffree' => cle_chiffrer($cle, secret_demandes($ctx['config'])), 'machine' => null,
@@ -1360,6 +1574,212 @@ function admin_action_licence_nouvelle_cle(array $ctx): array
         . '<p class="discret">L\'ordinateur qui utilisait l\'ancienne cle la voit refusee a son prochain controle : '
         . 'l\'application l\'efface et previent l\'utilisateur ; il faudra y saisir la nouvelle cle.</p>'
         . '<p><a href="index.php?page=licence&amp;id=' . $id . '">Retour a la licence</a></p>');
+}
+
+// ---------------------------------------------------------------------------
+// Licences hors ligne : un poste jamais (ou rarement) connecte, un code verifie sans Internet
+// ---------------------------------------------------------------------------
+
+const ID_POSTE_INVALIDE = 'Identifiant du poste : les 8 caracteres affiches par l\'application (fenetre d\'activation '
+    . 'ou fenetre Licence), par exemple SHXT-2380 : chiffres et lettres, sans la lettre U. Rien n\'a ete cree.';
+
+/**
+ * Formulaire "Licence hors ligne" : produit, identifiant du poste (saisie tolerante), client, duree (celle du
+ * produit proposee, vide = illimitee), case "Toutes les options" (cochee par defaut ; decochee = aucune).
+ * Produit preselectionne comme pour une nouvelle licence (produit=<id>, seul produit actif) ; modele=<id>
+ * (licence revoquee) : produit, client et, pour une licence hors ligne, poste repris. $saisie : champs envoyes
+ * (formulaire reaffiche apres une erreur de saisie), repris tels quels.
+ */
+function admin_ecran_licence_hors_ligne(array $ctx, ?array $saisie = null): string
+{
+    $db = $ctx['db'];
+    $explication = '<p>' . h(HORS_LIGNE_EXPLICATION) . '</p>';
+    $choix = produits_choix($db, true);
+    if ($choix === []) {
+        return $explication . '<p>Aucun produit actif : <a href="index.php?page=produit">creer d\'abord un produit</a> (ou '
+            . 'en reactiver un, sur l\'ecran <a href="index.php?page=produits">Produits</a>).</p>';
+    }
+    $texte = static function (string $champ) use ($saisie): string {
+        return is_string($saisie[$champ] ?? null) ? $saisie[$champ] : '';
+    };
+    $produit = count($choix) === 1 ? (int)array_key_first($choix) : 0;
+    $id_modele = (int)($saisie !== null ? $texte('modele') : ($ctx['get']['modele'] ?? 0));
+    $modele = $id_modele > 0 ? licence_lire($db, $id_modele) : null;
+    $intro = '';
+    if ($modele !== null) {
+        $intro = '<p>Nouvelle licence hors ligne pour <strong>' . h($modele['titulaire']) . '</strong>, en remplacement de '
+            . 'la <a href="index.php?page=licence&amp;id=' . $id_modele . '">licence n. ' . $id_modele . '</a> : verifiez '
+            . 'les informations ci-dessous, puis cliquez sur "Creer les codes".</p>';
+    }
+    if ($saisie !== null) {
+        $voulu = (int)$texte('produit_id');
+    } else {
+        $voulu = $modele !== null ? (int)$modele['produit_id'] : (int)($ctx['get']['produit'] ?? 0);
+    }
+    if ($voulu > 0 && isset($choix[$voulu])) {
+        $produit = $voulu;
+    } elseif ($voulu > 0) {
+        // Produit inactif : aucun autre n'est choisi a sa place.
+        $produit = 0;
+        $intro .= '<p class="alerte">' . ($modele !== null ? 'Le produit de cette licence n\'est plus actif'
+            : 'Ce produit n\'est pas actif') . ' : choisissez-en un autre, ou reactivez-le sur sa page '
+            . '(Reglages avances, case Actif).</p>';
+    }
+    $duree = $produit > 0 ? produit_lire($db, $produit)['duree_defaut_j'] : null;
+    if ($produit === 0) {
+        $choix = ['' => '-- choisir un produit --'] + $choix;
+    }
+    $poste = ($modele !== null && licence_hors_ligne($modele)) ? (string)$modele['id_poste'] : '';
+    $titulaire = $modele['titulaire'] ?? '';
+    $toutes = true;
+    if ($saisie !== null) {
+        [$poste, $titulaire, $duree] = [$texte('id_poste'), $texte('titulaire'), $texte('duree_j')];
+        $toutes = $texte('toutes_options') === '1';
+    }
+    return $explication . $intro . f_formulaire($ctx, 'licence_hors_ligne_creer',
+        f_choix('produit_id', 'Produit', $choix, $produit === 0 ? '' : $produit, 'data-durees required')
+        . f_champ('id_poste', 'Identifiant du poste (affiche par l\'application, par exemple SHXT-2380)', $poste, 'text',
+            'maxlength="20" required autocomplete="off" spellcheck="false"')
+        . f_champ('titulaire', LIBELLE_TITULAIRE, $titulaire, 'text', 'maxlength="120" required')
+        . f_champ('duree_j', 'Duree en jours (vide = illimitee)', $duree ?? '', 'number', 'min="1" max="36500"')
+        . f_case('toutes_options', 'Toutes les options (decochee : aucune option)', $toutes)
+        . f_bouton('Creer les codes', 'principal'), $modele === null ? [] : ['modele' => $id_modele])
+        . '<p class="discret">' . h(HORS_LIGNE_LIMITE) . '</p>';
+}
+
+/** Page de resultat : les deux codes a copier, ce qu'ils contiennent, puis des liens. */
+function admin_hors_ligne_resultat(string $message, array $produit, string $id_poste, string $titulaire, bool $toutes,
+                                   array $r, string $liens): string
+{
+    return '<p class="succes">' . h($message) . '</p>' . codes_hors_ligne_html($r['court'], $r['long'])
+        . fiche_html([
+            'Produit' => h(produit_libelle((string)$produit['code'], (string)$produit['nom'])),
+            'Identifiant du poste' => '<code>' . h($id_poste) . '</code>',
+            'Client' => h($titulaire),
+            'Echeance' => $r['echeance'] === null ? 'illimitee' : h(echeance_fr((int)$r['echeance'], true))
+                . ' <span class="discret">(dernier jour de validite)</span>',
+            'Options' => $toutes ? 'toutes' : 'aucune',
+        ])
+        . ($r['decalage'] > 0 ? '<p class="discret">Echeance repoussee de ' . (int)$r['decalage'] . ' jour(s) : la licence '
+            . 'n. ' . (int)$r['identique'] . ' avait deja le meme code (meme poste, meme produit, meme fin, memes '
+            . 'options).</p>' : '')
+        . '<p class="discret">' . h(HORS_LIGNE_LIMITE) . '</p>' . $liens;
+}
+
+/**
+ * Cree une licence hors ligne depuis le formulaire ; avec modele (licence revoquee), la remplacante est notee.
+ * Saisie refusee (identifiant mal dicte, par exemple) : le formulaire est reaffiche avec ce qui a ete saisi.
+ */
+function admin_action_licence_hors_ligne_creer(array $ctx): string
+{
+    try {
+        return admin_licence_hors_ligne_creer($ctx);
+    } catch (AdminErreur | InvalidArgumentException $e) {
+        if ($e instanceof AdminErreurFormulaire) {
+            throw $e;
+        }
+        throw new AdminErreurFormulaire($e->getMessage(), ADMIN_ACTIONS['licence_hors_ligne_creer'],
+            admin_ecran_licence_hors_ligne($ctx, $ctx['post']));
+    }
+}
+
+function admin_licence_hors_ligne_creer(array $ctx): string
+{
+    $p = $ctx['post'];
+    $db = $ctx['db'];
+    $produit_id = (int)($p['produit_id'] ?? 0);
+    if ($produit_id <= 0) {
+        throw new AdminErreur('Produit : choisissez-le dans la liste. Rien n\'a ete cree.');
+    }
+    $id_poste = id_poste_normaliser($p['id_poste'] ?? '');
+    if ($id_poste === null) {
+        throw new AdminErreur(ID_POSTE_INVALIDE);
+    }
+    $titulaire = (string)texte_saisi($p['titulaire'] ?? '', 120, 'Client', true);
+    $duree = entier_saisi($p['duree_j'] ?? '', 1, 36500, 'Duree', true);
+    $toutes = ($p['toutes_options'] ?? '') === '1';
+    $id_modele = (int)($p['modele'] ?? 0);
+    $modele = $id_modele > 0 ? licence_lire($db, $id_modele) : null;
+    $produit = produit_lire($db, $produit_id);
+    if ($produit === null) {
+        throw new AdminErreur('Produit inconnu.');
+    }
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        $r = licence_hors_ligne_creer($db, $ctx['config'], $produit, $id_poste, $titulaire, $duree, $toutes,
+            $ctx['utilisateur'], $ctx['ip'], $ctx['maintenant']);
+        if ($modele !== null && $modele['statut'] === 'revoquee') {
+            admin_journal($ctx, 'licence_remplacee', 'licence ' . $id_modele, 'par la licence n. ' . $r['id']);
+        }
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        $db->exec('ROLLBACK');
+        throw $e;
+    }
+    return admin_hors_ligne_resultat('Licence hors ligne creee pour le poste ' . $id_poste . '. Transmettez au client l\'un '
+        . 'des deux codes, au choix : il le saisit dans l\'application avec "J\'ai une cle", sans connexion a Internet. '
+        . 'Les codes restent consultables sur la page de la licence (Afficher les codes).', $produit, $id_poste, $titulaire,
+        $toutes, $r, '<p><a href="index.php?page=licence&amp;id=' . (int)$r['id'] . '">Voir la licence</a> - '
+        . '<a href="index.php?page=licence_hors_ligne&amp;produit=' . $produit_id . '">Creer une autre licence hors ligne</a>'
+        . ' - <a href="index.php?page=produit&amp;id=' . $produit_id . '">Retour au produit</a></p>');
+}
+
+/**
+ * Nouveau code pour le poste d'une licence hors ligne active ou suspendue, en une transaction : il remplace
+ * l'ancien sur la meme ligne (nouvelle echeance, nouveaux hachages) ; la reponse affiche les deux codes.
+ */
+function admin_action_licence_hors_ligne_code(array $ctx): array
+{
+    return admin_hors_ligne_nouveau_code($ctx, null);
+}
+
+/**
+ * Nouveau code pour un autre ordinateur (identifiant saisi) : la licence passe a ce poste, n'est plus liee a
+ * aucun ordinateur et les anciens codes ne sont plus reconnus ; la reponse affiche les deux nouveaux codes.
+ */
+function admin_action_licence_hors_ligne_poste(array $ctx): array
+{
+    $id_poste = id_poste_normaliser($ctx['post']['id_poste'] ?? '');
+    if ($id_poste === null) {
+        throw new AdminErreur(str_replace('Rien n\'a ete cree.', 'Rien n\'a ete change.', ID_POSTE_INVALIDE));
+    }
+    return admin_hors_ligne_nouveau_code($ctx, $id_poste);
+}
+
+/** Nouveau code d'une licence hors ligne, pour son poste ($id_poste null) ou pour un autre, en une transaction. */
+function admin_hors_ligne_nouveau_code(array $ctx, ?string $id_poste): array
+{
+    $id = (int)($ctx['post']['id'] ?? 0);
+    $duree = entier_saisi($ctx['post']['duree_j'] ?? '', 1, 36500, 'Duree', true);
+    $toutes = ($ctx['post']['toutes_options'] ?? '') === '1';
+    $db = $ctx['db'];
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        $lic = licence_lire($db, $id);
+        if (!licence_hors_ligne($lic)) {
+            throw new AdminErreur('Cette licence n\'est pas une licence hors ligne : utilisez "Nouvelle cle".');
+        }
+        if ($lic['statut'] === 'revoquee') {
+            throw new AdminErreur('Licence revoquee : utilisez "Nouvelle licence hors ligne pour ce poste" sur la fiche de '
+                . 'la licence.');
+        }
+        $r = licence_hors_ligne_nouveau_code($db, $ctx['config'], $lic, $duree, $toutes, $ctx['utilisateur'], $ctx['ip'],
+            $ctx['maintenant'], $id_poste);
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        $db->exec('ROLLBACK');
+        throw $e;
+    }
+    $poste = $id_poste ?? (string)$lic['id_poste'];
+    $message = $poste === (string)$lic['id_poste']
+        ? 'Nouveau code hors ligne cree pour le poste ' . $poste . ' : il remplace l\'ancien, que le serveur ne reconnait '
+            . 'plus. Transmettez au client l\'un des deux codes : il le saisit dans l\'application avec "J\'ai une cle".'
+        : 'La licence passe au poste ' . $poste . ' (auparavant ' . $lic['id_poste'] . ') : nouveaux codes ci-dessous, les '
+            . 'anciens ne sont plus reconnus par le serveur. Transmettez au client l\'un des deux codes : il le saisit sur le '
+            . 'nouvel ordinateur avec "J\'ai une cle".';
+    return admin_page($ctx, 'Nouveau code hors ligne', admin_hors_ligne_resultat($message,
+        ['code' => $lic['produit_code'], 'nom' => $lic['produit_nom']], $poste, (string)$lic['titulaire'],
+        $toutes, $r, '<p><a href="index.php?page=licence&amp;id=' . $id . '">Retour a la licence</a></p>'));
 }
 
 // ---------------------------------------------------------------------------
@@ -1492,7 +1912,8 @@ function admin_ecran_produit(array $ctx, array $p): string
         . '<p class="raccourcis"><a class="bouton" href="index.php?page=licences&amp;produit=' . $id
         . '">Voir ses licences (' . $licences . ')</a>'
         . ($actif ? '<a class="bouton principal" href="index.php?page=licence_nouvelle&amp;produit=' . $id
-            . '">Nouvelle licence pour ce produit</a>' : '') . '</p>'
+            . '">Nouvelle licence pour ce produit</a><a class="bouton" href="index.php?page=licence_hors_ligne&amp;produit='
+            . $id . '">Licence hors ligne pour ce produit</a>' : '') . '</p>'
         . ($actif ? '' : '<p class="alerte">Produit inactif : reactivez-le (Reglages avances, case Actif) pour lui creer '
             . 'des licences.</p>')
         . '<h2>Regles</h2>' . f_formulaire($ctx, 'produit_enregistrer',
@@ -1694,17 +2115,17 @@ function admin_export(array $ctx, string $quoi): array
         return $ts === null ? '' : date('Y-m-d H:i', (int)$ts);
     };
     if ($quoi === 'licences') {
-        // Jamais la cle (ni chiffree) : seulement ses 4 derniers caracteres.
+        // Jamais la cle ni un code hors ligne (ni chiffres) : seulement leurs 4 derniers caracteres.
         $entetes = ['id', 'titulaire', 'email', 'produit', 'fin de cle', 'statut', 'echeance', 'tolerance_j',
             'options', 'id_poste', 'nom_ordinateur', 'version', 'lie_le', 'dernier_contact', 'derniere_ip', 'origine',
-            'cree_le', 'note'];
+            'cree_le', 'note', 'hors ligne'];
         $lignes = [];
         foreach (db_lignes($db, 'SELECT l.*, p.code AS pc FROM licences l JOIN distributions d '
             . 'ON d.id = l.distribution_id JOIN produits p ON p.id = d.produit_id ORDER BY l.titulaire, l.id') as $l) {
             $lignes[] = [$l['id'], $l['titulaire'], $l['email'], $l['pc'], $l['cle_indice'],
                 licence_statut_affiche($l, $ctx['maintenant']), $date($l['echeance']), $l['tolerance_j'], $l['options'],
                 $l['id_poste'], $l['nom_ordinateur'], $l['version_appli'], $date($l['lie_le']), $date($l['dernier_contact']),
-                $l['derniere_ip'], $l['origine'], $date($l['cree_le']), $l['note']];
+                $l['derniere_ip'], $l['origine'], $date($l['cree_le']), $l['note'], licence_hors_ligne($l) ? 'oui' : 'non'];
         }
     } elseif ($quoi === 'demandes') {
         $entetes = ['id', 'date', 'statut', 'produit', 'nom_ordinateur', 'id_poste', 'titulaire', 'email',
@@ -1861,17 +2282,31 @@ function admin_ecran_cles(array $ctx): string
     $db = $ctx['db'];
     $active = signature_active($db, $ctx['config']);
     $urls = api_urls($db);
+    // Secret des codes hors ligne courts : cree ici au premier besoin pour une installation anterieure ; perdu ou
+    // remplace alors que des codes existent : signale, jamais recree ni propose (les applications ont l'ancien).
+    $erreur_secret = '';
+    try {
+        $secret = b64url(secret_hors_ligne($ctx['config'], $db, $ctx['maintenant']));
+    } catch (RuntimeException $e) {
+        $secret = null;
+        $erreur_secret = '<p class="erreur">' . h($e->getMessage()) . '</p>';
+    }
     $lignes_module = 'LICENCE_URL = "' . ($urls[0] ?? '') . "\"\n"
         . 'LICENCE_URL_SECOURS = "' . ($urls[1] ?? '') . "\"\n"
-        . 'LICENCE_CLE_PUBLIQUE = "' . $active['cle_publique'] . '"';
+        . 'LICENCE_CLE_PUBLIQUE = "' . $active['cle_publique'] . '"'
+        . ($secret === null ? '' : "\nLICENCE_SECRET_HORS_LIGNE = \"" . $secret . '"');
     $html = '<h2>Cle publique active (kid ' . (int)$active['kid'] . ')</h2>'
         . bloc_copie('cle_publique', (string)$active['cle_publique'])
         . '<p>Lignes a reporter une fois en tete de <code>etdel_licence.py</code> :</p>'
         . '<div class="copie"><pre id="lignes_module">' . h($lignes_module) . '</pre>'
-        . '<button type="button" data-copier="lignes_module">Copier</button></div>'
+        . '<button type="button" data-copier="lignes_module">Copier</button></div>' . $erreur_secret
         . '<p class="discret">Les applications deja livrees n\'ont pas besoin d\'etre recompilees apres une rotation : '
         . 'elles adoptent la nouvelle cle par un bulletin signe par la precedente, diffuse pendant 12 mois. Les nouvelles '
-        . 'versions peuvent embarquer la cle active.</p>';
+        . 'versions peuvent embarquer la cle active.</p>'
+        . '<p class="discret">LICENCE_SECRET_HORS_LIGNE verifie les codes hors ligne courts (licences hors ligne) ; il ne '
+        . 'change jamais, meme apres une rotation. Une application qui ne l\'a pas refuse les codes courts mais accepte '
+        . 'les codes longs. Limite assumee : quelqu\'un qui decompile une application peut fabriquer des codes courts '
+        . '(protection dissuasive seulement) ; le code long, signe, est infalsifiable.</p>';
     $lignes = [];
     foreach (db_lignes($db, 'SELECT * FROM cles_signature ORDER BY kid DESC') as $cle) {
         $lignes[] = [(int)$cle['kid'], '<code>' . h($cle['cle_publique']) . '</code>',
@@ -1884,7 +2319,10 @@ function admin_ecran_cles(array $ctx): string
     $html .= '<h2>Historique</h2>' . tableau_html(['kid', 'Cle publique', 'Active depuis', 'Retiree le', 'Bulletin'], $lignes);
     $html .= '<h2>Rotation</h2><p>Genere une nouvelle paire sur le serveur. La cle privee actuelle est effacee ; les '
         . 'ordinateurs qui se connectent adoptent la nouvelle cle et acceptent encore l\'ancienne pendant 90 jours. Un '
-        . 'ordinateur reste hors ligne plus de 12 mois apres une rotation devra etre mis a jour.</p>'
+        . 'ordinateur reste hors ligne plus de 12 mois apres une rotation devra etre mis a jour. Codes hors ligne longs : '
+        . 'un poste jamais connecte ne connait que la cle inscrite dans son application ; apres une rotation, les nouveaux '
+        . 'codes longs ne fonctionnent que dans les applications construites avec la nouvelle cle publique (les codes '
+        . 'courts ne sont pas concernes).</p>'
         . f_formulaire($ctx, 'cle_rotation', f_bouton('Nouvelle cle de signature', 'danger'));
     return $html;
 }

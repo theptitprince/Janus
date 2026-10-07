@@ -1,7 +1,8 @@
 # etdel_licence.py
 # Role : module client de licence ETDEL. Controle en ligne, cache local chiffre
-#        en trois exemplaires, tolerance hors ligne, composants Tkinter.
-#        Copie a l'identique dans chaque application : seules les trois
+#        en trois exemplaires, tolerance hors ligne, licences hors ligne (codes
+#        verifies sans reseau), composants Tkinter.
+#        Copie a l'identique dans chaque application : seules les quatre
 #        constantes LICENCE_* sont renseignees, une fois, apres l'installation
 #        du serveur ; tout ce qui est propre a une application (son code
 #        produit, sa version) passe en parametres de installer() ou exiger().
@@ -44,13 +45,16 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-MODULE_VERSION = "2.0.0"
+MODULE_VERSION = "2.1.0"
 
 # Renseignees une fois le serveur installe (ecran Cles de la console).
 # Vides : aucun controle, aucun fichier, l'application ne parle jamais de licence.
+# LICENCE_SECRET_HORS_LIGNE vide : codes hors ligne courts refuses (le code
+# long, signe, reste accepte).
 LICENCE_URL = ""
 LICENCE_URL_SECOURS = ""
 LICENCE_CLE_PUBLIQUE = ""
+LICENCE_SECRET_HORS_LIGNE = ""
 
 NON_CONFIGURE = "NON_CONFIGURE"
 A_ACTIVER = "A_ACTIVER"
@@ -102,6 +106,8 @@ _MESSAGES = {
     "poste_revoque": "Ce poste n'est plus autorise pour cette licence",
     "cle_liee_autre_poste": "Cle deja utilisee sur un autre ordinateur",
     "transferee": "Licence transferee : saisissez la cle sur le nouvel ordinateur.",
+    "transferee_hors_ligne": ("Licence transferee : communiquez a ETDEL l'identifiant du poste du nouvel "
+                              "ordinateur pour obtenir son code."),
     "produit_inconnu": "Produit inconnu ou inactif sur le serveur de licences",
     "demande_en_cours": "Une demande est deja en attente pour ce poste",
     "demande_inconnue": "Demande inconnue du serveur de licences",
@@ -125,6 +131,29 @@ _MESSAGES_TRANSFERT = {
                                  "Contactez ETDEL, qui peut la liberer pour vous."),
     "aucune_cle": "Aucune licence a transferer sur cet ordinateur.",
 }
+
+# Licences hors ligne : code court a dicter (ETDHL-XXXX-XXXX-XXXX-XXXX, MAC
+# HMAC-SHA256 tronque) ou code long signe a copier-coller (ETDHL2-..., Ed25519),
+# verifies sans reseau. Le code contient le dernier jour de validite (nombre de
+# jours depuis le 2026-01-01 UTC, plus un ; 0 = illimitee) et l'indicateur
+# "toutes les options".
+_EPOQUE_HORS_LIGNE = 1767225600  # 2026-01-01 00:00:00 UTC
+_PREFIXE_COURT = "ETDHL"
+_PREFIXE_LONG = "ETDHL2"
+_OCTETS_LONG = 68                # version, jours (2), options, signature (64)
+_LONGUEUR_LONG = (_OCTETS_LONG * 8 + 4) // 5
+
+_MESSAGES_HORS_LIGNE = {
+    "format": "Code hors ligne invalide : verifiez la saisie",
+    "court_non_pris_en_charge": ("Codes hors ligne courts non pris en charge par cette application : demandez "
+                                 "le code long (ETDHL2-...) a ETDEL"),
+    "refuse": ("Code hors ligne refuse : il ne correspond pas a cet ordinateur (identifiant du poste %s) "
+               "ou contient une erreur de saisie."),
+    "retire": "Code hors ligne revoque, remplace ou transfere : demandez un nouveau code a ETDEL",
+}
+# Codes hors ligne retires de ce poste (revoques, remplaces ou transferes) dont
+# l'empreinte est gardee dans l'etat local : au plus ce nombre, les plus recents.
+_HL_RETIRES_MAX = 50
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +411,105 @@ def _ed25519_signer(graine, message):
     rs = _ed_compresser(_ed_multiplier(r, _G))
     s = (r + _ed_hash_modq(rs + publique + message) * a) % _Q
     return rs + s.to_bytes(32, "little")
+
+
+# ---------------------------------------------------------------------------
+# Codes hors ligne : lecture (la verification, qui depend du poste, est dans Garde)
+# ---------------------------------------------------------------------------
+
+def _brut_code(texte):
+    """Majuscules, sans tirets ni blancs (espaces, tabulations, retours a la ligne)."""
+    return "".join(c for c in texte.upper() if c != "-" and not c.isspace())
+
+
+def _grouper(prefixe, corps):
+    return prefixe + "-" + "-".join(corps[i:i + 4] for i in range(0, len(corps), 4))
+
+
+def _est_code_hors_ligne(texte):
+    """Vrai si la saisie se presente comme un code hors ligne (prefixe ETDHL)."""
+    return isinstance(texte, str) and _brut_code(texte).startswith(_PREFIXE_COURT)
+
+
+def _lire_code_hors_ligne(texte):
+    """Code hors ligne bien forme -> dict, sinon None.
+
+    Cles : forme ("court" ou "long"), code (forme normalisee, envoyee au
+    serveur), jours, options (0 ou 1), preuve (MAC de 7 octets ou signature
+    de 64 octets), etiquette (debut du message scelle ou signe, voir
+    _message_hors_ligne). Saisie tolerante :
+    casse, tirets, blancs ; O, I et L lus 0, 1, 1 (base32 de Crockford).
+    """
+    if not isinstance(texte, str) or len(texte) > 1000:
+        return None
+    brut = _brut_code(texte)
+    if len(brut) == len(_PREFIXE_COURT) + 16 and brut.startswith(_PREFIXE_COURT):
+        corps = brut[len(_PREFIXE_COURT):].translate(_CORRECTIONS)
+        if any(c not in _ALPHABET for c in corps):
+            return None
+        valeurs = [_ALPHABET.index(c) for c in corps]
+        if sum(valeurs[:15]) % 32 != valeurs[15]:
+            return None
+        n = 0
+        for v in valeurs[:15]:
+            n = (n << 5) | v
+        # 75 bits, poids forts d'abord : version (2), options (1), jours (16), MAC (56).
+        version, options, jours = n >> 73, (n >> 72) & 1, (n >> 56) & 0xFFFF
+        if version != 1:
+            return None
+        return {"forme": "court", "code": _grouper(_PREFIXE_COURT, corps), "jours": jours,
+                "options": options, "preuve": (n & ((1 << 56) - 1)).to_bytes(7, "big"), "etiquette": "ETDHL1"}
+    if len(brut) == len(_PREFIXE_LONG) + _LONGUEUR_LONG and brut.startswith(_PREFIXE_LONG):
+        corps = brut[len(_PREFIXE_LONG):].translate(_CORRECTIONS)
+        if any(c not in _ALPHABET for c in corps):
+            return None
+        n = 0
+        for c in corps:
+            n = (n << 5) | _ALPHABET.index(c)
+        bourrage = _LONGUEUR_LONG * 5 - _OCTETS_LONG * 8
+        # Bits de bourrage nuls : une seule ecriture par code.
+        if n & ((1 << bourrage) - 1):
+            return None
+        octets = (n >> bourrage).to_bytes(_OCTETS_LONG, "big")
+        version, jours, options = octets[0], int.from_bytes(octets[1:3], "big"), octets[3]
+        if version != 2 or options not in (0, 1):
+            return None
+        return {"forme": "long", "code": _grouper(_PREFIXE_LONG, corps), "jours": jours,
+                "options": options, "preuve": octets[4:], "etiquette": "ETDHL2"}
+    return None
+
+
+def _message_hors_ligne(lu, produit, id_poste):
+    """Octets couverts par le MAC (code court) ou la signature (code long)."""
+    return ("%s|%s|%s|%d|%d" % (lu["etiquette"], produit, id_poste, lu["jours"], lu["options"])).encode("utf-8")
+
+
+def _echeance_hors_ligne(jours):
+    """Fin de validite d'un code (fin du jour UTC indique, exclue), None si illimitee.
+
+    Affichee par _date_fin_hors_ligne : le dernier jour de validite, comme la
+    console (365 jours : fin le 2027-01-01 00:00 UTC, affichee 31/12/2026).
+    """
+    return None if jours == 0 else _EPOQUE_HORS_LIGNE + jours * JOUR
+
+
+def _date_fin_hors_ligne(ts):
+    """Date affichee de l'echeance d'une licence hors ligne.
+
+    Echeance d'un code (ou du jeton qui la reprend, ou la prolonge de jours
+    entiers) : minuit UTC exclu, affiche comme son dernier jour de validite, en
+    UTC (le lendemain, en heure de Paris, commencerait a 01:00 ou 02:00 deja
+    hors validite). Autre echeance ("Fixer la date" dans la console : fin de ce
+    jour-la) : date locale, comme toute licence.
+    """
+    if ts and ts % JOUR == 0:
+        return time.strftime("%d/%m/%Y", time.gmtime(ts - 1))
+    return _date(ts)
+
+
+def _indice(code):
+    """4 derniers caracteres d'une cle ou d'un code : seuls ecrits au journal."""
+    return "".join(c for c in (code or "") if c.isalnum())[-4:]
 
 
 # ---------------------------------------------------------------------------
@@ -701,7 +829,7 @@ class Garde(object):
     def __init__(self, produit, version, _horloge=None, _transport=None,
                  _dossiers=None, _dossier_journal=None, _machine=None, _poste=None,
                  _urls=None, _cle_publique=None, _fil=True, _monotone=None,
-                 _delai_initial=_DELAI_PREMIER_CONTROLE):
+                 _delai_initial=_DELAI_PREMIER_CONTROLE, _secret_hors_ligne=None):
         # Parametres prefixes par _ : injection pour les tests uniquement.
         self.produit = str(produit)
         self.version = str(version)
@@ -711,6 +839,10 @@ class Garde(object):
         urls = [LICENCE_URL, LICENCE_URL_SECOURS] if _urls is None else list(_urls)
         self._urls_embarquees = [u for u in urls if u]
         self._cle_embarquee = LICENCE_CLE_PUBLIQUE if _cle_publique is None else _cle_publique
+        self._secret_hl = LICENCE_SECRET_HORS_LIGNE if _secret_hors_ligne is None else _secret_hors_ligne
+        # Code hors ligne verifie (dict de _lire_code_hors_ligne, plus echeance),
+        # valable tant que la cle enregistree est ce code (voir _hl_actif).
+        self._hl = None
         self._configure = bool(self._urls_embarquees) and bool(self._cle_embarquee)
         self._avec_fil = _fil
         self._delai_initial = _delai_initial
@@ -777,9 +909,11 @@ class Garde(object):
 
     @staticmethod
     def _etat_vide():
+        # hl_retires : empreintes des codes hors ligne retires de ce poste (voir
+        # _empreinte_hl), refuses a la saisie.
         return {"v": 1, "seq": 0, "cle": None, "jeton": None, "demande": None, "cles": {},
                 "urls": [], "url_active": None, "heure_max": 0, "refus": None,
-                "dernier_controle": None, "jeton_envoi": None}
+                "dernier_controle": None, "jeton_envoi": None, "hl_retires": []}
 
     def _assurer_charge(self):
         with self._verrou:
@@ -866,15 +1000,30 @@ class Garde(object):
             local["cles"] = {}
         if not isinstance(local["urls"], list):
             local["urls"] = []
+        if not isinstance(local["hl_retires"], list):
+            local["hl_retires"] = []
+        local["hl_retires"] = [v for v in local["hl_retires"] if isinstance(v, str)][-_HL_RETIRES_MAX:]
         if not _entier(local["heure_max"]):
             local["heure_max"] = 0
-        if local["cle"] is not None and normaliser_cle(local["cle"]) != local["cle"]:
+        hors_ligne = _est_code_hors_ligne(local["cle"])
+        if local["cle"] is not None and not hors_ligne and normaliser_cle(local["cle"]) != local["cle"]:
             local["cle"] = None
         self._local = local
         # heure_max relue : une heure calculee avant le chargement ne compte pas.
         self._hm = None
         self._mono_prec = None
         self._payload = None
+        self._hl = None
+        if hors_ligne:
+            # Code hors ligne : verifie de nouveau a chaque chargement (l'etat local
+            # n'est qu'un cache : seuls le MAC ou la signature du code font foi).
+            # Une cle de signature retiree depuis la saisie reste acceptee.
+            infos, _refus = self._verifier_hors_ligne(local["cle"], accepter_retirees=True)
+            if infos is None or infos["code"] != local["cle"]:
+                self._log(logging.WARNING, "code hors ligne local rejete (...%s)", _indice(local["cle"]))
+                local["cle"] = None
+            else:
+                self._hl = infos
         if local["jeton"]:
             payload = self._verifier_jeton_stocke(local["jeton"])
             if payload is None:
@@ -1017,6 +1166,90 @@ class Garde(object):
             return None
         return payload
 
+    # -- codes hors ligne ---------------------------------------------------
+
+    def _octets_secret_hl(self):
+        """Secret des codes courts (32 octets), ou None : codes courts refuses."""
+        try:
+            octets = _deb64url(self._secret_hl) if self._secret_hl else b""
+        except ValueError:
+            octets = b""
+        return octets if len(octets) == 32 else None
+
+    def _cles_hors_ligne(self, accepter_retirees):
+        """Cles publiques connues (adoptees, de la plus recente a la plus ancienne,
+        puis embarquee) pour verifier un code long. Une cle retiree ne signe plus
+        rien de neuf : refusee pour une saisie, acceptee pour un code deja enregistre."""
+        connues = []
+        for kid, info in ((self._local or {}).get("cles") or {}).items():
+            if isinstance(info, dict) and isinstance(info.get("cle"), str):
+                rang = int(kid) if kid.isdigit() else -1
+                connues.append((rang, info.get("cle"), info.get("jusqu")))
+        connues.sort(key=lambda v: v[0], reverse=True)
+        retirees = set()
+        if not accepter_retirees:
+            maintenant = self._maintenant()
+            retirees = set(cle for _rang, cle, jusqu in connues if _entier(jusqu) and maintenant >= jusqu)
+        sortie = []
+        for cle in [v[1] for v in connues] + [self._cle_embarquee]:
+            if cle in retirees or any(cle == deja for deja, _o in sortie):
+                continue
+            try:
+                octets = _deb64url(cle)
+            except ValueError:
+                continue
+            if len(octets) == 32:
+                sortie.append((cle, octets))
+        return [octets for _cle, octets in sortie]
+
+    def _verifier_hors_ligne(self, texte, accepter_retirees=False):
+        """(infos, None) si le code est valable pour ce produit et ce poste, sinon
+        (None, motif) : format, court_non_pris_en_charge, refuse. Aucun reseau.
+
+        Autre poste, autre produit, caractere altere ou cle de signature inconnue
+        donnent le meme refus : le MAC ou la signature couvre produit et poste.
+        """
+        lu = _lire_code_hors_ligne(texte)
+        if lu is None:
+            return None, "format"
+        message = _message_hors_ligne(lu, self.produit, self._id)
+        if lu["forme"] == "court":
+            secret = self._octets_secret_hl()
+            if secret is None:
+                return None, "court_non_pris_en_charge"
+            valide = hmac.compare_digest(hmac.new(secret, message, hashlib.sha256).digest()[:7], lu["preuve"])
+        else:
+            valide = any(_ed25519_verifier(cle, message, lu["preuve"])
+                         for cle in self._cles_hors_ligne(accepter_retirees))
+        if not valide:
+            return None, "refuse"
+        infos = dict(lu, echeance=_echeance_hors_ligne(lu["jours"]))
+        return infos, None
+
+    def _hl_actif(self):
+        """Code hors ligne enregistre sur ce poste (dict), ou None (cle ordinaire, aucune cle)."""
+        hl = self._hl
+        if hl is None or self._local is None or self._local.get("cle") != hl["code"]:
+            return None
+        return hl
+
+    def _empreinte_hl(self, infos):
+        """Empreinte d'une licence hors ligne : produit, poste, jours et options.
+
+        Commune a ses deux codes (court et long) : sur un poste et pour un
+        produit, le serveur n'attribue jamais le meme couple (jours, options) a
+        deux licences (fin repoussee d'un jour, hl_codes_libres)."""
+        return hashlib.sha256(("%s|%s|%d|%d" % (self.produit, self._id, infos["jours"], infos["options"]))
+                              .encode("utf-8")).hexdigest()[:32]
+
+    def _retirer_hl(self, hl):
+        """Code hors ligne retire de ce poste par le serveur (revocation, code
+        remplace, autre poste) ou par un transfert : ses deux formes seront
+        refusees a la saisie, meme sans reseau."""
+        empreinte = self._empreinte_hl(hl)
+        retires = [v for v in self._local.get("hl_retires") or [] if v != empreinte]
+        self._local["hl_retires"] = (retires + [empreinte])[-_HL_RETIRES_MAX:]
+
     def _lire_reponse(self, donnees, corps):
         """Renvoie (payload, enveloppe) si la reponse est signee et correspond a la requete."""
         try:
@@ -1121,6 +1354,10 @@ class Garde(object):
             if not _jeton_coherent(payload):
                 self._raison = "jeton incoherent"
                 return False
+            if self._hl_actif() is not None and self._payload is None:
+                # Licence hors ligne : premier jeton signe, le poste est lie sur le
+                # serveur ; echeance et options du jeton s'appliquent desormais.
+                self._log(logging.INFO, "code hors ligne ...%s verifie par le serveur", _indice(local.get("cle")))
             local["jeton"] = enveloppe
             local["refus"] = None
             local["dernier_controle"] = reel
@@ -1131,7 +1368,12 @@ class Garde(object):
         code = payload.get("code")
         if code in _CODES_REVOCATION:
             self._log(logging.WARNING, "licence refusee par le serveur : %s (cle ...%s)",
-                      code, (local.get("cle") or "")[-4:])
+                      code, _indice(local.get("cle")))
+            hl = self._hl_actif()
+            if hl is not None:
+                # Ressaisir ce code (l'une ou l'autre forme) ne doit pas defaire
+                # le refus une fois le poste de nouveau hors ligne.
+                self._retirer_hl(hl)
             self._revoque = code
             local["cle"] = None
             local["jeton"] = None
@@ -1324,13 +1566,13 @@ class Garde(object):
         if self._revoque:
             return REVOQUEE, _MESSAGES.get(self._revoque, "Licence revoquee"), None
         if local.get("cle"):
-            refus = local.get("refus")
-            # Refus de version memorise par un module 1.x : sans effet (2.0.0).
-            if isinstance(refus, dict) and refus.get("code") in _CODES_BLOCAGE:
+            refus = self._refus_effectif(maintenant)
+            if refus is not None:
                 code = refus.get("code")
                 if code == "suspendue":
                     # Cle conservee : le poste se debloque seul au premier controle
-                    # qui suit la reactivation ou la date de fin.
+                    # qui suit la reactivation ou la date de fin (licence hors
+                    # ligne : a la date de fin, meme sans controle).
                     fin = refus.get("jusqu")
                     if _entier(fin):
                         # Sans nom de bouton : le message parait dans la fenetre
@@ -1338,7 +1580,12 @@ class Garde(object):
                         return EXPIREE, ("Licence suspendue jusqu'au %s. Elle sera reactivee automatiquement "
                                          "a cette date." % _date(fin)), None
                     return EXPIREE, "Licence suspendue. Contactez ETDEL pour la reactiver.", None
+                if code == "expiree" and self._hl_actif() is not None:
+                    return EXPIREE, "Licence hors ligne expiree : demandez un nouveau code a ETDEL", None
                 return EXPIREE, _MESSAGES.get(code, "Licence bloquee"), None
+            hl = self._hl_actif()
+            if hl is not None:
+                return self._statut_hors_ligne(hl, maintenant)
             p = self._payload
             if p is None:
                 return EXPIREE, "Licence a verifier : connectez l'ordinateur a Internet puis reessayez.", None
@@ -1384,6 +1631,39 @@ class Garde(object):
             return DEMANDE_EN_ATTENTE, self._texte_demande_envoyee(), None
         return A_ACTIVER, "Licence requise", None
 
+    def _refus_effectif(self, maintenant=None):
+        """Refus memorise qui bloque encore la cle du poste (dict), ou None.
+
+        Refus de version memorise par un module 1.x : sans effet (2.0.0).
+        Licence hors ligne : une suspension datee est levee a sa date de fin,
+        meme sans contact (le poste s'en tient a la derniere information recue,
+        qui la prevoyait) ; une cle ordinaire attend le controle suivant."""
+        refus = (self._local or {}).get("refus")
+        if not isinstance(refus, dict) or refus.get("code") not in _CODES_BLOCAGE:
+            return None
+        fin = refus.get("jusqu")
+        if refus.get("code") == "suspendue" and _entier(fin) and self._hl_actif() is not None:
+            if (self._maintenant() if maintenant is None else maintenant) >= fin:
+                return None
+        return refus
+
+    def _statut_hors_ligne(self, hl, maintenant):
+        """Licence hors ligne : valable jusqu'a la plus recente echeance connue,
+        celle du code ou celle du dernier jeton signe recu (prolongation ou
+        raccourcissement dans la console). Ni tolerance ni preavis : un serveur
+        injoignable est sans effet."""
+        echeance = self._echeance_hl(hl)
+        if echeance and maintenant >= echeance:
+            return EXPIREE, ("Licence hors ligne expiree le %s : demandez un nouveau code a ETDEL"
+                             % _date_fin_hors_ligne(echeance)), 0
+        if echeance:
+            return VALIDE, "Licence hors ligne valable jusqu'au %s" % _date_fin_hors_ligne(echeance), \
+                _jours_restants(echeance, maintenant)
+        return VALIDE, "Licence hors ligne illimitee", None
+
+    def _echeance_hl(self, hl):
+        return self._payload.get("echeance") if self._payload is not None else hl["echeance"]
+
     def _texte_demande_envoyee(self):
         demande = (self._local or {}).get("demande") or {}
         return "Demande envoyee le %s. Le traitement peut prendre plusieurs jours." % _date(
@@ -1393,7 +1673,8 @@ class Garde(object):
         base = {"statut": NON_CONFIGURE, "message": "", "id_poste": None, "nom_ordinateur": None,
                 "titulaire": None, "echeance": None, "jours_restants": None,
                 "dernier_controle": None, "demande": None, "motif_refus": None,
-                "url_active": None, "kid_actif": None, "raison": "constantes vides"}
+                "url_active": None, "kid_actif": None, "raison": "constantes vides",
+                "hors_ligne": False}
         if not self._configure:
             return base
         if self._stockage is not None:
@@ -1401,10 +1682,13 @@ class Garde(object):
         with self._verrou:
             statut, message, jours = self._statut()
             local = self._local or {}
+            hl = self._hl_actif()
             base.update(statut=statut, message=message, jours_restants=jours, id_poste=self._id,
                         nom_ordinateur=self._poste, raison=self._raison,
                         dernier_controle=local.get("dernier_controle"),
-                        url_active=local.get("url_active"))
+                        url_active=local.get("url_active"), hors_ligne=hl is not None)
+            if hl is not None:
+                base["echeance"] = self._echeance_hl(hl)
             if self._payload:
                 base["titulaire"] = self._payload.get("titulaire")
                 base["echeance"] = self._payload.get("echeance")
@@ -1438,7 +1722,7 @@ class Garde(object):
     def etat(self):
         """Dict : statut, message, id_poste, nom_ordinateur, titulaire, echeance,
         jours_restants, dernier_controle, demande, motif_refus, url_active,
-        kid_actif, raison."""
+        kid_actif, raison, hors_ligne (licence hors ligne : True)."""
         try:
             self._dernier_etat = self._etat()
         except Exception as exc:
@@ -1449,7 +1733,7 @@ class Garde(object):
                                       "titulaire": None, "echeance": None, "jours_restants": None,
                                       "dernier_controle": None, "demande": None,
                                       "motif_refus": None, "url_active": None,
-                                      "kid_actif": None, "raison": repr(exc)}
+                                      "kid_actif": None, "raison": repr(exc), "hors_ligne": False}
         return dict(self._dernier_etat)
 
     def option(self, code):
@@ -1457,11 +1741,16 @@ class Garde(object):
         False si absente.
 
         Le joker "*" (console : toutes les options) active toute option demandee.
+        Licence hors ligne sans jeton recu : toutes les options si le code les
+        accorde, aucune sinon.
         """
         try:
             statut = self.etat()["statut"]
             with self._verrou:
                 options = []
+                hl = self._hl_actif()
+                if statut in (VALIDE, AVERTISSEMENT) and hl is not None and self._payload is None:
+                    return bool(hl["options"])
                 if statut in (VALIDE, AVERTISSEMENT) and self._payload:
                     options = self._payload.get("options", [])
                 elif statut == ESSAI:
@@ -1508,15 +1797,25 @@ class Garde(object):
     def activer(self, cle):
         """Active une cle (bloquant : a appeler hors du fil de l'interface).
 
+        Un code hors ligne (ETDHL-... ou ETDHL2-...) est verifie sur le poste,
+        sans aucun appel reseau (voir _activer_hors_ligne). Code court dicte
+        sans son prefixe ETDHL (le champ de saisie y ajoute alors ETDEL) :
+        reconnu a son MAC (56 bits : aucune cle ETDEL ne passe pour un code
+        valable de ce poste), donc active lui aussi sans reseau.
         Renvoie {"ok": bool, "code": str ou None, "message": str}.
         """
         try:
             if not self._configure or self._stockage is None:
                 return {"ok": False, "code": "non_configure", "message": _MESSAGES["non_configure"]}
+            if _est_code_hors_ligne(cle):
+                return self._activer_hors_ligne(cle)
             normalisee = normaliser_cle(cle)
             if normalisee is None:
                 return {"ok": False, "code": "cle_invalide",
                         "message": "Cle invalide : verifiez la saisie (ETDEL-XXXX-XXXX-XXXX-XXXX)"}
+            sans_prefixe = _PREFIXE_COURT + normalisee[len("ETDEL"):]
+            if self._verifier_hors_ligne(sans_prefixe)[0] is not None:
+                return self._activer_hors_ligne(sans_prefixe)
             with self._verrou_reseau:
                 self._assurer_charge()
                 self._rafraichir()
@@ -1542,6 +1841,57 @@ class Garde(object):
         except Exception as exc:
             self._log(logging.ERROR, "activer : %r", exc)
             return {"ok": False, "code": "interne", "message": _MESSAGES["interne"]}
+
+    def _activer_hors_ligne(self, texte):
+        """Licence hors ligne : verification du code sur le poste, sans reseau.
+
+        Le code remplace la licence du poste (cle, jeton, blocage, demande). Le
+        controle habituel l'envoie ensuite au serveur quand Internet est la
+        (controle opportuniste). Ressaisir la licence deja enregistree, sous la
+        meme forme ou sous l'autre (code long au lieu du court, ou l'inverse :
+        memes jours et memes options), ne change rien : une suspension ou une
+        echeance recue du serveur reste appliquee. Un code retire de ce poste
+        (revocation, code remplace ou transfert recus du serveur) est refuse.
+        """
+        self._assurer_charge()
+        self._rafraichir()
+        with self._verrou:
+            infos, motif = self._verifier_hors_ligne(texte)
+            if infos is None:
+                message = _MESSAGES_HORS_LIGNE[motif]
+                if motif == "refuse":
+                    message = message % self._id
+                self._log(logging.INFO, "code hors ligne refuse : %s", motif)
+                return {"ok": False, "code": "cle_invalide" if motif != "court_non_pris_en_charge" else motif,
+                        "message": message}
+            local = self._local
+            if self._empreinte_hl(infos) in (local.get("hl_retires") or []):
+                self._log(logging.INFO, "code hors ligne ...%s refuse : retire de ce poste", _indice(infos["code"]))
+                return {"ok": False, "code": "revoquee", "message": _MESSAGES_HORS_LIGNE["retire"]}
+            actif = self._hl_actif()
+            if actif is not None and (actif["jours"], actif["options"]) == (infos["jours"], infos["options"]):
+                # Meme licence : le MAC ou la signature vient de garantir le produit
+                # et le poste ; la forme enregistree est conservee.
+                statut, message, _jours = self._statut()
+                if statut in STATUTS_UTILISABLES:
+                    return {"ok": True, "code": None, "message": message}
+                code = (self._refus_effectif() or {}).get("code") or "expiree"
+                return {"ok": False, "code": code, "message": message}
+            maintenant = self._maintenant()
+            if infos["echeance"] and maintenant >= infos["echeance"]:
+                return {"ok": False, "code": "expiree",
+                        "message": ("Code hors ligne expire le %s : demandez un nouveau code a ETDEL"
+                                    % _date_fin_hors_ligne(infos["echeance"]))}
+            local.update(cle=infos["code"], jeton=None, refus=None, demande=None, jeton_envoi=None)
+            self._hl = infos
+            self._payload = None
+            self._revoque = None
+            self._raison = ""
+            self._sauver()
+            self._log(logging.INFO, "code hors ligne %s ...%s active (fin %s, %s)", infos["forme"],
+                      _indice(infos["code"]), _date_fin_hors_ligne(infos["echeance"]) or "illimitee",
+                      "toutes les options" if infos["options"] else "sans option")
+            return {"ok": True, "code": None, "message": self._statut()[1]}
 
     def demander(self, titulaire, email="", message=""):
         """Envoie une demande de licence (bloquant : hors du fil de l'interface).
@@ -1644,13 +1994,23 @@ class Garde(object):
                             "Transfert refuse par le serveur de licences (%s)." % code)
                         return {"ok": False, "code": code, "message": message}
                     local = self._local
+                    hl = self._hl_actif()
+                    hors_ligne = hl is not None
+                    if hors_ligne:
+                        # Le code ne se ressaisit plus sur ce poste (sinon, hors ligne,
+                        # le transfert serait defait).
+                        self._retirer_hl(hl)
                     local.update(cle=None, jeton=None, refus=None, demande=None, jeton_envoi=None,
                                  dernier_controle=int(self._horloge()))
                     self._payload = None
-                    self._revoque = "transferee"
+                    self._revoque = "transferee_hors_ligne" if hors_ligne else "transferee"
                     self._raison = ""
                     self._sauver()
-                    self._log(logging.INFO, "licence transferee : cle ...%s liberee sur ce poste", cle[-4:])
+                    self._log(logging.INFO, "licence transferee : cle ...%s liberee sur ce poste", _indice(cle))
+            if hors_ligne:
+                # Un code hors ligne ne vaut que pour l'identifiant du poste pour lequel il
+                # a ete calcule : le nouvel ordinateur recoit un autre code.
+                return {"ok": True, "code": None, "message": _MESSAGES["transferee_hors_ligne"]}
             return {"ok": True, "code": None,
                     "message": "Licence transferee : saisissez la cle %s sur le nouvel ordinateur." % cle}
         except Exception as exc:
@@ -1659,19 +2019,23 @@ class Garde(object):
 
     def _transferable(self, statut):
         """Vrai si la fenetre Licence propose le transfert : une cle, et une
-        licence utilisable ou bloquee par une suspension."""
+        licence utilisable ou bloquee par une suspension. Licence hors ligne :
+        seulement une fois le poste lie sur le serveur (un jeton signe recu)."""
         with self._verrou:
             local = self._local or {}
             if not local.get("cle"):
                 return False
+            if self._hl_actif() is not None and self._payload is None:
+                return False
             if statut in (VALIDE, AVERTISSEMENT):
                 return True
-            refus = local.get("refus")
+            refus = self._refus_effectif()
             return statut == EXPIREE and isinstance(refus, dict) and refus.get("code") == "suspendue"
 
     def _cle_affichee(self, complete=False):
         """Cle du poste pour la fenetre Licence : masquee comme dans la console
-        (ETDEL-****-****-****-XXXX), ou complete sur demande ; "" sans cle."""
+        (ETDEL-****-****-****-XXXX ; code long : ETDHL2-****-...-XXXX-X, sa fin
+        telle qu'elle s'ecrit), ou complete sur demande ; "" sans cle."""
         if not self._configure or self._stockage is None:
             return ""
         try:
@@ -1680,9 +2044,12 @@ class Garde(object):
             return ""
         with self._verrou:
             cle = (self._local or {}).get("cle")
-        if not cle:
-            return ""
-        return cle if complete else "ETDEL-****-****-****-" + cle[-4:]
+        if not cle or complete:
+            return cle or ""
+        if cle.startswith(_PREFIXE_LONG + "-"):
+            # Forme canonique : ...-XXXX-X (27 groupes de 4, puis 1 caractere).
+            return _PREFIXE_LONG + "-****-...-" + cle[-6:]
+        return cle.split("-")[0] + "-****-****-****-" + cle[-4:]
 
     def texte_diagnostic(self):
         """Une ligne prete a inserer dans un rapport (jamais la cle en clair)."""
@@ -1690,12 +2057,17 @@ class Garde(object):
             if not self._configure:
                 return "Licence ETDEL %s : non configuree" % MODULE_VERSION
             e = self.etat()
-            echeance = _date(e["echeance"]) if e["echeance"] else (
-                "perpetuelle" if e["statut"] in (VALIDE, AVERTISSEMENT) else "-")
-            return ("Licence ETDEL %s ; %s v%s ; poste %s (%s) ; %s ; echeance %s ; "
+            if e["echeance"]:
+                echeance = _date_fin_hors_ligne(e["echeance"]) if e["hors_ligne"] else _date(e["echeance"])
+            elif e["hors_ligne"]:
+                echeance = "illimitee"
+            else:
+                echeance = "perpetuelle" if e["statut"] in (VALIDE, AVERTISSEMENT) else "-"
+            return ("Licence ETDEL %s ; %s v%s ; poste %s (%s) ; %s%s ; echeance %s ; "
                     "controle %s ; serveur %s ; kid %s%s" % (
                         MODULE_VERSION, self.produit, self.version,
-                        e["id_poste"], _ascii(e["nom_ordinateur"]), e["statut"], echeance,
+                        e["id_poste"], _ascii(e["nom_ordinateur"]), e["statut"],
+                        " (licence hors ligne)" if e["hors_ligne"] else "", echeance,
                         _date_heure(e["dernier_controle"]) or "jamais",
                         _hote(e["url_active"]) if e["url_active"] else "-",
                         e["kid_actif"] if e["kid_actif"] is not None else "-",
@@ -2357,19 +2729,26 @@ def _mettre_en_forme_cle(texte):
     """Saisie de cle en cours -> (texte a afficher, caracteres saisis hors prefixe).
 
     Majuscules, tirets places tous les 4 caracteres, prefixe ETDEL ajoute ;
-    les caracteres hors alphabet restent visibles pour etre signales.
+    les caracteres hors alphabet restent visibles pour etre signales. Code
+    hors ligne : prefixe ETDHL (16 caracteres) ou ETDHL2 (code long colle :
+    pas de limite a 16, borne a sa longueur ; la suite d'un copier-coller trop
+    large, signature d'un e-mail par exemple, est ignoree).
     """
     brut = _brut_cle(texte)
-    if brut.startswith("ETDEL"):
-        corps = brut[5:21]
-    elif "ETDEL".startswith(brut):
+    if brut.startswith(_PREFIXE_LONG):
+        prefixe, corps = _PREFIXE_LONG, brut[len(_PREFIXE_LONG):len(_PREFIXE_LONG) + _LONGUEUR_LONG]
+    elif brut.startswith(_PREFIXE_COURT):
+        prefixe, corps = _PREFIXE_COURT, brut[len(_PREFIXE_COURT):len(_PREFIXE_COURT) + 16]
+    elif brut.startswith("ETDEL"):
+        prefixe, corps = "ETDEL", brut[5:21]
+    elif "ETDEL".startswith(brut) or _PREFIXE_LONG.startswith(brut):
         # Prefixe en cours de frappe (ou champ vide).
         return brut, ""
     else:
-        corps = brut[:16]
+        prefixe, corps = "ETDEL", brut[:16]
     if not corps:
-        return "ETDEL", ""
-    return "ETDEL-" + "-".join(corps[i:i + 4] for i in range(0, len(corps), 4)), corps
+        return prefixe, ""
+    return _grouper(prefixe, corps), corps
 
 
 def _position_apres(texte, rang):
@@ -2425,8 +2804,9 @@ class _CadreLicence(object):
         self.valeurs["statut"].pack(side="left", fill="x", expand=True, padx=(s.px(10), 0))
 
         def libelle(rang, texte):
-            tk.Label(self.cadre, text=texte, bg=fond, fg=c["discret"], font=s.texte, anchor="w").grid(
-                row=rang, column=0, sticky="w", padx=(0, s.px(20)), pady=s.px(2))
+            etiquette = tk.Label(self.cadre, text=texte, bg=fond, fg=c["discret"], font=s.texte, anchor="w")
+            etiquette.grid(row=rang, column=0, sticky="w", padx=(0, s.px(20)), pady=s.px(2))
+            return etiquette
 
         def valeur(rang, cle):
             etiquette = tk.Label(self.cadre, bg=fond, fg=c["texte"], font=s.texte, anchor="w",
@@ -2462,12 +2842,14 @@ class _CadreLicence(object):
         libelle(5, "Identifiant du poste")
         copier = code(5, "id_poste", 10, "Copier", None)
         copier.configure(command=lambda: self._copier(self.valeurs["id_poste"].get(), copier, "Copier"))
-        libelle(6, "Cle")
+        # Licence hors ligne : "Code hors ligne", "Afficher le code" (voir _afficher_cle).
+        self.libelle_cle = libelle(6, "Cle")
         # Cle masquee comme dans la console (4 derniers caracteres, pour s'y retrouver
         # au telephone) ; affichee en entier a la demande, pour la noter avant une
         # reinstallation. Jamais dans le diagnostic ni dans le journal.
         self.cle_visible = False
         self.bouton_cle = code(6, "cle", 26, "Afficher la cle", self._basculer_cle)
+        self.bouton_cle.configure(width=len("Afficher le code"))
         libelle(7, "Nom de l'ordinateur")
         self.bouton_transfert = None
         self._transfert_visible = False
@@ -2561,7 +2943,12 @@ class _CadreLicence(object):
     def _afficher_cle(self):
         texte = self.garde._cle_affichee(self.cle_visible)
         _ecrire_champ(self.valeurs["cle"], texte or "-")
-        _configurer(self.bouton_cle, text="Masquer la cle" if self.cle_visible else "Afficher la cle")
+        if texte.startswith(_PREFIXE_COURT):
+            _configurer(self.libelle_cle, text="Code hors ligne")
+            _configurer(self.bouton_cle, text="Masquer le code" if self.cle_visible else "Afficher le code")
+        else:
+            _configurer(self.libelle_cle, text="Cle")
+            _configurer(self.bouton_cle, text="Masquer la cle" if self.cle_visible else "Afficher la cle")
         if (str(self.bouton_cle.cget("state")) != "disabled") != bool(texte):
             _activer_bouton(self.bouton_cle, bool(texte))
 
@@ -2602,7 +2989,10 @@ class _CadreLicence(object):
         self._verifiable = None
         c = self.s.c
         e = self.garde.etat()
-        if termines == avant or not succes:
+        if (termines == avant or not succes) and e["hors_ligne"] and e["statut"] == VALIDE:
+            # Licence hors ligne : un serveur injoignable est sans effet.
+            texte, couleur = "Serveur de licences injoignable : la licence hors ligne reste valable.", c["discret"]
+        elif termines == avant or not succes:
             texte, couleur = _raison_lisible(e["raison"]), c["rouge_fort"]
         elif e["statut"] in (VALIDE, AVERTISSEMENT):
             texte, couleur = "Licence verifiee aupres du serveur.", c["vert_fort"]
@@ -2634,7 +3024,7 @@ class _CadreLicence(object):
             c = self.s.c
             e = self.garde.etat()
             ton, libelle = _PASTILLES.get(e["statut"], ("gris", e["statut"]))
-            if e["statut"] == REVOQUEE and self.garde._revoque == "transferee":
+            if e["statut"] == REVOQUEE and self.garde._revoque in ("transferee", "transferee_hors_ligne"):
                 ton, libelle = "gris", "Transferee"
             _configurer(self.pastille, text=libelle, bg=c[ton + "_doux"], fg=c[ton + "_fort"])
             _ecrire_champ(self.valeurs["id_poste"], e["id_poste"] or "")
@@ -2648,11 +3038,11 @@ class _CadreLicence(object):
                     else:
                         self.bouton_transfert.pack_forget()
             if e["echeance"]:
-                echeance = _date(e["echeance"])
+                echeance = _date_fin_hors_ligne(e["echeance"]) if e["hors_ligne"] else _date(e["echeance"])
                 if e["jours_restants"]:
                     echeance += " (dans %d jour(s))" % e["jours_restants"]
             elif e["statut"] in (VALIDE, AVERTISSEMENT):
-                echeance = "Perpetuelle"
+                echeance = "Illimitee" if e["hors_ligne"] else "Perpetuelle"
             else:
                 echeance = "-"
             textes = {"nom_ordinateur": _ascii(e["nom_ordinateur"]) or "-",
@@ -3034,7 +3424,8 @@ class _FenetreActivation(_Pages):
         cartes.pack(fill="x")
         for colonne in (0, 1):
             cartes.columnconfigure(colonne, weight=1, uniform="carte")
-        choix = (("cle", "J'ai une cle", "Saisissez la cle de licence fournie par ETDEL.", self.page_cle),
+        choix = (("cle", "J'ai une cle", "Saisissez la cle de licence ou le code hors ligne fourni par ETDEL.",
+                  self.page_cle),
                  ("envoi", "Demander une licence",
                   "Pas encore de cle ? Envoyez une demande a ETDEL depuis ce poste.", self.page_formulaire))
         for colonne, (icone, titre, description, commande) in enumerate(choix):
@@ -3050,8 +3441,11 @@ class _FenetreActivation(_Pages):
 
     def page_cle(self):
         s, c = self.s, self.s.c
-        self._nouvelle_page("cle", "J'ai une cle", "Saisissez la cle de licence fournie par ETDEL.", "cle")
-        self._libelle(self.contenu, "Cle de licence").pack(fill="x", pady=(0, s.px(6)))
+        # Identifiant du poste au pied : un code hors ligne est calcule pour lui.
+        self._nouvelle_page("cle", "J'ai une cle", "Saisissez la cle de licence ou le code hors ligne fourni par "
+                            "ETDEL.", "cle", e=self.garde.etat())
+        self._libelle(self.contenu, "Cle de licence", "ou code hors ligne (ETDHL-..., ETDHL2-...)").pack(
+            fill="x", pady=(0, s.px(6)))
         cadre, self.entree_cle = _saisie(self.contenu, s, police=s.cle)
         cadre.pack(fill="x")
         # Mise en forme pendant la frappe : majuscules, tirets, prefixe ETDEL.
@@ -3168,12 +3562,23 @@ class _FenetreActivation(_Pages):
                        ("Nouvelle demande", self.page_formulaire, "principal")])
         self._placer()
 
+    def _hors_ligne_echue(self, e):
+        """(code du refus qui bloque, licence hors ligne echue) : pour celle-ci,
+        l'action attendue est la saisie d'un nouveau code, pas une connexion."""
+        try:
+            refus = self.garde._refus_effectif()
+        except Exception:
+            refus = None
+        code_refus = refus.get("code") if isinstance(refus, dict) else None
+        return code_refus, bool(e.get("hors_ligne")) and code_refus in (None, "expiree")
+
     def page_expiree(self, e):
-        refus = (self.garde._local or {}).get("refus")
-        suspendue = isinstance(refus, dict) and refus.get("code") == "suspendue"
+        code_refus, hors_ligne = self._hors_ligne_echue(e)
+        suspendue = code_refus == "suspendue"
         ton = "rouge" if suspendue else "orange"
-        self._nouvelle_page("expiree", "Licence suspendue" if suspendue else "Licence a verifier",
-                            "L'application ne peut pas s'ouvrir pour le moment.", "alerte", ton, e)
+        titre = "Licence suspendue" if suspendue else (
+            "Licence hors ligne expiree" if hors_ligne else "Licence a verifier")
+        self._nouvelle_page("expiree", titre, "L'application ne peut pas s'ouvrir pour le moment.", "alerte", ton, e)
         self._boite(ton, [(e["message"], "normal")])
         if self.garde._transferable(e["statut"]):
             # Licence suspendue : transferable vers un autre ordinateur, comme
@@ -3188,7 +3593,10 @@ class _FenetreActivation(_Pages):
             lien.pack(side="left", padx=(s.px(4), 0))
             self.boutons.append(lien)
         self.info = self._texte("", couleur=self.s.c["discret"], police=self.s.petit, haut=10, bas=0)
-        self._boutons([("J'ai une cle", self.page_cle, "secondaire"), ("Reessayer", self._verifier, "principal")])
+        if hors_ligne:
+            self._boutons([("Reessayer", self._verifier, "secondaire"), ("J'ai une cle", self.page_cle, "principal")])
+        else:
+            self._boutons([("J'ai une cle", self.page_cle, "secondaire"), ("Reessayer", self._verifier, "principal")])
         self._placer()
 
     def _ouvrir_transfert(self):
@@ -3255,18 +3663,32 @@ class _FenetreActivation(_Pages):
                 return
             self._message_cle = None
         s, c = self.s, self.s.c
-        _affiche, corps = _mettre_en_forme_cle(texte)
+        affiche, corps = _mettre_en_forme_cle(texte)
         invalides = sorted(set(ch for ch in corps.translate(_CORRECTIONS) if ch not in _ALPHABET))
+        if affiche.startswith(_PREFIXE_LONG):
+            nom, attendu, correct = "Code", _LONGUEUR_LONG, _lire_code_hors_ligne(affiche) is not None
+        elif affiche.startswith(_PREFIXE_COURT):
+            nom, attendu, correct = "Code", 16, _lire_code_hors_ligne(affiche) is not None
+        else:
+            nom, attendu, correct = "Cle", 16, normaliser_cle(texte) is not None
         if not corps:
-            message, couleur = "Format : ETDEL-XXXX-XXXX-XXXX-XXXX (les tirets s'ajoutent seuls)", c["discret"]
+            if affiche.startswith(_PREFIXE_LONG):
+                message = "Code hors ligne long : collez-le en entier"
+            elif affiche.startswith(_PREFIXE_COURT):
+                message = "Code hors ligne : ETDHL-XXXX-XXXX-XXXX-XXXX (les tirets s'ajoutent seuls)"
+            else:
+                message = "Cle ETDEL-XXXX-XXXX-XXXX-XXXX ou code hors ligne ETDHL-... (tirets automatiques)"
+            couleur = c["discret"]
         elif invalides:
             message, couleur = "Caractere non valide : %s" % ", ".join(invalides), c["rouge_fort"]
-        elif len(corps) < 16:
-            message, couleur = "Cle incomplete : %d/16 caracteres" % len(corps), c["discret"]
-        elif normaliser_cle(texte):
+        elif len(corps) < attendu:
+            message = "%s incomplet%s : %d/%d caracteres" % (nom, "e" if nom == "Cle" else "", len(corps), attendu)
+            couleur = c["discret"]
+        elif correct:
             message, couleur = "Format correct : cliquez sur Activer.", c["vert_fort"]
         else:
-            message, couleur = "Cle incorrecte : verifiez chaque caractere.", c["rouge_fort"]
+            message = "%s incorrect%s : verifiez chaque caractere." % (nom, "e" if nom == "Cle" else "")
+            couleur = c["rouge_fort"]
         self.erreur.configure(text=message, fg=couleur, font=s.petit)
 
     def _message_saisie(self, texte):
@@ -3300,6 +3722,14 @@ class _FenetreActivation(_Pages):
 
     def _activer(self):
         cle = self.entree_cle.get()
+        if _est_code_hors_ligne(cle):
+            # Code hors ligne : verifie sur le poste, sans reseau (dans un fil comme
+            # le reste : la verification d'un code long prend quelques millisecondes).
+            if _lire_code_hors_ligne(cle) is None:
+                self._message_saisie(_MESSAGES_HORS_LIGNE["format"])
+                return
+            self._en_fond(lambda: self.garde.activer(cle), self._apres_action, "Verification du code...")
+            return
         if normaliser_cle(cle) is None:
             self._message_saisie("Cle invalide : verifiez la saisie (ETDEL-XXXX-XXXX-XXXX-XXXX)")
             return
@@ -3360,6 +3790,11 @@ class _FenetreActivation(_Pages):
             if succes is True:
                 suite = "pas encore de reponse" if self.page == "attente" else "situation inchangee"
                 texte, couleur = "Verifie le %s : %s." % (_date_heure(int(time.time())), suite), c["discret"]
+            elif (self.page == "expiree" and self._hors_ligne_echue(e)[1]
+                  and _raison_lisible(e["raison"]) == _MESSAGES["injoignable"]):
+                # Poste peut-etre jamais connecte : la connexion n'est pas la solution.
+                texte = "Serveur de licences injoignable : saisissez le nouveau code avec \"J'ai une cle\"."
+                couleur = c["discret"]
             else:
                 texte, couleur = _raison_lisible(e["raison"]), c["rouge_fort"]
             self.info.configure(text=texte, fg=couleur)
@@ -3437,6 +3872,8 @@ class _DialogueTransfert(_Pages):
         self._place = False
         self._delais = set()
         self.cle = self.garde._cle_affichee(True)
+        # Code hors ligne : propre a cet ordinateur, rien a noter pour le nouveau.
+        self.hors_ligne = self.cle.startswith(_PREFIXE_COURT)
         self.win = tk.Toplevel(fenetre_licence.win)
         # Construite cachee puis centree sur la fenetre Licence.
         self.win.withdraw()
@@ -3514,13 +3951,20 @@ class _DialogueTransfert(_Pages):
         s, c = self.s, self.s.c
         self._nouvelle_page("confirmation", "Transferer cette licence",
                             "Pour utiliser l'application sur un autre ordinateur.", "transfert", "accent")
-        self._libelle(self.contenu, "Cle de licence", "a noter : elle sera demandee sur le nouvel ordinateur").pack(
-            fill="x", pady=(0, s.px(6)))
-        self._champ_cle()
-        self._boite("orange", [("L'application sera desactivee sur cet ordinateur.", "gras"),
-                               ("Une fois la licence transferee, l'application se ferme ici. Sur le nouvel "
-                                "ordinateur, choisissez J'ai une cle et saisissez la cle ci-dessus.", "normal"),
-                               ("Cet ordinateur doit etre connecte a Internet.", "discret")], "alerte", haut=16)
+        if self.hors_ligne:
+            suite = ("Une fois la licence transferee, l'application se ferme ici. Le code hors ligne ne vaut que "
+                     "pour cet ordinateur : communiquez a ETDEL l'identifiant du poste du nouvel ordinateur "
+                     "pour obtenir son code.")
+            haut = 0
+        else:
+            self._libelle(self.contenu, "Cle de licence", "a noter : elle sera demandee sur le nouvel ordinateur"
+                          ).pack(fill="x", pady=(0, s.px(6)))
+            self._champ_cle()
+            suite = ("Une fois la licence transferee, l'application se ferme ici. Sur le nouvel "
+                     "ordinateur, choisissez J'ai une cle et saisissez la cle ci-dessus.")
+            haut = 16
+        self._boite("orange", [("L'application sera desactivee sur cet ordinateur.", "gras"), (suite, "normal"),
+                               ("Cet ordinateur doit etre connecte a Internet.", "discret")], "alerte", haut=haut)
         self.erreur = self._texte("", couleur=c["discret"], haut=10, bas=0)
         self._boutons([("Annuler", self.fermer, "secondaire"), ("Transferer", self._transferer, "principal")])
         self.echap = self.fermer
@@ -3536,10 +3980,12 @@ class _DialogueTransfert(_Pages):
         self._nouvelle_page("transferee", "Licence transferee", "La licence n'est plus active sur cet ordinateur.",
                             "ok", "vert")
         self._boite("vert", [(message, "gras")], "ok", bas=16)
-        self._libelle(self.contenu, "Cle de licence", "a saisir sur le nouvel ordinateur").pack(
-            fill="x", pady=(0, s.px(6)))
-        self._champ_cle()
-        self._texte("L'application va se fermer sur cet ordinateur.", couleur=c["discret"], haut=12, bas=0)
+        if not self.hors_ligne:
+            self._libelle(self.contenu, "Cle de licence", "a saisir sur le nouvel ordinateur").pack(
+                fill="x", pady=(0, s.px(6)))
+            self._champ_cle()
+        self._texte("L'application va se fermer sur cet ordinateur.", couleur=c["discret"], haut=12 if not
+                    self.hors_ligne else 0, bas=0)
         self._boutons([("Fermer l'application", self._quitter, "principal")])
         self.echap = self._quitter
         self._placer()
@@ -3773,6 +4219,13 @@ class _Integration(object):
         except Exception as exc:
             self.garde._log(logging.ERROR, "tick : %r", exc)
         if not self.termine:
+            # Un tick appele hors de son after (tests) annule celui qui reste en
+            # attente : sinon il partirait apres la destruction de la fenetre.
+            for apres in self._apres:
+                try:
+                    self.root.after_cancel(apres)
+                except Exception:
+                    pass
             self._apres = [self.root.after(_TICK_MS, self._tick)]
 
     def _maj_bandeau(self, e):
@@ -3859,7 +4312,10 @@ def installer(root, produit, version, palette=None, _garde=None):
 
 
 def exiger(produit, version, _garde=None):
-    """Variante console : controle synchrone (5 s), sinon message et sys.exit(3)."""
+    """Variante console : controle synchrone (5 s), sinon message et sys.exit(3).
+
+    Dans un terminal interactif, sans licence ou avec une licence hors ligne
+    expiree, une cle ou un code hors ligne est demande au clavier."""
     garde = _garde
     try:
         if garde is None:
@@ -3869,9 +4325,15 @@ def exiger(produit, version, _garde=None):
         garde._assurer_charge()
         garde._controler(delai_max=_TIMEOUT)
         e = garde.etat()
-        if e["statut"] == A_ACTIVER and sys.stdin is not None and sys.stdin.isatty():
-            sys.stderr.write("Licence requise (identifiant du poste %s).\n" % e["id_poste"])
-            cle = input("Cle de licence ETDEL : ")
+        # Licence hors ligne expiree (ou bloquee) : le nouveau code se saisit ici,
+        # comme par "J'ai une cle" dans la fenetre d'activation.
+        hors_ligne = e["statut"] == EXPIREE and e.get("hors_ligne")
+        if (e["statut"] == A_ACTIVER or hors_ligne) and sys.stdin is not None and sys.stdin.isatty():
+            if hors_ligne:
+                sys.stderr.write("Licence : %s (identifiant du poste %s).\n" % (e["message"], e["id_poste"]))
+            else:
+                sys.stderr.write("Licence requise (identifiant du poste %s).\n" % e["id_poste"])
+            cle = input("Cle de licence ETDEL ou code hors ligne : ")
             resultat = garde.activer(cle)
             if not resultat["ok"]:
                 sys.stderr.write("Licence : %s\n" % resultat["message"])

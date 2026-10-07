@@ -1,6 +1,7 @@
 <?php
-// api.php - API v1 : validation des requetes, limites, operations sur les licences
-//           (dont le transfert demande par l'application), reponses signees Ed25519 (refus compris).
+// api.php - API v1 : validation des requetes, limites, operations sur les licences (cles ETDEL et
+//           codes hors ligne, dont le transfert demande par l'application), reponses signees Ed25519
+//           (refus compris).
 // ETDEL (c) 2026
 
 declare(strict_types=1);
@@ -146,7 +147,8 @@ function api_lire_requete(array $r): ?array
         case 'activer':
         case 'valider':
         case 'liberer':
-            if (!is_string($r['cle'] ?? null) || strlen($r['cle']) > 64) {
+            // 256 : le code hors ligne long fait 143 caracteres sous sa forme canonique.
+            if (!is_string($r['cle'] ?? null) || strlen($r['cle']) > 256) {
                 return null;
             }
             $champs['cle'] = $r['cle'];
@@ -231,21 +233,32 @@ function api_transaction(PDO $db, callable $operation): array
 
 /**
  * Licence d'une cle saisie, si elle appartient a ce produit (quelle que soit sa ligne de regles :
- * celles d'une base anterieure restent valables) ; null sinon (cle_invalide).
+ * celles d'une base anterieure restent valables) ; null sinon (cle_invalide). Une cle ETDEL est
+ * retrouvee par son hachage (cle_hash) ; un code hors ligne par celui de sa forme canonique : cle_hash
+ * pour le code court, cle_long_hash pour le code long.
  */
 function licence_par_cle(PDO $db, string $saisie, array $produit): ?array
 {
     $cle = cle_normaliser($saisie);
+    $condition = 'l.cle_hash = ?';
     if ($cle === null) {
-        return null;
+        $code = code_hors_ligne_normaliser($saisie);
+        if ($code === null) {
+            return null;
+        }
+        $cle = $code['code'];
+        $condition = ($code['forme'] === 'long' ? 'l.cle_long_hash = ?' : 'l.cle_hash = ?') . ' AND l.hors_ligne = 1';
     }
     $lic = db_ligne($db, 'SELECT l.*, d.produit_id FROM licences l JOIN distributions d ON d.id = l.distribution_id '
-        . 'WHERE l.cle_hash = ?', [cle_hash($cle)]);
+        . 'WHERE ' . $condition, [cle_hash($cle)]);
     return ($lic === null || (int)$lic['produit_id'] !== (int)$produit['id']) ? null : $lic;
 }
 
-/** Code de refus d'une licence pour ce poste, ou null si elle est utilisable. */
-function licence_controler(array $lic, string $machine, bool $activation, int $maintenant): ?string
+/**
+ * Code de refus d'une licence pour ce poste, ou null si elle est utilisable. $poste : identifiant du
+ * poste qui la presente (id_poste(machine, produit)), exige pour une licence hors ligne non liee.
+ */
+function licence_controler(array $lic, string $machine, bool $activation, int $maintenant, ?string $poste = null): ?string
 {
     if ($lic['statut'] === 'revoquee') {
         return 'revoquee';
@@ -254,8 +267,14 @@ function licence_controler(array $lic, string $machine, bool $activation, int $m
         return 'suspendue';
     }
     if ($lic['machine'] === null) {
-        // Cle liberee (console ou transfert depuis l'application) : seule une activation peut la relier.
-        if (!$activation) {
+        if (licence_hors_ligne($lic)) {
+            // Licence hors ligne : le poste s'est active sans reseau, son premier contact (activer ou valider)
+            // la lie a l'ordinateur reel, seulement si c'est le poste saisi dans la console.
+            if ($poste === null || !hash_equals((string)$lic['id_poste'], $poste)) {
+                return 'cle_liee_autre_poste';
+            }
+        } elseif (!$activation) {
+            // Cle liberee (console ou transfert depuis l'application) : seule une activation peut la relier.
             return 'poste_revoque';
         }
     } elseif (!hash_equals((string)$lic['machine'], $machine)) {
@@ -303,6 +322,8 @@ function api_jeton(array $lic, array $produit, array $base, int $maintenant): ar
  * activer / valider, dans la transaction immediate ouverte par api_operation : un remplacement de
  * cle depuis la console (D67) ne peut pas s'intercaler entre la lecture de la licence par son hash
  * et sa liaison ou l'envoi du jeton ; l'ancienne cle ne recoit plus rien une fois remplacee.
+ * Licence hors ligne non liee : son premier contact, activer ou valider, la lie a l'ordinateur reel
+ * si c'est le poste saisi dans la console (licence_controler) ; ensuite comme une cle ETDEL.
  */
 function api_licence_traiter(PDO $db, array $r, array $produit, array $base, string $ip, int $maintenant): array
 {
@@ -311,12 +332,14 @@ function api_licence_traiter(PDO $db, array $r, array $produit, array $base, str
         return api_refus($base, 'cle_invalide');
     }
     $activation = $r['op'] === 'activer';
-    $code = licence_controler($lic, $r['machine'], $activation, $maintenant);
     $poste = id_poste($r['machine'], $r['produit']);
+    $code = licence_controler($lic, $r['machine'], $activation, $maintenant, $poste);
     if ($code !== null) {
         if ($code === 'cle_liee_autre_poste') {
-            journal_ecrire($db, 'poste:' . $poste, 'refus_autre_poste', 'licence ' . $lic['id'],
-                'cle ...' . $lic['cle_indice'] . ' saisie sur ' . $r['poste'], $ip, $maintenant);
+            journal_ecrire($db, 'poste:' . $poste, 'refus_autre_poste', 'licence ' . $lic['id'], licence_hors_ligne($lic)
+                ? licence_designation($lic) . ' saisi sur ' . $r['poste'] . ' (poste ' . $poste . ', code etabli pour '
+                    . $lic['id_poste'] . ')'
+                : 'cle ...' . $lic['cle_indice'] . ' saisie sur ' . $r['poste'], $ip, $maintenant);
         }
         if ($code === 'suspendue') {
             // Le poste garde sa cle et affiche la date de fin (signee comme le reste).
@@ -332,8 +355,12 @@ function api_licence_traiter(PDO $db, array $r, array $produit, array $base, str
         if ($lie !== 1) {
             return api_refus($base, 'cle_liee_autre_poste');
         }
-        journal_ecrire($db, 'poste:' . $poste, 'activation', 'licence ' . $lic['id'],
-            'cle ...' . $lic['cle_indice'] . ' liee a ' . $r['poste'], $ip, $maintenant);
+        // Licence hors ligne deja vue par le serveur (transfert depuis l'application, ou nouveau code pour un
+        // autre ordinateur) : ce n'est pas son premier contact.
+        journal_ecrire($db, 'poste:' . $poste, 'activation', 'licence ' . $lic['id'], licence_hors_ligne($lic)
+            ? licence_designation($lic) . ' lie a ' . $r['poste'] . ($lic['dernier_contact'] === null
+                ? ' (premier contact avec le serveur)' : ' (de nouveau : la licence n\'etait plus liee a aucun ordinateur)')
+            : 'cle ...' . $lic['cle_indice'] . ' liee a ' . $r['poste'], $ip, $maintenant);
     }
     licence_contact($db, (int)$lic['id'], $r, $ip, $maintenant);
     if (!$activation) {
@@ -371,18 +398,20 @@ function api_liberer(PDO $db, array $r, array $produit, array $base, string $ip,
     if ($recents >= TRANSFERTS_MAX) {
         // Le poste garde sa licence ; le refus est inscrit au journal (fiche de la licence).
         journal_ecrire($db, 'poste:' . $poste, 'transfert_refuse', 'licence ' . $lic['id'],
-            'cle ...' . $lic['cle_indice'] . ' : ' . $recents . ' transferts depuis l\'application en '
+            licence_designation($lic) . ' : ' . $recents . ' transferts depuis l\'application en '
             . TRANSFERTS_PERIODE_J . ' jours (Changer d\'ordinateur dans la console reste possible)', $ip, $maintenant);
         return api_refus($base, 'transferts_trop_nombreux');
     }
-    db_modifier($db, 'UPDATE licences SET machine = NULL, id_poste = NULL, nom_ordinateur = NULL, lie_le = NULL, '
-        . 'dernier_contact = ?, derniere_ip = ?, modifie_le = ? WHERE id = ?',
+    // Licence hors ligne : son code ne vaut que pour le poste saisi dans la console, dont l'identifiant reste.
+    db_modifier($db, 'UPDATE licences SET machine = NULL, id_poste = CASE WHEN hors_ligne = 1 THEN id_poste END, '
+        . 'nom_ordinateur = NULL, lie_le = NULL, dernier_contact = ?, derniere_ip = ?, modifie_le = ? WHERE id = ?',
         [$maintenant, $ip, $maintenant, (int)$lic['id']]);
     // La cle est connue du poste qui la libere : une remise en attente n'a plus d'objet.
     db_modifier($db, 'UPDATE demandes SET cle_chiffree = NULL WHERE licence_id = ? AND cle_chiffree IS NOT NULL',
         [(int)$lic['id']]);
     journal_ecrire($db, 'poste:' . $poste, 'licence_transferee', 'licence ' . $lic['id'],
-        'cle ...' . $lic['cle_indice'] . ' liberee par ' . ($r['poste'] !== '' ? $r['poste'] : $poste)
+        licence_designation($lic) . (licence_hors_ligne($lic) ? ' libere par ' : ' liberee par ')
+        . ($r['poste'] !== '' ? $r['poste'] : $poste)
         . ' (transfert depuis l\'application)', $ip, $maintenant);
     return $base + ['ok' => true, 'code' => null];
 }

@@ -155,7 +155,8 @@ function dossier_proteger(string $dossier): void
 
 /**
  * Installation complete. $p : utilisateur, mot_de_passe, confirmation, url,
- * url_secours, email_notification. Renvoie kid, cle publique et URL.
+ * url_secours, email_notification. Renvoie kid, cle publique, URL et secret des
+ * codes hors ligne courts (base64url, ligne LICENCE_SECRET_HORS_LIGNE).
  */
 function installation_executer(array $config, array $p, string $dossier_admin, int $maintenant): array
 {
@@ -187,6 +188,10 @@ function installation_executer(array $config, array $p, string $dossier_admin, i
         }
         $cle = signature_creer($db, $config, 1, null, $maintenant);
         secret_demandes_creer($config);
+        // Jamais remplace s'il existe (installation precedente ratee) : il est inscrit dans les applications.
+        // Son empreinte est inscrite dans la base (reglages) : un fichier perdu ou remplace sera signale.
+        secret_hors_ligne_creer($config);
+        $secret_hors_ligne = b64url(secret_hors_ligne($config, $db, $maintenant));
         htpasswd_ecrire((string)$config['htpasswd'], $p['utilisateur'], $p['mot_de_passe']);
         if (file_put_contents($dossier_admin . '/.htaccess', admin_htaccess((string)$config['htpasswd'])) === false) {
             throw new RuntimeException('ecriture de admin/.htaccess impossible');
@@ -212,7 +217,7 @@ function installation_executer(array $config, array $p, string $dossier_admin, i
         fclose($encours);
         @unlink($config['verrou'] . '.encours');
     }
-    return ['kid' => 1, 'cle_publique' => $cle['cle_publique'], 'urls' => $urls];
+    return ['kid' => 1, 'cle_publique' => $cle['cle_publique'], 'urls' => $urls, 'secret_hors_ligne' => $secret_hors_ligne];
 }
 
 /**

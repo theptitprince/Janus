@@ -6,8 +6,9 @@ declare(strict_types=1);
 
 // Version du schema (PRAGMA user_version) : 1 = colonne licences.suspendue_jusqu (D61) ;
 // 2 = colonne licences.cle_chiffree (cle consultable dans la console) et une ligne de regles
-// pour tout produit qui n'en a pas.
-const SCHEMA_VERSION = 2;
+// pour tout produit qui n'en a pas ; 3 = licences hors ligne (colonnes licences.hors_ligne et
+// licences.cle_long_hash, index unique sur cette derniere).
+const SCHEMA_VERSION = 3;
 
 function db_ouvrir(string $chemin): PDO
 {
@@ -49,6 +50,17 @@ function db_migrer(PDO $db): void
                 produit_regles_creer($db, (int)$p['id'], (string)$p['code'], ['actif' => (int)$p['actif']], time());
             }
             $db->exec('PRAGMA user_version = 2');
+        }
+        if ($version < 3) {
+            // Licences existantes : cles ETDEL ordinaires (hors_ligne = 0, pas de code long).
+            if (!in_array('hors_ligne', $colonnes, true)) {
+                $db->exec('ALTER TABLE licences ADD COLUMN hors_ligne INTEGER NOT NULL DEFAULT 0');
+            }
+            if (!in_array('cle_long_hash', $colonnes, true)) {
+                $db->exec('ALTER TABLE licences ADD COLUMN cle_long_hash TEXT');
+            }
+            $db->exec('CREATE UNIQUE INDEX IF NOT EXISTS licences_cle_long_hash ON licences (cle_long_hash)');
+            $db->exec('PRAGMA user_version = 3');
         }
         $db->exec('COMMIT');
     } catch (Throwable $e) {

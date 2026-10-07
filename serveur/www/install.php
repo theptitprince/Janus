@@ -1,7 +1,8 @@
 <?php
 // install.php - Assistant d'installation, a executer une seule fois depuis le navigateur :
-//               cree la base, la paire de cles de signature, le .htpasswd de la console,
-//               protege /admin/ puis se verrouille (refuse toute nouvelle execution).
+//               cree la base, la paire de cles de signature, les secrets (demandes, codes hors
+//               ligne), le .htpasswd de la console, protege /admin/ puis se verrouille (refuse
+//               toute nouvelle execution).
 // ETDEL (c) 2026
 
 declare(strict_types=1);
@@ -125,14 +126,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $resultat = installation_executer($config, $parametres, __DIR__ . '/admin', time());
             $lignes = 'LICENCE_URL = "' . $resultat['urls'][0] . "\"\n"
                 . 'LICENCE_URL_SECOURS = "' . ($resultat['urls'][1] ?? '') . "\"\n"
-                . 'LICENCE_CLE_PUBLIQUE = "' . $resultat['cle_publique'] . "\"\n";
+                . 'LICENCE_CLE_PUBLIQUE = "' . $resultat['cle_publique'] . "\"\n"
+                . 'LICENCE_SECRET_HORS_LIGNE = "' . $resultat['secret_hors_ligne'] . "\"\n";
             $avertissement = strpos($prive, (string)realpath(__DIR__)) === 0
                 ? '<p><strong>Attention :</strong> le dossier prive est dans www/. Il est protege par .htaccess ; '
                 . 'verifier dans la console (Administration, Controle d\'exposition) que la base et les cles ne '
                 . 'sont pas telechargeables.</p>' : '';
             install_page(200, 'Installation terminee',
-                '<p>Base, cle de signature (kid 1), secret des demandes et acces a la console sont crees. '
-                . 'L\'assistant est maintenant verrouille.</p>' . $avertissement
+                '<p>Base, cle de signature (kid 1), secret des demandes, secret des codes hors ligne et acces a la '
+                . 'console sont crees. L\'assistant est maintenant verrouille.</p>' . $avertissement
                 . '<p>Cle publique : <code id="cle">' . h($resultat['cle_publique']) . '</code></p>'
                 . '<p>Lignes a reporter une fois en tete de <code>etdel_licence.py</code> :</p>'
                 . '<pre>' . h($lignes) . '</pre>'

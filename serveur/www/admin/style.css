@@ -46,7 +46,7 @@ tr:last-child td { border-bottom: 0; }
 .message { white-space: pre-wrap; }
 .etiquette { display: inline-block; padding: .05rem .45rem; border-radius: 3px; font-size: .82rem; background: #e6e8eb; }
 .etiquette.active, .etiquette.acceptee, .etiquette.actif { background: #e7f4ea; color: var(--succes); }
-.etiquette.auto { background: #eaf1f8; color: var(--accent); }
+.etiquette.auto, .etiquette.hors_ligne { background: #eaf1f8; color: var(--accent); }
 .etiquette.expiree, .etiquette.en_attente, .etiquette.suspendue { background: #fff1e6; color: var(--alerte); }
 .etiquette.revoquee, .etiquette.refusee { background: #fbe9e7; color: var(--danger); }
 .fiche { display: grid; grid-template-columns: minmax(130px, 220px) 1fr; gap: .35rem 1rem; background: var(--panneau);
@@ -57,6 +57,9 @@ tr:last-child td { border-bottom: 0; }
 .fiche dd form.en-ligne { margin: 0 0 0 .3rem; vertical-align: middle; }
 .fiche dd form.en-ligne button { padding: .2rem .6rem; font-size: .9rem; }
 .fiche dd .copie { margin: 0; }
+/* Licence hors ligne : les deux codes, chacun precede de son usage. */
+.fiche dd > p { margin: .1rem 0 .3rem; }
+.fiche dd .copie + p { margin-top: .6rem; }
 .colonnes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 1.5rem; }
 .formulaire label, .filtres label { display: block; margin: 0 0 .7rem; font-size: .9rem; color: var(--discret); }
 .formulaire input:not([type=checkbox]), .formulaire select, .formulaire textarea, .filtres input, .filtres select {

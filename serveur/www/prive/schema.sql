@@ -35,7 +35,11 @@ CREATE TABLE licences (
   origine TEXT NOT NULL CHECK (origine IN ('console','demande')),
   cree_le INTEGER NOT NULL, modifie_le INTEGER NOT NULL,
   suspendue_jusqu INTEGER,                         -- fin d'une suspension datee (NULL = sans date), D61
-  cle_chiffree TEXT);                              -- cle chiffree (secretbox, secret hors base) ; NULL avant cette fonction
+  cle_chiffree TEXT,                               -- cle chiffree (secretbox, secret hors base) ; NULL avant cette fonction
+  hors_ligne INTEGER NOT NULL DEFAULT 0,           -- 1 = licence hors ligne : code court (cle_hash) et long, id_poste saisi
+  cle_long_hash TEXT);                             -- SHA-256 du code hors ligne long ; NULL pour une cle ETDEL
+-- Code hors ligne long : retrouve par son hachage, comme une cle par cle_hash.
+CREATE UNIQUE INDEX licences_cle_long_hash ON licences (cle_long_hash);
 
 CREATE TABLE demandes (
   id INTEGER PRIMARY KEY, distribution_id INTEGER NOT NULL REFERENCES distributions(id),
@@ -69,4 +73,4 @@ CREATE TABLE limites (
 
 -- Version du schema, relue par db_migrer() (lib/db.php) pour mettre a niveau une
 -- base creee par une version precedente du serveur.
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;

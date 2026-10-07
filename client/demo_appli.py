@@ -1,8 +1,10 @@
 # demo_appli.py
 # Role : application Tkinter minimale, banc d'essai de bout en bout du module
-#        etdel_licence (activation, demande, bandeau, fenetre Licence, options).
-#        Banc d'essai uniquement : --serveur, --cle-publique et --banc remplacent
-#        les constantes du module, ce qu'aucune application livree ne doit faire.
+#        etdel_licence (activation, demande, licence hors ligne, bandeau, fenetre
+#        Licence, options).
+#        Banc d'essai uniquement : --serveur, --cle-publique, --secret-hors-ligne
+#        et --banc remplacent les constantes du module, ce qu'aucune application
+#        livree ne doit faire.
 #        Rien a preparer dans la console : la premiere demande de licence cree
 #        le produit DEMO sur le serveur.
 #        Exemples : python demo_appli.py --banc   (banc local, voir README.md)
@@ -10,6 +12,7 @@
 # ETDEL (c) 2026
 
 import argparse
+import base64
 import json
 import os
 import subprocess
@@ -30,6 +33,9 @@ URL_BANC = "http://127.0.0.1:8090/api/v1/"
 # Premiere cle publique du banc, comme celle qu'une application embarque ;
 # les rotations suivantes arrivent par bulletins, comme sur un vrai poste.
 FICHE_BANC = os.path.join(ICI, "..", "serveur", "www", "prive", "cles", "signature_1.json")
+# Secret des codes hors ligne courts du banc (base64 standard dans le fichier),
+# cree par la console au premier besoin (ecran Cles, licence hors ligne).
+SECRET_BANC = os.path.join(ICI, "..", "serveur", "www", "prive", "cles", "secret_hors_ligne.key")
 
 
 def _cle_banc():
@@ -38,6 +44,16 @@ def _cle_banc():
             return json.load(fichier)["cle_publique"]
     except (OSError, ValueError, KeyError, TypeError):
         return None
+
+
+def _secret_banc():
+    """LICENCE_SECRET_HORS_LIGNE du banc (base64url), "" s'il n'existe pas encore."""
+    try:
+        with open(SECRET_BANC, "r", encoding="ascii") as fichier:
+            octets = base64.b64decode(fichier.read().strip(), validate=True)
+    except (OSError, ValueError):
+        return ""
+    return etdel_licence._b64url(octets) if len(octets) == 32 else ""
 
 
 def _bouton_plat(parent, texte, commande=None):
@@ -69,10 +85,13 @@ def construire(arguments=None):
                          help="serveur local du banc (%s), cle publique lue dans serveur/www/prive/cles" % URL_BANC)
     lecteur.add_argument("--serveur", help="URL de l'API, ex. %s" % URL_BANC)
     lecteur.add_argument("--cle-publique", help="cle publique affichee par install.php ou l'ecran Cles")
+    lecteur.add_argument("--secret-hors-ligne", help="LICENCE_SECRET_HORS_LIGNE affiche par l'ecran Cles "
+                                                     "(codes hors ligne courts)")
     options = lecteur.parse_args(arguments)
     probleme = None
     if options.banc:
         etdel_licence.LICENCE_URL = URL_BANC
+        etdel_licence.LICENCE_SECRET_HORS_LIGNE = _secret_banc()
         cle = _cle_banc()
         if cle:
             etdel_licence.LICENCE_CLE_PUBLIQUE = cle
@@ -83,6 +102,8 @@ def construire(arguments=None):
         etdel_licence.LICENCE_URL = options.serveur
     if options.cle_publique:
         etdel_licence.LICENCE_CLE_PUBLIQUE = options.cle_publique
+    if options.secret_hors_ligne:
+        etdel_licence.LICENCE_SECRET_HORS_LIGNE = options.secret_hors_ligne
 
     root = tk.Tk()
     root.title("Demo ETDEL")

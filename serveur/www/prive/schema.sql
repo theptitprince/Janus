@@ -4,10 +4,15 @@
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
+-- Un produit = une application, identifiee par le code qu'elle envoie. version_min et actif
+-- sont conserves (annexe B) mais sans effet : l'etat du produit est celui de ses regles.
 CREATE TABLE produits (
   id INTEGER PRIMARY KEY, code TEXT UNIQUE NOT NULL, nom TEXT NOT NULL,
   version_min TEXT, actif INTEGER NOT NULL DEFAULT 1, cree_le INTEGER NOT NULL);
 
+-- Regles d'un produit : une ligne par produit (code = code du produit), jamais montree comme
+-- telle dans la console. Une base anterieure peut en avoir plusieurs pour un produit : la plus
+-- petite id porte les regles, les licences des autres restent valables. version_min : sans effet.
 CREATE TABLE distributions (
   id INTEGER PRIMARY KEY, produit_id INTEGER NOT NULL REFERENCES produits(id),
   code TEXT UNIQUE NOT NULL, libelle TEXT NOT NULL, client TEXT,
@@ -29,7 +34,8 @@ CREATE TABLE licences (
   statut TEXT NOT NULL DEFAULT 'active' CHECK (statut IN ('active','suspendue','revoquee')),
   origine TEXT NOT NULL CHECK (origine IN ('console','demande')),
   cree_le INTEGER NOT NULL, modifie_le INTEGER NOT NULL,
-  suspendue_jusqu INTEGER);                        -- fin d'une suspension datee (NULL = sans date), D61
+  suspendue_jusqu INTEGER,                         -- fin d'une suspension datee (NULL = sans date), D61
+  cle_chiffree TEXT);                              -- cle chiffree (secretbox, secret hors base) ; NULL avant cette fonction
 
 CREATE TABLE demandes (
   id INTEGER PRIMARY KEY, distribution_id INTEGER NOT NULL REFERENCES distributions(id),
@@ -63,4 +69,4 @@ CREATE TABLE limites (
 
 -- Version du schema, relue par db_migrer() (lib/db.php) pour mettre a niveau une
 -- base creee par une version precedente du serveur.
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;

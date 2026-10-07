@@ -34,23 +34,10 @@ a.carte:hover, a.carte:focus-visible { border-color: var(--accent); background: 
 .raccourcis { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.2rem 0; }
 .menu-admin { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .6rem; }
 .carte.lien strong { font-size: 1.05rem; color: var(--accent); margin-bottom: .2rem; }
-/* Distributions : une carte par produit (simple classement), son nom a changer, ses distributions en tableau. */
-section.produit { margin: 0 0 1rem; padding: .1rem 1rem .6rem; background: var(--panneau); border: 1px solid var(--ligne);
-  border-radius: 6px; }
-section.produit h2 { margin: .8rem 0 .5rem; }
-.entete-produit { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 1rem; }
-/* Code et etat sur une ligne ; regles lisibles sur un ecran etroit (le tableau defile plutot qu'il ne les ecrase). */
-section.produit td:first-child, section.produit td:last-child { white-space: nowrap; }
-section.produit td:nth-child(4) { min-width: 16rem; }
-details.renommer > summary { cursor: pointer; font-size: .85rem; color: var(--accent); }
-details.renommer[open] { flex-basis: 100%; }
-details.renommer form { margin: .3rem 0 .6rem; }
-details.renommer input { display: block; width: 20rem; max-width: 100%; margin-top: .2rem; padding: .35rem; font: inherit;
-  color: var(--texte); border: 1px solid var(--ligne); border-radius: 4px; background: #fff; }
-/* Nouvelle distribution : code et nom du nouveau produit (masques par app.js si un produit existant est choisi). */
-fieldset.nouveau-produit { max-width: 34rem; margin: 0 0 1rem; padding: .3rem .9rem 0; border: 1px solid var(--ligne);
-  border-radius: 6px; }
-fieldset.nouveau-produit legend { padding: 0 .3rem; font-size: .9rem; color: var(--discret); }
+/* Produits : code, etat et etiquette sur une ligne ; regles lisibles sur un ecran etroit (le tableau defile
+   plutot qu'il ne les ecrase). */
+.produits td:first-child, .produits td:last-child { white-space: nowrap; }
+.produits td:nth-child(3) { min-width: 16rem; }
 .defilement { overflow-x: auto; background: var(--panneau); border: 1px solid var(--ligne); border-radius: 6px; }
 table { border-collapse: collapse; width: 100%; }
 th, td { padding: .45rem .6rem; border-bottom: 1px solid var(--ligne); text-align: left; vertical-align: top; }
@@ -58,13 +45,18 @@ th { background: #eef0f3; font-size: .85rem; white-space: nowrap; }
 tr:last-child td { border-bottom: 0; }
 .message { white-space: pre-wrap; }
 .etiquette { display: inline-block; padding: .05rem .45rem; border-radius: 3px; font-size: .82rem; background: #e6e8eb; }
-.etiquette.active, .etiquette.acceptee { background: #e7f4ea; color: var(--succes); }
+.etiquette.active, .etiquette.acceptee, .etiquette.actif { background: #e7f4ea; color: var(--succes); }
+.etiquette.auto { background: #eaf1f8; color: var(--accent); }
 .etiquette.expiree, .etiquette.en_attente, .etiquette.suspendue { background: #fff1e6; color: var(--alerte); }
 .etiquette.revoquee, .etiquette.refusee { background: #fbe9e7; color: var(--danger); }
 .fiche { display: grid; grid-template-columns: minmax(130px, 220px) 1fr; gap: .35rem 1rem; background: var(--panneau);
   border: 1px solid var(--ligne); border-radius: 6px; padding: .8rem; margin: 0 0 1rem; }
 .fiche dt { color: var(--discret); }
 .fiche dd { margin: 0; overflow-wrap: anywhere; }
+/* Ligne Cle de la fiche licence : bouton "Afficher la cle" a cote de la cle masquee, puis cle complete a copier. */
+.fiche dd form.en-ligne { margin: 0 0 0 .3rem; vertical-align: middle; }
+.fiche dd form.en-ligne button { padding: .2rem .6rem; font-size: .9rem; }
+.fiche dd .copie { margin: 0; }
 .colonnes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 1.5rem; }
 .formulaire label, .filtres label { display: block; margin: 0 0 .7rem; font-size: .9rem; color: var(--discret); }
 .formulaire input:not([type=checkbox]), .formulaire select, .formulaire textarea, .filtres input, .filtres select {
@@ -105,7 +97,7 @@ details.action-danger[open] > summary { background: var(--danger); color: #fff; 
 details.avance { margin-top: 1.6rem; padding-top: .8rem; border-top: 1px solid var(--ligne); }
 details.avance > summary { cursor: pointer; font-weight: 600; color: var(--discret); }
 details.avance[open] > summary { margin-bottom: .4rem; }
-/* Reglages avances dans un formulaire (distribution) : avant le bouton Enregistrer. */
+/* Reglages avances dans un formulaire (produit) : avant le bouton Enregistrer. */
 form details.avance { margin: .2rem 0 1rem; padding-top: .6rem; }
 .formulaire p { max-width: 50rem; }
 #exposition li.danger { background: none; color: var(--danger); font-weight: 700; }

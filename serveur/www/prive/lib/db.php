@@ -4,8 +4,10 @@
 
 declare(strict_types=1);
 
-// Version du schema (PRAGMA user_version) : 1 = colonne licences.suspendue_jusqu (D61).
-const SCHEMA_VERSION = 1;
+// Version du schema (PRAGMA user_version) : 1 = colonne licences.suspendue_jusqu (D61) ;
+// 2 = colonne licences.cle_chiffree (cle consultable dans la console) et une ligne de regles
+// pour tout produit qui n'en a pas.
+const SCHEMA_VERSION = 2;
 
 function db_ouvrir(string $chemin): PDO
 {
@@ -29,12 +31,24 @@ function db_migrer(PDO $db): void
     $db->exec('BEGIN IMMEDIATE');
     try {
         // Relu sous verrou : une requete concurrente a pu migrer entre-temps.
-        if ((int)$db->query('PRAGMA user_version')->fetchColumn() < 1) {
-            $colonnes = array_column(db_lignes($db, 'PRAGMA table_info(licences)'), 'name');
+        $version = (int)$db->query('PRAGMA user_version')->fetchColumn();
+        $colonnes = array_column(db_lignes($db, 'PRAGMA table_info(licences)'), 'name');
+        if ($version < 1) {
             if (!in_array('suspendue_jusqu', $colonnes, true)) {
                 $db->exec('ALTER TABLE licences ADD COLUMN suspendue_jusqu INTEGER');
             }
             $db->exec('PRAGMA user_version = 1');
+        }
+        if ($version < 2) {
+            if (!in_array('cle_chiffree', $colonnes, true)) {
+                $db->exec('ALTER TABLE licences ADD COLUMN cle_chiffree TEXT');
+            }
+            // Produit sans regles (base tres ancienne) : regles par defaut, etat du produit conserve.
+            foreach (db_lignes($db, 'SELECT p.id, p.code, p.actif FROM produits p WHERE NOT EXISTS '
+                . '(SELECT 1 FROM distributions d WHERE d.produit_id = p.id)') as $p) {
+                produit_regles_creer($db, (int)$p['id'], (string)$p['code'], ['actif' => (int)$p['actif']], time());
+            }
+            $db->exec('PRAGMA user_version = 2');
         }
         $db->exec('COMMIT');
     } catch (Throwable $e) {

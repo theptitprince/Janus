@@ -1,6 +1,6 @@
 // app.js - Console des licences ETDEL : confirmation des actions d'ecriture, copie dans le
 //          presse-papiers, actions depliables, reglages replies ouverts sur un champ refuse,
-//          champs du nouveau produit, duree par defaut, compteurs, controle d'exposition.
+//          duree par defaut du produit choisi, compteurs, controle d'exposition.
 // ETDEL (c) 2026
 (function () {
   'use strict';
@@ -81,25 +81,7 @@
     }
   }, true);
 
-  // Nouvelle distribution : le code et le nom du nouveau produit ne servent (et ne sont envoyes)
-  // que si "Nouveau produit" est choisi ; ils sont alors obligatoires. Un fieldset desactive n'envoie
-  // rien et le navigateur n'y verifie pas "required" : choisir un produit existant n'est jamais bloque.
-  var produit = document.querySelector('select[data-produit]');
-  var nouveau = document.querySelector('fieldset[data-nouveau-produit]');
-  if (produit && nouveau) {
-    var majProduit = function () {
-      var aCreer = produit.value === '0';
-      nouveau.hidden = !aCreer;
-      nouveau.disabled = !aCreer;
-      Array.prototype.forEach.call(nouveau.querySelectorAll('input'), function (champ) {
-        champ.required = aCreer;
-      });
-    };
-    produit.addEventListener('change', majProduit);
-    majProduit();
-  }
-
-  // Creation d'une cle : la duree proposee suit la distribution choisie.
+  // Creation d'une cle : la duree proposee suit le produit choisi.
   var choix = document.querySelector('select[data-durees]');
   if (choix && choix.form && choix.form.elements.duree_j) {
     choix.addEventListener('change', function () {

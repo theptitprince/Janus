@@ -1,6 +1,6 @@
 <?php
-// api.php - API v1 : validation des requetes, limites, operations sur les licences,
-//           reponses signees Ed25519 (refus compris).
+// api.php - API v1 : validation des requetes, limites, operations sur les licences
+//           (dont le transfert demande par l'application), reponses signees Ed25519 (refus compris).
 // ETDEL (c) 2026
 
 declare(strict_types=1);
@@ -9,11 +9,12 @@ require_once __DIR__ . '/commun.php';
 require_once __DIR__ . '/demandes.php';
 require_once __DIR__ . '/notification.php';
 
-const API_OPS = ['activer', 'valider', 'demander', 'suivre_demande', 'ping'];
+const API_OPS = ['activer', 'valider', 'liberer', 'demander', 'suivre_demande', 'ping'];
 // [nombre maximal, fenetre en secondes] par IP ; ping n'est pas limite.
 const API_LIMITES = [
     'activer' => [30, 3600],
     'valider' => [120, 3600],
+    'liberer' => [30, 3600],
     'suivre_demande' => [60, 3600],
     'demander' => [3, 86400],
 ];
@@ -22,6 +23,11 @@ const API_CORPS_MAX = 16384;
 // Une tolerance de 0 jour bloquerait le poste entre deux controles (toutes les 6 h) :
 // la duree hors ligne ne descend jamais sous un cycle de controle plus une heure.
 const TOLERANCE_MIN_S = 7 * 3600;
+// Transferts depuis l'application : au plus 3 par licence sur 30 jours. L'ancien ordinateur garde son
+// jeton hors ligne jusqu'a la fin de sa tolerance ; sans limite, des transferts repetes feraient tourner
+// une cle sur plusieurs ordinateurs. Au-dela, "Changer d'ordinateur" dans la console reste possible.
+const TRANSFERTS_MAX = 3;
+const TRANSFERTS_PERIODE_J = 30;
 
 function api_point_entree(string $prive): void
 {
@@ -64,7 +70,11 @@ function api_traiter(PDO $db, array $config, string $corps, string $ip, int $mai
     return [200, signer(api_operation($db, $config, $champs, $base, $ip, $maintenant), $cle)];
 }
 
-/** Champs communs a toute reponse ; nonce, produit, distribution et machine sont ceux de la requete. */
+/**
+ * Champs communs a toute reponse ; nonce, produit, distribution et machine sont ceux de la requete.
+ * Le champ distribution n'identifie plus rien (le produit suffit) : il n'est que renvoye, l'application
+ * verifiant cet echo.
+ */
 function api_base(PDO $db, array $requete, int $maintenant): array
 {
     $echo = static function ($valeur) {
@@ -135,6 +145,7 @@ function api_lire_requete(array $r): ?array
     switch ($r['op']) {
         case 'activer':
         case 'valider':
+        case 'liberer':
             if (!is_string($r['cle'] ?? null) || strlen($r['cle']) > 64) {
                 return null;
             }
@@ -177,39 +188,60 @@ function api_operation(PDO $db, array $config, array $r, array $base, string $ip
     if (limite_depassee($db, ip_limite($ip), $r['op'], $max, $duree, $maintenant)) {
         return api_refus($base, 'trop_de_requetes');
     }
-    $dist = distribution_trouver($db, $r['produit'], $r['distribution']);
-    if ($dist === null) {
+    // Le produit est identifie par le code qu'envoie l'application, seul ; le champ distribution
+    // est ignore. Une demande d'une application inconnue cree son produit (regles par defaut).
+    $produit = produit_trouver($db, $r['produit']);
+    $cree = false;
+    if ($produit === null && $r['op'] === 'demander') {
+        $produit = produit_creer_automatiquement($db, $r['produit'], $ip, $maintenant);
+        $cree = $produit !== null;
+    }
+    // Produit inactif : ses licences sont bloquees et ses demandes refusees.
+    if ($produit === null || (int)$produit['actif'] !== 1) {
         return api_refus($base, 'produit_inconnu');
     }
     switch ($r['op']) {
         case 'demander':
-            return demande_creer($db, $config, $r, $dist, $base, $ip, $maintenant);
+            return demande_creer($db, $config, $r, $produit, $base, $ip, $maintenant, $cree);
         case 'suivre_demande':
-            return demande_suivre($db, $config, $r, $dist, $base, $ip, $maintenant);
+            return demande_suivre($db, $config, $r, $produit, $base, $ip, $maintenant);
         default:
-            return api_licence($db, $r, $dist, $base, $ip, $maintenant);
+            // activer, valider, liberer : lecture de la licence et ecriture en une transaction immediate.
+            $traiter = $r['op'] === 'liberer' ? 'api_liberer' : 'api_licence_traiter';
+            return api_transaction($db, static function () use ($traiter, $db, $r, $produit, $base, $ip,
+                                                                $maintenant): array {
+                return $traiter($db, $r, $produit, $base, $ip, $maintenant);
+            });
     }
+}
+
+/** Execute $operation dans une transaction immediate et renvoie sa reponse. */
+function api_transaction(PDO $db, callable $operation): array
+{
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        $reponse = $operation();
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        $db->exec('ROLLBACK');
+        throw $e;
+    }
+    return $reponse;
 }
 
 /**
- * Distribution active, si son produit est bien celui qu'envoie l'application ; null sinon
- * (produit_inconnu). Le produit ne sert qu'a ranger les distributions (D68) : ni son etat
- * (produits.actif) ni sa version minimale n'ont d'effet, seuls ceux de la distribution comptent.
+ * Licence d'une cle saisie, si elle appartient a ce produit (quelle que soit sa ligne de regles :
+ * celles d'une base anterieure restent valables) ; null sinon (cle_invalide).
  */
-function distribution_trouver(PDO $db, string $produit, string $code): ?array
+function licence_par_cle(PDO $db, string $saisie, array $produit): ?array
 {
-    $dist = db_ligne($db, 'SELECT d.*, p.code AS produit_code, p.nom AS produit_nom '
-        . 'FROM distributions d JOIN produits p ON p.id = d.produit_id WHERE d.code = ?', [$code]);
-    if ($dist === null || $dist['produit_code'] !== $produit || (int)$dist['actif'] !== 1) {
+    $cle = cle_normaliser($saisie);
+    if ($cle === null) {
         return null;
     }
-    return $dist;
-}
-
-function api_version_refusee(array $dist, string $version): bool
-{
-    $minimum = version_min_normalisee($dist['version_min']);
-    return $minimum !== null && version_comparer($version, $minimum) < 0;
+    $lic = db_ligne($db, 'SELECT l.*, d.produit_id FROM licences l JOIN distributions d ON d.id = l.distribution_id '
+        . 'WHERE l.cle_hash = ?', [cle_hash($cle)]);
+    return ($lic === null || (int)$lic['produit_id'] !== (int)$produit['id']) ? null : $lic;
 }
 
 /** Code de refus d'une licence pour ce poste, ou null si elle est utilisable. */
@@ -222,7 +254,7 @@ function licence_controler(array $lic, string $machine, bool $activation, int $m
         return 'suspendue';
     }
     if ($lic['machine'] === null) {
-        // Cle liberee dans la console : seule une activation peut la relier.
+        // Cle liberee (console ou transfert depuis l'application) : seule une activation peut la relier.
         if (!$activation) {
             return 'poste_revoque';
         }
@@ -242,13 +274,16 @@ function licence_contact(PDO $db, int $id, array $r, string $ip, int $maintenant
         . 'derniere_ip = ? WHERE id = ?', [$maintenant, $r['poste'], $r['version'], $ip, $id]);
 }
 
-/** Jeton de licence (annexe C). */
-function api_jeton(array $lic, array $dist, array $base, int $maintenant): array
+/**
+ * Jeton de licence (annexe C), avec les regles du produit (sauf tolerance et options propres a la
+ * licence). Aucune version minimale : version_min reste dans le format, toujours null.
+ */
+function api_jeton(array $lic, array $produit, array $base, int $maintenant): array
 {
-    $tolerance = $lic['tolerance_j'] !== null ? (int)$lic['tolerance_j'] : (int)$dist['tolerance_j'];
-    $options = $lic['options'] !== null ? options_lire($lic['options']) : options_lire($dist['options']);
+    $tolerance = $lic['tolerance_j'] !== null ? (int)$lic['tolerance_j'] : (int)$produit['tolerance_j'];
+    $options = $lic['options'] !== null ? options_lire($lic['options']) : options_lire($produit['options']);
     $echeance = $lic['echeance'] === null ? null : (int)$lic['echeance'];
-    $message = $dist['message'] ?? null;
+    $message = $produit['message'] ?? null;
     return $base + [
         'ok' => true,
         'code' => null,
@@ -257,43 +292,26 @@ function api_jeton(array $lic, array $dist, array $base, int $maintenant): array
         'echeance' => $echeance,
         'jours_restants' => jours_restants($echeance, $maintenant),
         'hors_ligne_jusqu' => $maintenant + max($tolerance * JOUR, TOLERANCE_MIN_S),
-        'preavis_j' => (int)$dist['preavis_j'],
+        'preavis_j' => (int)$produit['preavis_j'],
         'options' => $options,
-        'version_min' => version_min_normalisee($dist['version_min']),
+        'version_min' => null,
         'message' => ($message === null || $message === '') ? null : (string)$message,
     ];
 }
 
 /**
- * activer / valider, en une transaction immediate : un remplacement de cle depuis la console
- * (D67) ne peut pas s'intercaler entre la lecture de la licence par son hash et sa liaison ou
- * l'envoi du jeton ; l'ancienne cle ne recoit plus rien une fois remplacee.
+ * activer / valider, dans la transaction immediate ouverte par api_operation : un remplacement de
+ * cle depuis la console (D67) ne peut pas s'intercaler entre la lecture de la licence par son hash
+ * et sa liaison ou l'envoi du jeton ; l'ancienne cle ne recoit plus rien une fois remplacee.
  */
-function api_licence(PDO $db, array $r, array $dist, array $base, string $ip, int $maintenant): array
+function api_licence_traiter(PDO $db, array $r, array $produit, array $base, string $ip, int $maintenant): array
 {
-    $db->exec('BEGIN IMMEDIATE');
-    try {
-        $reponse = api_licence_traiter($db, $r, $dist, $base, $ip, $maintenant);
-        $db->exec('COMMIT');
-    } catch (Throwable $e) {
-        $db->exec('ROLLBACK');
-        throw $e;
-    }
-    return $reponse;
-}
-
-function api_licence_traiter(PDO $db, array $r, array $dist, array $base, string $ip, int $maintenant): array
-{
-    $cle = cle_normaliser($r['cle']);
-    $lic = $cle === null ? null : db_ligne($db, 'SELECT * FROM licences WHERE cle_hash = ?', [cle_hash($cle)]);
-    if ($lic === null || (int)$lic['distribution_id'] !== (int)$dist['id']) {
+    $lic = licence_par_cle($db, $r['cle'], $produit);
+    if ($lic === null) {
         return api_refus($base, 'cle_invalide');
     }
     $activation = $r['op'] === 'activer';
     $code = licence_controler($lic, $r['machine'], $activation, $maintenant);
-    if ($code === null && api_version_refusee($dist, $r['version'])) {
-        $code = 'version_trop_ancienne';
-    }
     $poste = id_poste($r['machine'], $r['produit']);
     if ($code !== null) {
         if ($code === 'cle_liee_autre_poste') {
@@ -323,5 +341,48 @@ function api_licence_traiter(PDO $db, array $r, array $dist, array $base, string
         db_modifier($db, 'UPDATE demandes SET cle_chiffree = NULL WHERE licence_id = ? AND cle_chiffree IS NOT NULL',
             [(int)$lic['id']]);
     }
-    return api_jeton($lic, $dist, $base, $maintenant);
+    return api_jeton($lic, $produit, $base, $maintenant);
+}
+
+/**
+ * Transfert demande par l'application, depuis l'ancien ordinateur : la cle est detachee de ce
+ * poste et pourra etre saisie sur le nouveau. Seul le poste lie peut liberer sa cle ; licence
+ * active ou suspendue (une suspension suit la licence) ; au plus TRANSFERTS_MAX transferts par licence
+ * sur TRANSFERTS_PERIODE_J jours (transferts_trop_nombreux au-dela). Reponse : ok, sans jeton.
+ */
+function api_liberer(PDO $db, array $r, array $produit, array $base, string $ip, int $maintenant): array
+{
+    $lic = licence_par_cle($db, $r['cle'], $produit);
+    if ($lic === null) {
+        return api_refus($base, 'cle_invalide');
+    }
+    if ($lic['statut'] === 'revoquee') {
+        return api_refus($base, 'revoquee');
+    }
+    if ($lic['machine'] === null) {
+        return api_refus($base, 'poste_revoque');
+    }
+    if (!hash_equals((string)$lic['machine'], $r['machine'])) {
+        return api_refus($base, 'cle_liee_autre_poste');
+    }
+    $poste = id_poste($r['machine'], $r['produit']);
+    $recents = (int)db_valeur($db, "SELECT COUNT(*) FROM journal WHERE action = 'licence_transferee' AND cible = ? "
+        . 'AND date > ?', ['licence ' . $lic['id'], $maintenant - TRANSFERTS_PERIODE_J * JOUR]);
+    if ($recents >= TRANSFERTS_MAX) {
+        // Le poste garde sa licence ; le refus est inscrit au journal (fiche de la licence).
+        journal_ecrire($db, 'poste:' . $poste, 'transfert_refuse', 'licence ' . $lic['id'],
+            'cle ...' . $lic['cle_indice'] . ' : ' . $recents . ' transferts depuis l\'application en '
+            . TRANSFERTS_PERIODE_J . ' jours (Changer d\'ordinateur dans la console reste possible)', $ip, $maintenant);
+        return api_refus($base, 'transferts_trop_nombreux');
+    }
+    db_modifier($db, 'UPDATE licences SET machine = NULL, id_poste = NULL, nom_ordinateur = NULL, lie_le = NULL, '
+        . 'dernier_contact = ?, derniere_ip = ?, modifie_le = ? WHERE id = ?',
+        [$maintenant, $ip, $maintenant, (int)$lic['id']]);
+    // La cle est connue du poste qui la libere : une remise en attente n'a plus d'objet.
+    db_modifier($db, 'UPDATE demandes SET cle_chiffree = NULL WHERE licence_id = ? AND cle_chiffree IS NOT NULL',
+        [(int)$lic['id']]);
+    journal_ecrire($db, 'poste:' . $poste, 'licence_transferee', 'licence ' . $lic['id'],
+        'cle ...' . $lic['cle_indice'] . ' liberee par ' . ($r['poste'] !== '' ? $r['poste'] : $poste)
+        . ' (transfert depuis l\'application)', $ip, $maintenant);
+    return $base + ['ok' => true, 'code' => null];
 }

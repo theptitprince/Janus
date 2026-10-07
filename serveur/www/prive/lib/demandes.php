@@ -1,6 +1,6 @@
 <?php
 // demandes.php - Demandes de licence : creation et suivi (API), acceptation et
-//                refus (console), periode d'essai unique par poste et par distribution.
+//                refus (console), periode d'essai unique par poste et par produit.
 // ETDEL (c) 2026
 
 declare(strict_types=1);
@@ -11,7 +11,7 @@ require_once __DIR__ . '/notification.php';
 
 const MOTIF_REFUS_MAX = 500;
 
-function demande_reponse_attente(array $demande, array $dist, array $base): array
+function demande_reponse_attente(array $demande, array $produit, array $base): array
 {
     return $base + [
         'ok' => true,
@@ -19,46 +19,45 @@ function demande_reponse_attente(array $demande, array $dist, array $base): arra
         'demande' => (int)$demande['id'],
         'statut' => 'en_attente',
         'essai_jusqu' => $demande['essai_jusqu'] === null ? null : (int)$demande['essai_jusqu'],
-        // Options de la distribution : celles de l'essai, signees comme le reste.
-        'options' => options_lire($dist['options']),
+        // Options du produit : celles de l'essai, signees comme le reste.
+        'options' => options_lire($produit['options']),
     ];
 }
 
 /**
- * L'essai n'est accorde qu'une fois par poste (empreinte) et par distribution (D68) : chaque
- * distribution est geree seule, le produit ne sert qu'a les ranger.
+ * L'essai n'est accorde qu'une fois par poste (empreinte) et par produit, toutes ses lignes de
+ * regles confondues (une base anterieure peut en avoir plusieurs pour un produit).
  */
-function demande_essai_deja_accorde(PDO $db, string $machine, int $distribution_id): bool
+function demande_essai_deja_accorde(PDO $db, string $machine, int $produit_id): bool
 {
-    return (int)db_valeur($db, 'SELECT COUNT(*) FROM demandes WHERE machine = ? AND distribution_id = ? '
-        . 'AND essai_jusqu IS NOT NULL', [$machine, $distribution_id]) > 0;
+    return (int)db_valeur($db, 'SELECT COUNT(*) FROM demandes dm JOIN distributions d ON d.id = dm.distribution_id '
+        . 'WHERE dm.machine = ? AND d.produit_id = ? AND dm.essai_jusqu IS NOT NULL', [$machine, $produit_id]) > 0;
 }
 
-function demande_creer(PDO $db, array $config, array $r, array $dist, array $base, string $ip, int $maintenant): array
+/** $cree : le produit vient d'etre cree par cette demande (dit dans l'e-mail de notification). */
+function demande_creer(PDO $db, array $config, array $r, array $produit, array $base, string $ip, int $maintenant,
+                       bool $cree = false): array
 {
-    if (api_version_refusee($dist, $r['version'])) {
-        return api_refus($base, 'version_trop_ancienne');
-    }
     $jeton_hash = hash('sha256', $r['jeton']);
     // Transaction immediate : la regle "une seule demande en attente" tient face aux envois simultanes.
     $db->exec('BEGIN IMMEDIATE');
     try {
-        $existante = db_ligne($db, "SELECT * FROM demandes WHERE distribution_id = ? AND machine = ? "
-            . "AND statut = 'en_attente'", [(int)$dist['id'], $r['machine']]);
+        $existante = db_ligne($db, "SELECT dm.* FROM demandes dm JOIN distributions d ON d.id = dm.distribution_id "
+            . "WHERE d.produit_id = ? AND dm.machine = ? AND dm.statut = 'en_attente'", [(int)$produit['id'], $r['machine']]);
         if ($existante !== null) {
             $db->exec('COMMIT');
             // Meme jeton : renvoi d'une demande dont la reponse s'est perdue.
             if (hash_equals((string)$existante['jeton_hash'], $jeton_hash)) {
-                return demande_reponse_attente($existante, $dist, $base);
+                return demande_reponse_attente($existante, $produit, $base);
             }
             return api_refus($base, 'demande_en_cours');
         }
         $essai = null;
-        if ((int)$dist['essai_j'] > 0 && !demande_essai_deja_accorde($db, $r['machine'], (int)$dist['id'])) {
-            $essai = $maintenant + (int)$dist['essai_j'] * JOUR;
+        if ((int)$produit['essai_j'] > 0 && !demande_essai_deja_accorde($db, $r['machine'], (int)$produit['id'])) {
+            $essai = $maintenant + (int)$produit['essai_j'] * JOUR;
         }
         $demande = [
-            'distribution_id' => (int)$dist['id'],
+            'distribution_id' => (int)$produit['regles_id'],
             'machine' => $r['machine'],
             'id_poste' => id_poste($r['machine'], $r['produit']),
             'nom_ordinateur' => $r['poste'],
@@ -74,28 +73,28 @@ function demande_creer(PDO $db, array $config, array $r, array $dist, array $bas
         ];
         $demande['id'] = db_inserer($db, 'demandes', $demande);
         journal_ecrire($db, 'poste:' . $demande['id_poste'], 'demande', 'demande ' . $demande['id'],
-            $dist['code'] . ', ' . $r['poste'] . ', essai ' . ($essai === null ? 'non' : 'jusqu\'au ' . date_fr($essai)),
+            $produit['code'] . ', ' . $r['poste'] . ', essai ' . ($essai === null ? 'non' : 'jusqu\'au ' . date_fr($essai)),
             $ip, $maintenant);
         $db->exec('COMMIT');
     } catch (Throwable $e) {
         $db->exec('ROLLBACK');
         throw $e;
     }
-    notification_nouvelle_demande($db, $config, $demande, $dist, $maintenant);
-    return demande_reponse_attente($demande, $dist, $base);
+    notification_nouvelle_demande($db, $config, $demande, $produit, $maintenant, $cree);
+    return demande_reponse_attente($demande, $produit, $base);
 }
 
-function demande_suivre(PDO $db, array $config, array $r, array $dist, array $base, string $ip, int $maintenant): array
+function demande_suivre(PDO $db, array $config, array $r, array $produit, array $base, string $ip, int $maintenant): array
 {
-    $demande = db_ligne($db, 'SELECT * FROM demandes WHERE id = ? AND distribution_id = ?',
-        [$r['demande'], (int)$dist['id']]);
+    $demande = db_ligne($db, 'SELECT dm.* FROM demandes dm JOIN distributions d ON d.id = dm.distribution_id '
+        . 'WHERE dm.id = ? AND d.produit_id = ?', [$r['demande'], (int)$produit['id']]);
     // Seul le poste qui a fait la demande (jeton secret + meme empreinte) peut la suivre.
     if ($demande === null || !hash_equals((string)$demande['jeton_hash'], hash('sha256', $r['jeton']))
         || !hash_equals((string)$demande['machine'], $r['machine'])) {
         return api_refus($base, 'demande_inconnue');
     }
     if ($demande['statut'] === 'en_attente') {
-        return demande_reponse_attente($demande, $dist, $base);
+        return demande_reponse_attente($demande, $produit, $base);
     }
     if ($demande['statut'] === 'refusee') {
         $motif = $demande['motif_refus'];
@@ -115,13 +114,15 @@ function demande_suivre(PDO $db, array $config, array $r, array $dist, array $ba
         return api_refus($base, $code);
     }
     licence_contact($db, (int)$lic['id'], $r, $ip, $maintenant);
-    return api_jeton($lic, $dist, $base, $maintenant)
+    return api_jeton($lic, $produit, $base, $maintenant)
         + ['demande' => (int)$demande['id'], 'statut' => 'acceptee', 'cle' => $cle];
 }
 
 /**
- * Acceptation : cree la cle deja liee au poste demandeur et la conserve chiffree
- * jusqu'au premier valider. Renvoie ['licence_id' => ..., 'cle' => ...].
+ * Acceptation : cree la cle deja liee au poste demandeur, pour le produit de la demande (sa ligne
+ * de regles). La cle est conservee chiffree deux fois : dans la demande jusqu'au premier valider
+ * (remise a l'application), dans la licence pour la console (Afficher la cle).
+ * Renvoie ['licence_id' => ..., 'cle' => ...].
  */
 function demande_accepter(PDO $db, array $config, int $id, ?int $duree_j, string $titulaire, ?array $options,
                           string $acteur, string $ip, int $maintenant): array
@@ -136,18 +137,20 @@ function demande_accepter(PDO $db, array $config, int $id, ?int $duree_j, string
     $secret = secret_demandes($config);
     $db->exec('BEGIN IMMEDIATE');
     try {
-        $demande = db_ligne($db, 'SELECT dm.*, d.options AS options_distribution FROM demandes dm '
-            . 'JOIN distributions d ON d.id = dm.distribution_id WHERE dm.id = ?', [$id]);
+        $demande = db_ligne($db, 'SELECT dm.*, r.id AS regles_id, r.options AS options_produit FROM demandes dm '
+            . 'JOIN distributions d ON d.id = dm.distribution_id JOIN produits p ON p.id = d.produit_id '
+            . 'JOIN distributions r ON r.id = ' . SQL_REGLES_DU_PRODUIT . ' WHERE dm.id = ?', [$id]);
         if ($demande === null || $demande['statut'] !== 'en_attente') {
             throw new RuntimeException('demande inconnue ou deja traitee');
         }
         $cle = cle_generer();
-        $surcharge = ($options === null || $options === options_lire($demande['options_distribution']))
+        $surcharge = ($options === null || $options === options_lire($demande['options_produit']))
             ? null : json_encode(array_values($options));
         $licence_id = db_inserer($db, 'licences', [
-            'distribution_id' => (int)$demande['distribution_id'],
+            'distribution_id' => (int)$demande['regles_id'],
             'cle_hash' => cle_hash($cle),
             'cle_indice' => substr($cle, -4),
+            'cle_chiffree' => cle_chiffrer($cle, $secret),
             'titulaire' => $titulaire,
             'email' => $demande['email'],
             'echeance' => $duree_j === null ? null : $maintenant + $duree_j * JOUR,

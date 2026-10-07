@@ -3,21 +3,22 @@
 #        en trois exemplaires, tolerance hors ligne, composants Tkinter.
 #        Copie a l'identique dans chaque application : seules les trois
 #        constantes LICENCE_* sont renseignees, une fois, apres l'installation
-#        du serveur ; tout ce qui est propre a une application passe en
-#        parametres de installer() ou exiger().
+#        du serveur ; tout ce qui est propre a une application (son code
+#        produit, sa version) passe en parametres de installer() ou exiger().
 # ETDEL (c) 2026
 """Module de licence ETDEL.
 
 Integration Tkinter (cas normal), juste apres la creation de root :
 
     import etdel_licence
-    etdel_licence.installer(root, produit="MONAPPLI",
-                            distribution="MONAPPLI-CLIENTA", version=APP_VERSION)
+    etdel_licence.installer(root, produit="MONAPPLI", version=APP_VERSION)
 
 Application console :
 
-    etdel_licence.exiger(produit="MONAPPLI", distribution="MONAPPLI-CLIENTA",
-                         version=APP_VERSION)
+    etdel_licence.exiger(produit="MONAPPLI", version=APP_VERSION)
+
+Le code produit identifie l'application aupres du serveur, qui porte ses
+regles (duree, essai, options, tolerance hors ligne, message d'accueil).
 
 Bibliotheque standard uniquement. Aucune fonction publique ne leve
 d'exception vers l'application : les erreurs sont journalisees et traduites
@@ -43,7 +44,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-MODULE_VERSION = "1.4.0"
+MODULE_VERSION = "2.0.0"
 
 # Renseignees une fois le serveur installe (ecran Cles de la console).
 # Vides : aucun controle, aucun fichier, l'application ne parle jamais de licence.
@@ -60,17 +61,18 @@ VALIDE = "VALIDE"
 AVERTISSEMENT = "AVERTISSEMENT"
 EXPIREE = "EXPIREE"
 REVOQUEE = "REVOQUEE"
-VERSION_REFUSEE = "VERSION_REFUSEE"
 
 STATUTS_UTILISABLES = (VALIDE, AVERTISSEMENT, ESSAI)
-_STATUTS_FENETRE = (A_ACTIVER, DEMANDE_EN_ATTENTE, DEMANDE_REFUSEE, EXPIREE, VERSION_REFUSEE)
+_STATUTS_FENETRE = (A_ACTIVER, DEMANDE_EN_ATTENTE, DEMANDE_REFUSEE, EXPIREE)
 # cle_invalide en validation : la cle n'existe plus sur le serveur, on la
 # traite comme une revocation plutot que de reessayer indefiniment.
 _CODES_REVOCATION = ("revoquee", "poste_revoque", "cle_liee_autre_poste", "cle_invalide")
 # Refus qui bloquent sans effacer la cle : une prolongation, une reactivation
 # ou la fin d'une suspension dans la console debloque au controle suivant,
 # sans ressaisie (une cle obtenue par demande n'a jamais ete montree).
-_CODES_BLOCAGE = ("expiree", "suspendue", "version_trop_ancienne", "produit_inconnu")
+# Aucune version minimale (2.0.0) : un refus version_trop_ancienne d'un
+# ancien serveur n'est qu'un echec de controle, sans blocage.
+_CODES_BLOCAGE = ("expiree", "suspendue", "produit_inconnu")
 
 JOUR = 86400
 _DELAI_PREMIER_CONTROLE = 3.0
@@ -99,8 +101,8 @@ _MESSAGES = {
     "suspendue": "Licence suspendue",
     "poste_revoque": "Ce poste n'est plus autorise pour cette licence",
     "cle_liee_autre_poste": "Cle deja utilisee sur un autre ordinateur",
-    "version_trop_ancienne": "Version trop ancienne : mettez l'application a jour",
-    "produit_inconnu": "Produit ou distribution inconnu du serveur de licences",
+    "transferee": "Licence transferee : saisissez la cle sur le nouvel ordinateur.",
+    "produit_inconnu": "Produit inconnu ou inactif sur le serveur de licences",
     "demande_en_cours": "Une demande est deja en attente pour ce poste",
     "demande_inconnue": "Demande inconnue du serveur de licences",
     "horloge": "Horloge de l'ordinateur incorrecte : corrigez la date et l'heure",
@@ -109,6 +111,19 @@ _MESSAGES = {
     "injoignable": "Serveur de licences injoignable : verifiez la connexion Internet",
     "non_configure": "Licence non configuree",
     "interne": "Erreur interne du module de licence",
+}
+
+# Transfert (op liberer) : en cas d'echec, rien ne change sur le poste
+# (poste_revoque, cle deja liberee, compte comme un succes).
+_MESSAGES_TRANSFERT = {
+    "injoignable": ("Transfert impossible : serveur de licences injoignable. Connectez l'ordinateur "
+                    "a Internet puis reessayez."),
+    "cle_invalide": "Transfert refuse : cle inconnue du serveur de licences.",
+    "cle_liee_autre_poste": "Transfert refuse : la licence est liee a un autre ordinateur.",
+    "revoquee": "Transfert refuse : licence revoquee.",
+    "transferts_trop_nombreux": ("Transfert refuse : trop de transferts recents pour cette licence. "
+                                 "Contactez ETDEL, qui peut la liberer pour vous."),
+    "aucune_cle": "Aucune licence a transferer sur cet ordinateur.",
 }
 
 
@@ -162,27 +177,6 @@ def _id_poste(machine, produit):
     n = int.from_bytes(hashlib.sha256((machine + produit).encode("utf-8")).digest()[:5], "big")
     s = "".join(_ALPHABET[(n >> (35 - 5 * i)) & 31] for i in range(8))
     return s[:4] + "-" + s[4:]
-
-
-def _version_tuple(version):
-    parties = []
-    for morceau in str(version or "").strip().split("."):
-        chiffres = ""
-        for c in morceau:
-            if c not in "0123456789":
-                break
-            chiffres += c
-        parties.append(int(chiffres) if chiffres else 0)
-    while len(parties) > 1 and parties[-1] == 0:
-        parties.pop()
-    return parties
-
-
-def _comparer_versions(a, b):
-    x, y = _version_tuple(a), _version_tuple(b)
-    n = max(len(x), len(y))
-    x, y = x + [0] * (n - len(x)), y + [0] * (n - len(y))
-    return (x > y) - (x < y)
 
 
 # Codes et non caracteres : le fichier doit rester en ASCII pur.
@@ -693,22 +687,23 @@ def _jeton_coherent(p):
     options = p.get("options", [])
     if not isinstance(options, list) or not all(isinstance(o, str) for o in options):
         return False
-    for champ in ("version_min", "titulaire", "message"):
+    # version_min (toujours null depuis la 2.0.0, renseigne par un ancien
+    # serveur) est ignore.
+    for champ in ("titulaire", "message"):
         if p.get(champ) is not None and not isinstance(p.get(champ), str):
             return False
     return True
 
 
 class Garde(object):
-    """Controle de licence d'une application (produit + distribution)."""
+    """Controle de licence d'une application, identifiee par son code produit."""
 
-    def __init__(self, produit, distribution, version, _horloge=None, _transport=None,
+    def __init__(self, produit, version, _horloge=None, _transport=None,
                  _dossiers=None, _dossier_journal=None, _machine=None, _poste=None,
                  _urls=None, _cle_publique=None, _fil=True, _monotone=None,
                  _delai_initial=_DELAI_PREMIER_CONTROLE):
         # Parametres prefixes par _ : injection pour les tests uniquement.
         self.produit = str(produit)
-        self.distribution = str(distribution)
         self.version = str(version)
         self._horloge = _horloge or time.time
         self._monotone = _monotone or time.monotonic
@@ -749,14 +744,22 @@ class Garde(object):
             self._poste = _nettoyer(_poste, 64) if _poste is not None else _nom_ordinateur()
             self._id = _id_poste(self._machine, self.produit)
             dossiers = list(_dossiers) if _dossiers else _dossiers_defaut()
-            nom = "".join(c if (c.isalnum() and c.isascii()) or c in "-_." else "_"
-                          for c in "%s-%s.dat" % (self.produit, self.distribution))
-            secret = hashlib.sha256(("ETDEL|%s|%s|%s" % (self._machine, self.produit,
-                                                         self.distribution)).encode("utf-8")).digest()
-            self._stockage = _Stockage([os.path.join(d, nom) for d in dossiers], secret)
+            # Nom et secret de la 1.x, <PRODUIT>-<DISTRIBUTION>, avec le produit
+            # pour distribution : une application 1.x dont la distribution
+            # portait le code du produit garde son fichier tel quel.
+            self._stockage = _Stockage([os.path.join(d, self._nom_fichier(self.produit)) for d in dossiers],
+                                       self._secret(self.produit))
             self._dossier_journal = _dossier_journal or _dossier_journal_defaut(dossiers)
         except Exception as exc:
             self._raison = "initialisation : %s" % exc.__class__.__name__
+
+    def _nom_fichier(self, distribution):
+        return "".join(c if (c.isalnum() and c.isascii()) or c in "-_." else "_"
+                       for c in "%s-%s.dat" % (self.produit, distribution))
+
+    def _secret(self, distribution):
+        return hashlib.sha256(("ETDEL|%s|%s|%s" % (self._machine, self.produit,
+                                                   distribution)).encode("utf-8")).digest()
 
     # -- journal ------------------------------------------------------------
 
@@ -766,7 +769,7 @@ class Garde(object):
         try:
             if self._journal is None:
                 self._journal = _journal(self._dossier_journal)
-            self._journal.log(niveau, "[%s/%s] " % (self.produit, self.distribution) + texte, *args)
+            self._journal.log(niveau, "[%s] " % self.produit + texte, *args)
         except Exception:
             pass
 
@@ -784,7 +787,54 @@ class Garde(object):
                 self._charger()
 
     def _charger(self):
-        self._installer_etat(self._stockage.lire() if self._stockage else None)
+        contenu = None
+        if self._stockage is not None:
+            contenu = self._stockage.lire()
+            if contenu is None:
+                contenu = self._reprendre_etat_1x()
+        self._installer_etat(contenu)
+
+    def _reprendre_etat_1x(self):
+        """Etat laisse par un module 1.x (<PRODUIT>-<DISTRIBUTION>.dat), repris
+        tant que le poste n'a aucun fichier 2.0 : ni cle a ressaisir, ni demande
+        a refaire. Les anciens fichiers ne sont ni modifies ni supprimes."""
+        try:
+            if any(os.path.exists(chemin) for chemin in self._stockage.chemins):
+                return None
+            actuel = self._nom_fichier(self.produit)
+            # "<PRODUIT>-" tel qu'il figure dans les noms (un caractere pour un).
+            prefixe = actuel[:len(self.produit) + 1]
+            trouves = []
+            for chemin in self._stockage.chemins:
+                dossier = os.path.dirname(chemin)
+                try:
+                    noms = sorted(os.listdir(dossier))
+                except OSError:
+                    continue
+                for nom in noms:
+                    distribution = nom[len(prefixe):-4]
+                    if nom == actuel or not nom.startswith(prefixe) or not nom.endswith(".dat") or not distribution:
+                        continue
+                    try:
+                        with open(os.path.join(dossier, nom), "rb") as fichier:
+                            donnees = fichier.read(1048576)
+                    except OSError:
+                        continue
+                    # Secret propre a la distribution : un fichier d'un autre
+                    # produit (APP-X-... pour APP) ne se dechiffre pas.
+                    contenu = _Stockage([], self._secret(distribution)).decoder(donnees)
+                    if contenu is not None and contenu.get("v") == 1 and _entier(contenu.get("seq")):
+                        trouves.append((bool(contenu.get("cle")), isinstance(contenu.get("demande"), dict),
+                                        contenu["seq"], distribution, contenu))
+            if not trouves:
+                return None
+            # Une cle d'abord, puis une demande, puis l'etat le plus recent.
+            trouves.sort(key=lambda t: t[:3], reverse=True)
+            self._log(logging.INFO, "etat repris du module 1.x (distribution %s)", trouves[0][3])
+            return trouves[0][4]
+        except Exception as exc:
+            self._log(logging.ERROR, "reprise de l'etat 1.x : %r", exc)
+            return None
 
     def _rafraichir(self):
         """Relit l'etat si une autre instance de l'application l'a ecrit depuis.
@@ -961,8 +1011,9 @@ class Garde(object):
             return None
         if not isinstance(payload, dict) or not _jeton_coherent(payload):
             return None
-        if (payload.get("produit"), payload.get("distribution"), payload.get("machine")) != (
-                self.produit, self.distribution, self._machine):
+        # Le champ distribution n'est plus compare : celui d'un jeton 1.x repris
+        # porte l'ancien code ; produit et machine suffisent a lier le jeton.
+        if (payload.get("produit"), payload.get("machine")) != (self.produit, self._machine):
             return None
         return payload
 
@@ -1014,7 +1065,9 @@ class Garde(object):
     def _envoyer(self, op, champs, delai_max=None):
         with self._verrou:
             cascade = self._cascade()
-        corps = {"v": 1, "op": op, "produit": self.produit, "distribution": self.distribution,
+        # distribution : champ du protocole v1, toujours le produit (le serveur
+        # l'ignore et le renvoie, la reponse est verifiee sur cet echo).
+        corps = {"v": 1, "op": op, "produit": self.produit, "distribution": self.produit,
                  "machine": self._machine, "poste": self._poste, "version": self.version,
                  "nonce": _b64url(os.urandom(16)), "t": int(self._horloge())}
         corps.update(champs)
@@ -1089,8 +1142,7 @@ class Garde(object):
             return True
         if code in _CODES_BLOCAGE:
             self._log(logging.WARNING, "licence bloquee par le serveur : %s", code)
-            # La version refusee est memorisee : une mise a jour de l'application leve le blocage.
-            local["refus"] = {"code": code, "t": reel, "version": self.version}
+            local["refus"] = {"code": code, "t": reel}
             jusqu = payload.get("suspendue_jusqu")
             if code == "suspendue" and _entier(jusqu):
                 local["refus"]["jusqu"] = jusqu
@@ -1273,30 +1325,23 @@ class Garde(object):
             return REVOQUEE, _MESSAGES.get(self._revoque, "Licence revoquee"), None
         if local.get("cle"):
             refus = local.get("refus")
-            if (isinstance(refus, dict) and refus.get("code") == "version_trop_ancienne"
-                    and refus.get("version") != self.version):
-                refus = None
-            if isinstance(refus, dict):
+            # Refus de version memorise par un module 1.x : sans effet (2.0.0).
+            if isinstance(refus, dict) and refus.get("code") in _CODES_BLOCAGE:
                 code = refus.get("code")
-                if code == "version_trop_ancienne":
-                    return VERSION_REFUSEE, ("Version %s trop ancienne : mettez l'application a jour."
-                                             % self.version), None
                 if code == "suspendue":
                     # Cle conservee : le poste se debloque seul au premier controle
                     # qui suit la reactivation ou la date de fin.
                     fin = refus.get("jusqu")
                     if _entier(fin):
+                        # Sans nom de bouton : le message parait dans la fenetre
+                        # d'activation (Reessayer) comme dans la fenetre Licence.
                         return EXPIREE, ("Licence suspendue jusqu'au %s. Elle sera reactivee automatiquement "
-                                         "a cette date (Reessayer)." % _date(fin)), None
+                                         "a cette date." % _date(fin)), None
                     return EXPIREE, "Licence suspendue. Contactez ETDEL pour la reactiver.", None
                 return EXPIREE, _MESSAGES.get(code, "Licence bloquee"), None
             p = self._payload
             if p is None:
                 return EXPIREE, "Licence a verifier : connectez l'ordinateur a Internet puis reessayez.", None
-            version_min = p.get("version_min")
-            if version_min and _comparer_versions(self.version, version_min) < 0:
-                return VERSION_REFUSEE, ("Version %s trop ancienne : mettez l'application a jour "
-                                         "(version minimale %s)." % (self.version, version_min)), None
             echeance = p.get("echeance")
             jours = _jours_restants(echeance, maintenant) if echeance else None
             if echeance and maintenant >= echeance:
@@ -1408,7 +1453,8 @@ class Garde(object):
         return dict(self._dernier_etat)
 
     def option(self, code):
-        """Option de la distribution lue dans le jeton signe ; False si absente.
+        """Option lue dans le jeton signe (regles du produit, ou de la licence) ;
+        False si absente.
 
         Le joker "*" (console : toutes les options) active toute option demandee.
         """
@@ -1554,9 +1600,84 @@ class Garde(object):
             self._log(logging.ERROR, "demander : %r", exc)
             return {"ok": False, "code": "interne", "message": _MESSAGES["interne"]}
 
+    def transferer(self):
+        """Libere la licence de ce poste pour la saisir sur un autre ordinateur
+        (bloquant : a appeler hors du fil de l'interface).
+
+        Succes : la cle et l'etat de licence sont effaces de ce poste (statut
+        REVOQUEE jusqu'a la fermeture, A_ACTIVER au lancement suivant) ; le
+        message donne la cle a saisir sur le nouvel ordinateur. Une cle deja
+        liberee sur le serveur (poste_revoque : reponse perdue d'un premier
+        essai, ou liberation dans la console) compte comme un succes. Echec
+        (serveur injoignable, autre refus) : rien ne change sur le poste.
+        Renvoie {"ok": bool, "code": str ou None, "message": str}.
+        """
+        try:
+            if not self._configure or self._stockage is None:
+                return {"ok": False, "code": "non_configure", "message": _MESSAGES["non_configure"]}
+            with self._verrou_reseau:
+                self._assurer_charge()
+                self._rafraichir()
+                with self._verrou:
+                    cle = self._local.get("cle")
+                if not cle:
+                    return {"ok": False, "code": "aucune_cle", "message": _MESSAGES_TRANSFERT["aucune_cle"]}
+                payload, _enveloppe, raison = self._envoyer("liberer", {"cle": cle})
+                with self._verrou:
+                    if payload is None:
+                        self._raison = raison
+                        self._log(logging.WARNING, "transfert : %s", raison)
+                        self._sauver()
+                        return {"ok": False, "code": "injoignable", "message": _MESSAGES_TRANSFERT["injoignable"]}
+                    code = payload.get("code")
+                    if payload.get("ok") is not True and code == "poste_revoque":
+                        # La cle n'est deja plus liee a aucun ordinateur : transfert
+                        # enregistre dont la reponse s'est perdue (delai depasse,
+                        # nouvel essai), ou cle liberee dans la console. Meme issue
+                        # qu'un succes : sinon le poste resterait valide jusqu'au
+                        # controle suivant, qui le bloquerait.
+                        self._log(logging.INFO, "transfert : cle deja liberee sur le serveur")
+                    elif payload.get("ok") is not True:
+                        self._sauver()
+                        self._log(logging.INFO, "transfert refuse : %s", code)
+                        message = _MESSAGES_TRANSFERT.get(code) or _MESSAGES.get(code) or (
+                            "Transfert refuse par le serveur de licences (%s)." % code)
+                        return {"ok": False, "code": code, "message": message}
+                    local = self._local
+                    local.update(cle=None, jeton=None, refus=None, demande=None, jeton_envoi=None,
+                                 dernier_controle=int(self._horloge()))
+                    self._payload = None
+                    self._revoque = "transferee"
+                    self._raison = ""
+                    self._sauver()
+                    self._log(logging.INFO, "licence transferee : cle ...%s liberee sur ce poste", cle[-4:])
+            return {"ok": True, "code": None,
+                    "message": "Licence transferee : saisissez la cle %s sur le nouvel ordinateur." % cle}
+        except Exception as exc:
+            self._log(logging.ERROR, "transferer : %r", exc)
+            return {"ok": False, "code": "interne", "message": _MESSAGES["interne"]}
+
+    def _transferable(self, statut):
+        """Vrai si la fenetre Licence propose le transfert : une cle, et une
+        licence utilisable ou bloquee par une suspension."""
+        with self._verrou:
+            local = self._local or {}
+            if not local.get("cle"):
+                return False
+            if statut in (VALIDE, AVERTISSEMENT):
+                return True
+            refus = local.get("refus")
+            return statut == EXPIREE and isinstance(refus, dict) and refus.get("code") == "suspendue"
+
     def _cle_affichee(self, complete=False):
         """Cle du poste pour la fenetre Licence : masquee comme dans la console
         (ETDEL-****-****-****-XXXX), ou complete sur demande ; "" sans cle."""
+        if not self._configure or self._stockage is None:
+            return ""
+        try:
+            self._assurer_charge()
+        except Exception:
+            return ""
         with self._verrou:
             cle = (self._local or {}).get("cle")
         if not cle:
@@ -1571,9 +1692,9 @@ class Garde(object):
             e = self.etat()
             echeance = _date(e["echeance"]) if e["echeance"] else (
                 "perpetuelle" if e["statut"] in (VALIDE, AVERTISSEMENT) else "-")
-            return ("Licence ETDEL %s ; %s/%s v%s ; poste %s (%s) ; %s ; echeance %s ; "
+            return ("Licence ETDEL %s ; %s v%s ; poste %s (%s) ; %s ; echeance %s ; "
                     "controle %s ; serveur %s ; kid %s%s" % (
-                        MODULE_VERSION, self.produit, self.distribution, self.version,
+                        MODULE_VERSION, self.produit, self.version,
                         e["id_poste"], _ascii(e["nom_ordinateur"]), e["statut"], echeance,
                         _date_heure(e["dernier_controle"]) or "jamais",
                         _hote(e["url_active"]) if e["url_active"] else "-",
@@ -1622,14 +1743,13 @@ _PASTILLES = {
     VALIDE: ("vert", "Valide"), ESSAI: ("bleu", "Essai"), AVERTISSEMENT: ("orange", "Attention"),
     DEMANDE_EN_ATTENTE: ("bleu", "En attente"), DEMANDE_REFUSEE: ("rouge", "Refusee"),
     EXPIREE: ("rouge", "Bloquee"), REVOQUEE: ("rouge", "Revoquee"),
-    VERSION_REFUSEE: ("rouge", "Mise a jour requise"), A_ACTIVER: ("gris", "Non activee"),
-    NON_CONFIGURE: ("gris", "Non configuree"),
+    A_ACTIVER: ("gris", "Non activee"), NON_CONFIGURE: ("gris", "Non configuree"),
 }
 # Glyphes des polices d'icones de Windows 10 et 11 (codes : le fichier reste en
 # ASCII). Sans ces polices, un "i" ou un "!" les remplace.
 _GLYPHES = {"cle": chr(0xE8D7), "envoi": chr(0xE724), "ok": chr(0xE73E), "horloge": chr(0xE823),
-            "alerte": chr(0xE7BA), "refus": chr(0xE711), "maj": chr(0xE898), "info": chr(0xE946),
-            "licence": chr(0xEA18)}
+            "alerte": chr(0xE7BA), "refus": chr(0xE711), "info": chr(0xE946),
+            "licence": chr(0xEA18), "transfert": chr(0xE8AB)}
 _POLICES_ICONES = ("Segoe Fluent Icons", "Segoe MDL2 Assets")
 _FAMILLE_ICONES = [None]
 # Largeur utile des pages de la fenetre d'activation, en pixels a 96 ppp.
@@ -1987,7 +2107,7 @@ def _badge(parent, s, icone, ton, taille, fond):
                             font=s.icone(taille * 0.42))
     else:
         canevas.create_text(d / 2.0, d / 2.0, fill=fort, font=s.carte,
-                            text="!" if icone in ("alerte", "refus", "maj") else "i")
+                            text="!" if icone in ("alerte", "refus") else "i")
     return canevas
 
 
@@ -2270,11 +2390,13 @@ class _CadreLicence(object):
 
     actions : cadre ou placer "Verifier maintenant" et son retour (pied de la
     fenetre Licence) ; a defaut, sous les informations du cadre.
+    transfert : commande du lien "Transferer cette licence" (fenetre Licence
+    seulement : le cadre d'une page de reglages reste en lecture seule).
     """
 
     AUCUNE = "Aucune licence a verifier sur ce poste."
 
-    def __init__(self, parent, garde, pal, style=None, encadre=True, actions=None):
+    def __init__(self, parent, garde, pal, style=None, encadre=True, actions=None, transfert=None):
         tk = _tk()
         self.garde = garde
         self.s = s = style or _Style(parent, pal)
@@ -2347,8 +2469,20 @@ class _CadreLicence(object):
         self.cle_visible = False
         self.bouton_cle = code(6, "cle", 26, "Afficher la cle", self._basculer_cle)
         libelle(7, "Nom de l'ordinateur")
-        valeur(7, "nom_ordinateur")
-        # Message de la distribution (saisi dans la console), affiche s'il existe.
+        self.bouton_transfert = None
+        self._transfert_visible = False
+        if transfert is None:
+            valeur(7, "nom_ordinateur")
+        else:
+            # Changer d'ordinateur depuis l'application : propose tant que la
+            # licence est utilisable ou suspendue (voir rafraichir).
+            cellule = tk.Frame(self.cadre, bg=fond)
+            cellule.grid(row=7, column=1, sticky="w", pady=s.px(2))
+            self.valeurs["nom_ordinateur"] = tk.Label(cellule, bg=fond, fg=c["texte"], font=s.texte, anchor="w",
+                                                      justify="left", wraplength=s.px(200))
+            self.valeurs["nom_ordinateur"].pack(side="left")
+            self.bouton_transfert = _bouton(cellule, s, "Transferer cette licence", transfert, "lien", fond)
+        # Message d'accueil du produit (saisi dans la console), affiche s'il existe.
         self.boite_message, zone = _encadre(self.cadre, s, "bleu", "info")
         self.boite_message.grid(row=8, column=0, columnspan=2, sticky="we", pady=(s.px(10), 0))
         self.message = tk.Label(zone, bg=c["bleu_doux"], fg=c["texte"], font=s.texte, anchor="w",
@@ -2500,9 +2634,19 @@ class _CadreLicence(object):
             c = self.s.c
             e = self.garde.etat()
             ton, libelle = _PASTILLES.get(e["statut"], ("gris", e["statut"]))
+            if e["statut"] == REVOQUEE and self.garde._revoque == "transferee":
+                ton, libelle = "gris", "Transferee"
             _configurer(self.pastille, text=libelle, bg=c[ton + "_doux"], fg=c[ton + "_fort"])
             _ecrire_champ(self.valeurs["id_poste"], e["id_poste"] or "")
             self._afficher_cle()
+            if self.bouton_transfert is not None:
+                visible = self.garde._transferable(e["statut"])
+                if visible != self._transfert_visible:
+                    self._transfert_visible = visible
+                    if visible:
+                        self.bouton_transfert.pack(side="left", padx=(self.s.px(10), 0))
+                    else:
+                        self.bouton_transfert.pack_forget()
             if e["echeance"]:
                 echeance = _date(e["echeance"])
                 if e["jours_restants"]:
@@ -2566,7 +2710,9 @@ class _FenetreLicence(object):
         tk.Label(textes, text="Licence", font=s.titre, bg=fond, fg=c["texte"], anchor="w").pack(fill="x")
         tk.Label(textes, text="%s - version %s" % (_ascii(garde.produit), _ascii(garde.version)), font=s.texte,
                  bg=fond, fg=c["discret"], anchor="w").pack(fill="x", pady=(s.px(2), 0))
-        self.cadre = _CadreLicence(self.win, garde, integ.pal, s, encadre=False, actions=actions)
+        self.dialogue = None
+        self.cadre = _CadreLicence(self.win, garde, integ.pal, s, encadre=False, actions=actions,
+                                   transfert=self.transferer)
         self.cadre.cadre.pack(fill="both", expand=True, padx=s.px(28), pady=(s.px(14), s.px(16)))
         self.win.protocol("WM_DELETE_WINDOW", self.fermer)
         for sequence in ("<Return>", "<KP_Enter>"):
@@ -2591,6 +2737,23 @@ class _FenetreLicence(object):
             self.fermer()
         return "break"
 
+    def transferer(self):
+        """Lien "Transferer cette licence" : confirmation (cle complete a noter), puis transfert."""
+        try:
+            if self.dialogue is not None and not self.dialogue.ferme:
+                self.dialogue.win.lift()
+                return
+            garde = self.integ.garde
+            if not garde._transferable(garde.etat()["statut"]):
+                # Cle effacee ou licence bloquee depuis l'affichage du lien,
+                # masque au rafraichissement suivant.
+                return
+            self.dialogue = _DialogueTransfert(self)
+        except Exception as exc:
+            self.dialogue = None
+            self.integ.transfert = None
+            self.integ.garde._log(logging.ERROR, "fenetre de transfert : %r", exc)
+
     def fermer(self):
         try:
             self.win.destroy()
@@ -2598,81 +2761,11 @@ class _FenetreLicence(object):
             self.integ.fenetre_licence = None
 
 
-class _FenetreActivation(object):
-    """Fenetre modale : A_ACTIVER, DEMANDE_EN_ATTENTE, DEMANDE_REFUSEE, EXPIREE, VERSION_REFUSEE.
-
-    Rien n'est envoye au serveur sans clic explicite. Fermer quitte l'application.
-    Entree active le bouton qui a le focus clavier, sinon (dans un champ)
-    l'action principale de la page ; Echap revient en arriere depuis la saisie
-    d'une cle ou le formulaire de demande, et ferme la page "Demande envoyee".
-    """
-
-    PAGES_STATUT = ("accueil", "attente", "refus", "expiree", "version")
-    AIDE_TITULAIRE = "Societe ou personne a qui la licence est destinee"
-
-    def __init__(self, integ):
-        tk = _tk()
-        self.integ = integ
-        self.garde = integ.garde
-        self.pal = integ.pal
-        self.s = integ.style()
-        self.file = queue.Queue()
-        self.occupe = False
-        self.ferme = False
-        self.page = None
-        self.corps = None
-        self.contenu = None
-        self.pied = None
-        self.boutons = []
-        self.principal = None
-        self.echap = None
-        self.erreur = None
-        self.info = None
-        self._apres = None
-        self._apres_cle = None
-        self._message_cle = None
-        self._formatage = False
-        self._place = False
-        self._delais = set()
-        integ.root.withdraw()
-        self.win = tk.Toplevel(integ.root)
-        # Construite cachee puis centree : aucune fenetre ne saute a l'ecran.
-        self.win.withdraw()
-        self.win.title("Licence - %s" % self.garde.produit)
-        self.win.configure(bg=self.s.c["panneau"])
-        self.win.resizable(False, False)
-        self.win.protocol("WM_DELETE_WINDOW", integ.quitter)
-        self.win.bind("<Destroy>", self._sur_destruction, add="+")
-        for sequence in ("<Return>", "<KP_Enter>"):
-            self.win.bind(sequence, self._sur_entree, add="+")
-        self.win.bind("<Escape>", self._sur_echap, add="+")
-        try:
-            self.afficher_statut()
-        except Exception:
-            # Fenetre cachee inachevee : detruite, l'appelant (ouvrir_activation)
-            # prend le relais ; l'application ne reste jamais invisible.
-            try:
-                self.win.destroy()
-            except Exception:
-                pass
-            self.ferme = True
-            raise
-        if not self.ferme:
-            self._apres = self.win.after(200, self._sonder)
-
-    def _sur_destruction(self, evenement):
-        if evenement.widget is self.win:
-            self.ferme = True
-            for apres in (self._apres, self._apres_cle):
-                if apres is not None:
-                    try:
-                        self.win.after_cancel(apres)
-                    except Exception:
-                        pass
-            self._apres = self._apres_cle = None
-            _annuler(self.win, self._delais)
-
-    # -- construction -------------------------------------------------------
+class _Pages(object):
+    """Construction commune des fenetres a pages (activation, transfert) :
+    barre de couleur, pastille a icone, titre, explication, contenu, pied.
+    Attributs attendus : win, s, integ, corps, pied, contenu, boutons,
+    principal, echap, erreur, info, occupe, _apres_cle, _message_cle, _delais."""
 
     def _nouvelle_page(self, nom, titre, sous_titre="", icone="cle", ton="accent", e=None):
         """En-tete (icone, titre, explication), contenu, pied (identifiant du poste si e, actions)."""
@@ -2782,6 +2875,90 @@ class _FenetreActivation(object):
         except Exception:
             pass
 
+    def _sur_echap(self, _evenement=None):
+        if self.echap is not None and not self.occupe:
+            try:
+                self.echap()
+            except Exception:
+                pass
+
+
+class _FenetreActivation(_Pages):
+    """Fenetre modale : A_ACTIVER, DEMANDE_EN_ATTENTE, DEMANDE_REFUSEE, EXPIREE.
+
+    Rien n'est envoye au serveur sans clic explicite. Fermer quitte l'application.
+    Entree active le bouton qui a le focus clavier, sinon (dans un champ)
+    l'action principale de la page ; Echap revient en arriere depuis la saisie
+    d'une cle ou le formulaire de demande, et ferme la page "Demande envoyee".
+    """
+
+    PAGES_STATUT = ("accueil", "attente", "refus", "expiree")
+    AIDE_TITULAIRE = "Societe ou personne a qui la licence est destinee"
+
+    def __init__(self, integ):
+        tk = _tk()
+        self.integ = integ
+        self.garde = integ.garde
+        self.pal = integ.pal
+        self.s = integ.style()
+        self.file = queue.Queue()
+        self.occupe = False
+        self.ferme = False
+        self.page = None
+        self.corps = None
+        self.contenu = None
+        self.pied = None
+        self.boutons = []
+        self.principal = None
+        self.echap = None
+        self.erreur = None
+        self.info = None
+        self._apres = None
+        self._apres_cle = None
+        self._message_cle = None
+        self._formatage = False
+        self._place = False
+        self._delais = set()
+        integ.root.withdraw()
+        self.win = tk.Toplevel(integ.root)
+        # Construite cachee puis centree : aucune fenetre ne saute a l'ecran.
+        self.win.withdraw()
+        self.win.title("Licence - %s" % self.garde.produit)
+        self.win.configure(bg=self.s.c["panneau"])
+        self.win.resizable(False, False)
+        self.win.protocol("WM_DELETE_WINDOW", integ.quitter)
+        self.win.bind("<Destroy>", self._sur_destruction, add="+")
+        for sequence in ("<Return>", "<KP_Enter>"):
+            self.win.bind(sequence, self._sur_entree, add="+")
+        self.win.bind("<Escape>", self._sur_echap, add="+")
+        try:
+            self.afficher_statut()
+        except Exception:
+            # Fenetre cachee inachevee : detruite, l'appelant (ouvrir_activation)
+            # prend le relais ; l'application ne reste jamais invisible.
+            try:
+                self.win.destroy()
+            except Exception:
+                pass
+            self.ferme = True
+            raise
+        if not self.ferme:
+            self._apres = self.win.after(200, self._sonder)
+
+    def _sur_destruction(self, evenement):
+        if evenement.widget is self.win:
+            self.ferme = True
+            for apres in (self._apres, self._apres_cle):
+                if apres is not None:
+                    try:
+                        self.win.after_cancel(apres)
+                    except Exception:
+                        pass
+            self._apres = self._apres_cle = None
+            _annuler(self.win, self._delais)
+
+    # -- construction -------------------------------------------------------
+
     def _placer(self):
         try:
             if self._place:
@@ -2814,13 +2991,6 @@ class _FenetreActivation(object):
             pass
         return None
 
-    def _sur_echap(self, _evenement=None):
-        if self.echap is not None and not self.occupe:
-            try:
-                self.echap()
-            except Exception:
-                pass
-
     @staticmethod
     def _focus_voisin(evenement, suivant):
         # Tab dans le mot pour ETDEL : champ suivant plutot qu'une tabulation.
@@ -2845,15 +3015,12 @@ class _FenetreActivation(object):
             self.page_refus(e)
         elif statut == EXPIREE:
             self.page_expiree(e)
-        elif statut == VERSION_REFUSEE:
-            self.page_version(e)
         else:
             self.page_accueil(e)
 
     @staticmethod
     def _page_pour(statut):
-        return {DEMANDE_EN_ATTENTE: "attente", DEMANDE_REFUSEE: "refus", EXPIREE: "expiree",
-                VERSION_REFUSEE: "version"}.get(statut, "accueil")
+        return {DEMANDE_EN_ATTENTE: "attente", DEMANDE_REFUSEE: "refus", EXPIREE: "expiree"}.get(statut, "accueil")
 
     def page_accueil(self, e=None):
         tk = _tk()
@@ -3008,17 +3175,34 @@ class _FenetreActivation(object):
         self._nouvelle_page("expiree", "Licence suspendue" if suspendue else "Licence a verifier",
                             "L'application ne peut pas s'ouvrir pour le moment.", "alerte", ton, e)
         self._boite(ton, [(e["message"], "normal")])
+        if self.garde._transferable(e["statut"]):
+            # Licence suspendue : transferable vers un autre ordinateur, comme
+            # depuis la fenetre Licence (Ctrl+Maj+L), sans avoir a le savoir.
+            tk = _tk()
+            s, c = self.s, self.s.c
+            ligne = tk.Frame(self.contenu, bg=c["panneau"])
+            ligne.pack(fill="x", pady=(s.px(10), 0))
+            tk.Label(ligne, text="Changer d'ordinateur :", font=s.petit, bg=c["panneau"], fg=c["discret"]).pack(
+                side="left")
+            lien = _bouton(ligne, s, "Transferer cette licence", self._ouvrir_transfert, "lien", c["panneau"])
+            lien.pack(side="left", padx=(s.px(4), 0))
+            self.boutons.append(lien)
         self.info = self._texte("", couleur=self.s.c["discret"], police=self.s.petit, haut=10, bas=0)
         self._boutons([("J'ai une cle", self.page_cle, "secondaire"), ("Reessayer", self._verifier, "principal")])
         self._placer()
 
-    def page_version(self, e):
-        self._nouvelle_page("version", "Mise a jour necessaire",
-                            "Cette version de l'application n'est plus acceptee.", "maj", "orange", e)
-        self._boite("orange", [(e["message"], "normal")])
-        self.info = self._texte("", couleur=self.s.c["discret"], police=self.s.petit, haut=10, bas=0)
-        self._boutons([("Quitter", self.integ.quitter, "secondaire"), ("Reessayer", self._verifier, "principal")])
-        self._placer()
+    def _ouvrir_transfert(self):
+        """Lien "Transferer cette licence" (licence suspendue) : fenetre Licence,
+        puis sa confirmation de transfert (cle complete a noter)."""
+        if self.occupe:
+            return
+        try:
+            self.integ.ouvrir_licence()
+            fenetre = self.integ.fenetre_licence
+            if fenetre is not None:
+                fenetre.transferer()
+        except Exception as exc:
+            self.garde._log(logging.ERROR, "transfert depuis la fenetre d'activation : %r", exc)
 
     # -- actions ------------------------------------------------------------
 
@@ -3222,6 +3406,220 @@ class _FenetreActivation(object):
         self.integ.fenetre_fermee()
 
 
+class _DialogueTransfert(_Pages):
+    """Transfert de la licence vers un autre ordinateur, ouvert depuis la fenetre Licence.
+
+    Confirmation d'abord : la cle complete, a noter ou copier, et ce qui va se
+    passer. "Transferer" interroge le serveur dans un fil. Succes : page
+    "Licence transferee" (cle a saisir sur le nouvel ordinateur), puis
+    fermeture de l'application, comme apres une revocation. Echec : message,
+    rien ne change sur le poste. Entree n'agit que sur le bouton qui a le
+    focus ("Annuler" a l'ouverture) : jamais de transfert par megarde.
+    """
+
+    def __init__(self, fenetre_licence):
+        tk = _tk()
+        self.parent = fenetre_licence
+        self.integ = integ = fenetre_licence.integ
+        self.garde = integ.garde
+        self.s = s = integ.style()
+        self.file = queue.Queue()
+        self.occupe = False
+        self.ferme = False
+        self.transferee = False
+        self.page = None
+        self.corps = self.contenu = self.pied = None
+        self.boutons = []
+        self.principal = self.echap = self.erreur = self.info = None
+        self._apres = None
+        self._apres_cle = None
+        self._message_cle = None
+        self._place = False
+        self._delais = set()
+        self.cle = self.garde._cle_affichee(True)
+        self.win = tk.Toplevel(fenetre_licence.win)
+        # Construite cachee puis centree sur la fenetre Licence.
+        self.win.withdraw()
+        self.win.title("Transferer la licence - %s" % _ascii(self.garde.produit))
+        self.win.configure(bg=s.c["panneau"])
+        self.win.resizable(False, False)
+        try:
+            self.win.transient(fenetre_licence.win)
+        except Exception:
+            pass
+        self.win.protocol("WM_DELETE_WINDOW", self._sur_fermeture)
+        self.win.bind("<Destroy>", self._sur_destruction, add="+")
+        for sequence in ("<Return>", "<KP_Enter>"):
+            self.win.bind(sequence, self._sur_entree, add="+")
+        self.win.bind("<Escape>", self._sur_echap, add="+")
+        # Fenetre ouverte : le tick ne ferme pas l'application, c'est elle qui
+        # le fait apres avoir montre la cle (voir _Integration._tick).
+        integ.transfert = self
+        try:
+            self.page_confirmation()
+        except Exception:
+            # Fenetre inachevee : detruite (et integ.transfert remis a None).
+            try:
+                self.win.destroy()
+            except Exception:
+                pass
+            raise
+
+    def _sur_destruction(self, evenement):
+        if evenement.widget is self.win:
+            self.ferme = True
+            if self._apres is not None:
+                try:
+                    self.win.after_cancel(self._apres)
+                except Exception:
+                    pass
+                self._apres = None
+            _annuler(self.win, self._delais)
+            if self.integ.transfert is self:
+                self.integ.transfert = None
+            if self.parent.dialogue is self:
+                self.parent.dialogue = None
+
+    def _placer(self):
+        if self._place:
+            _recentrer(self.win)
+            return
+        self._place = True
+        try:
+            _centrer(self.win, self.parent.win)
+            _habiller_fenetre(self.win, self.integ.root, self.s)
+            self.win.deiconify()
+            self.win.lift()
+        except Exception:
+            pass
+        try:
+            # Modale : la fenetre Licence attend la fin du transfert.
+            self.win.grab_set()
+        except Exception:
+            pass
+
+    def _champ_cle(self):
+        """Cle complete en lecture seule (selectionnable), suivie de "Copier"."""
+        tk = _tk()
+        s, c = self.s, self.s.c
+        ligne = tk.Frame(self.contenu, bg=c["panneau"])
+        ligne.pack(fill="x")
+        cadre, self.entree_cle = _saisie(ligne, s, police=s.cle, lecture_seule=True, valeur=self.cle)
+        cadre.pack(side="left", fill="x", expand=True)
+        copier = _bouton(ligne, s, "Copier", None, "lien", c["panneau"])
+        copier.configure(width=7, anchor="w", command=lambda: self._copier(self.cle, copier))
+        copier.pack(side="left", padx=(s.px(10), 0))
+
+    def page_confirmation(self):
+        s, c = self.s, self.s.c
+        self._nouvelle_page("confirmation", "Transferer cette licence",
+                            "Pour utiliser l'application sur un autre ordinateur.", "transfert", "accent")
+        self._libelle(self.contenu, "Cle de licence", "a noter : elle sera demandee sur le nouvel ordinateur").pack(
+            fill="x", pady=(0, s.px(6)))
+        self._champ_cle()
+        self._boite("orange", [("L'application sera desactivee sur cet ordinateur.", "gras"),
+                               ("Une fois la licence transferee, l'application se ferme ici. Sur le nouvel "
+                                "ordinateur, choisissez J'ai une cle et saisissez la cle ci-dessus.", "normal"),
+                               ("Cet ordinateur doit etre connecte a Internet.", "discret")], "alerte", haut=16)
+        self.erreur = self._texte("", couleur=c["discret"], haut=10, bas=0)
+        self._boutons([("Annuler", self.fermer, "secondaire"), ("Transferer", self._transferer, "principal")])
+        self.echap = self.fermer
+        self._placer()
+        try:
+            self.boutons[0].focus_set()
+        except Exception:
+            pass
+
+    def page_transferee(self, message):
+        s, c = self.s, self.s.c
+        self.transferee = True
+        self._nouvelle_page("transferee", "Licence transferee", "La licence n'est plus active sur cet ordinateur.",
+                            "ok", "vert")
+        self._boite("vert", [(message, "gras")], "ok", bas=16)
+        self._libelle(self.contenu, "Cle de licence", "a saisir sur le nouvel ordinateur").pack(
+            fill="x", pady=(0, s.px(6)))
+        self._champ_cle()
+        self._texte("L'application va se fermer sur cet ordinateur.", couleur=c["discret"], haut=12, bas=0)
+        self._boutons([("Fermer l'application", self._quitter, "principal")])
+        self.echap = self._quitter
+        self._placer()
+        try:
+            self.principal.focus_set()
+        except Exception:
+            pass
+
+    def _transferer(self):
+        if self.occupe or self.transferee:
+            return
+        self.occupe = True
+        for bouton in self.boutons:
+            _activer_bouton(bouton, False)
+        self.erreur.configure(text="Transfert en cours...", fg=self.s.c["discret"])
+
+        def tache():
+            try:
+                resultat = self.garde.transferer()
+            except Exception:
+                resultat = {"ok": False, "code": "interne", "message": _MESSAGES["interne"]}
+            self.file.put(resultat)
+
+        threading.Thread(target=tache, name="etdel_licence_transfert", daemon=True).start()
+        self._apres = self.win.after(100, self._sonder)
+
+    def _sonder(self):
+        self._apres = None
+        if self.ferme:
+            return
+        try:
+            resultat = self.file.get_nowait()
+        except queue.Empty:
+            self._apres = self.win.after(100, self._sonder)
+            return
+        self.occupe = False
+        try:
+            if resultat.get("ok"):
+                self.page_transferee(resultat.get("message") or "")
+                return
+            for bouton in self.boutons:
+                _activer_bouton(bouton, True)
+            self.erreur.configure(text=resultat.get("message") or _MESSAGES["interne"], fg=self.s.c["rouge_fort"])
+        except Exception:
+            pass
+
+    def _sur_entree(self, evenement):
+        # Le bouton qui a le focus ; sur la page finale, Fermer l'application.
+        try:
+            if not self.occupe and not _invoquer_bouton(evenement.widget) and self.transferee:
+                self.principal.invoke()
+        except Exception:
+            pass
+        return "break"
+
+    def _sur_fermeture(self):
+        if self.occupe:
+            return
+        if self.transferee:
+            self._quitter()
+        else:
+            self.fermer()
+
+    def _quitter(self):
+        self.integ.quitter()
+
+    def fermer(self):
+        if self.occupe or self.ferme:
+            return
+        try:
+            self.win.destroy()
+        except Exception:
+            pass
+        self.ferme = True
+        try:
+            self.parent.win.focus_set()
+        except Exception:
+            pass
+
+
 class _Integration(object):
     """Tout ce que installer() branche sur la fenetre principale."""
 
@@ -3232,6 +3630,9 @@ class _Integration(object):
         self.pal = _palette(palette, root, garde._log, fenetres=True)
         self.fenetre = None
         self.fenetre_licence = None
+        # Fenetre de transfert ouverte (_DialogueTransfert) : elle ferme elle-meme
+        # l'application apres un transfert reussi.
+        self.transfert = None
         self.bandeau = None
         self.termine = False
         self._origine = ""
@@ -3363,8 +3764,8 @@ class _Integration(object):
             e = self.garde.etat()
             statut = e["statut"]
             self._maj_bandeau(e)
-            if self.fenetre is None:
-                if statut in (EXPIREE, REVOQUEE, VERSION_REFUSEE):
+            if self.fenetre is None and self.transfert is None:
+                if statut in (EXPIREE, REVOQUEE):
                     self._bloquer(e)
                     return
                 if statut in _STATUTS_FENETRE:
@@ -3434,15 +3835,17 @@ class _Integration(object):
         _configurer(self._bandeau_lien, bg=fond, fg=vif)
 
 
-def installer(root, produit, distribution, version, palette=None, _garde=None):
+def installer(root, produit, version, palette=None, _garde=None):
     """Branche la licence sur la fenetre principale ; renvoie la Garde.
 
-    Constantes vides : ne fait rien (aucun fichier, aucun reseau, aucun message).
+    produit : code de l'application aupres du serveur (cree automatiquement a
+    la premiere demande). Constantes vides : ne fait rien (aucun fichier,
+    aucun reseau, aucun message).
     """
     garde = _garde
     try:
         if garde is None:
-            garde = Garde(produit=produit, distribution=distribution, version=version)
+            garde = Garde(produit=produit, version=version)
         if not garde._configure:
             return garde
         garde.demarrer()
@@ -3455,12 +3858,12 @@ def installer(root, produit, distribution, version, palette=None, _garde=None):
     return garde
 
 
-def exiger(produit, distribution, version, _garde=None):
+def exiger(produit, version, _garde=None):
     """Variante console : controle synchrone (5 s), sinon message et sys.exit(3)."""
     garde = _garde
     try:
         if garde is None:
-            garde = Garde(produit=produit, distribution=distribution, version=version, _fil=False)
+            garde = Garde(produit=produit, version=version, _fil=False)
         if not garde._configure:
             return garde
         garde._assurer_charge()

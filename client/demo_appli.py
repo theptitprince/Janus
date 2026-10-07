@@ -3,6 +3,8 @@
 #        etdel_licence (activation, demande, bandeau, fenetre Licence, options).
 #        Banc d'essai uniquement : --serveur, --cle-publique et --banc remplacent
 #        les constantes du module, ce qu'aucune application livree ne doit faire.
+#        Rien a preparer dans la console : la premiere demande de licence cree
+#        le produit DEMO sur le serveur.
 #        Exemples : python demo_appli.py --banc   (banc local, voir README.md)
 #                   python demo_appli.py --serveur http://127.0.0.1:8090/api/v1/ --cle-publique <cle>
 # ETDEL (c) 2026
@@ -10,8 +12,6 @@
 import argparse
 import json
 import os
-import pathlib
-import sqlite3
 import subprocess
 import sys
 import tkinter as tk
@@ -21,8 +21,6 @@ import etdel_licence
 
 APP_VERSION = "1.0.0"
 PRODUIT = "DEMO"
-# Distribution du banc (README, etape 5), aussi le defaut sans base lisible.
-DISTRIBUTION = "DEMO-BANC"
 ICI = os.path.dirname(os.path.abspath(__file__))
 # Theme de la fenetre de demonstration : celui du module (cle publique PALETTE_DEFAUT).
 FOND = etdel_licence.PALETTE_DEFAUT["fond"]
@@ -32,7 +30,6 @@ URL_BANC = "http://127.0.0.1:8090/api/v1/"
 # Premiere cle publique du banc, comme celle qu'une application embarque ;
 # les rotations suivantes arrivent par bulletins, comme sur un vrai poste.
 FICHE_BANC = os.path.join(ICI, "..", "serveur", "www", "prive", "cles", "signature_1.json")
-BASE_BANC = os.path.join(ICI, "..", "serveur", "www", "prive", "data", "licenses.db")
 
 
 def _cle_banc():
@@ -41,28 +38,6 @@ def _cle_banc():
             return json.load(fichier)["cle_publique"]
     except (OSError, ValueError, KeyError, TypeError):
         return None
-
-
-def _distribution_banc():
-    """Distribution de la demo sur le banc, lue dans sa base ouverte en lecture
-    seule : DEMO-BANC si elle existe et est active (README, etape 5), sinon la
-    premiere distribution active (plus petit id) du produit DEMO ; DEMO-BANC a
-    defaut."""
-    try:
-        uri = pathlib.Path(os.path.abspath(BASE_BANC)).as_uri() + "?mode=ro"
-        connexion = sqlite3.connect(uri, uri=True, timeout=2)
-        try:
-            ligne = connexion.execute(
-                "SELECT d.code FROM distributions d JOIN produits p ON p.id = d.produit_id "
-                "WHERE p.code = ? AND d.actif = 1 "
-                "ORDER BY (d.code = ?) DESC, d.id LIMIT 1", (PRODUIT, DISTRIBUTION)).fetchone()
-        finally:
-            connexion.close()
-        if ligne and ligne[0]:
-            return str(ligne[0])
-    except (sqlite3.Error, OSError, ValueError):
-        pass
-    return DISTRIBUTION
 
 
 def _bouton_plat(parent, texte, commande=None):
@@ -94,11 +69,7 @@ def construire(arguments=None):
                          help="serveur local du banc (%s), cle publique lue dans serveur/www/prive/cles" % URL_BANC)
     lecteur.add_argument("--serveur", help="URL de l'API, ex. %s" % URL_BANC)
     lecteur.add_argument("--cle-publique", help="cle publique affichee par install.php ou l'ecran Cles")
-    lecteur.add_argument("--distribution",
-                         help="distribution (defaut %s ; avec --banc, si la base du banc n'a pas de %s active, "
-                              "la premiere distribution active du produit %s)" % (DISTRIBUTION, DISTRIBUTION, PRODUIT))
     options = lecteur.parse_args(arguments)
-    distribution = options.distribution or (_distribution_banc() if options.banc else DISTRIBUTION)
     probleme = None
     if options.banc:
         etdel_licence.LICENCE_URL = URL_BANC
@@ -118,13 +89,13 @@ def construire(arguments=None):
     root.configure(bg=FOND)
     # Taille naturelle : le cadre Licence est affiche en entier.
     root.minsize(600, 0)
-    garde = etdel_licence.installer(root, produit=PRODUIT, distribution=distribution,
-                                    version=APP_VERSION)
+    garde = etdel_licence.installer(root, produit=PRODUIT, version=APP_VERSION)
 
     tk.Label(root, text="Application de demonstration", font=("Segoe UI", 14, "bold"), bg=FOND,
              fg=TEXTE).pack(pady=(40, 2))
     configure = bool(etdel_licence.LICENCE_URL and etdel_licence.LICENCE_CLE_PUBLIQUE)
-    tk.Label(root, fg=DISCRET, bg=FOND, text=("Serveur : %s - distribution %s" % (etdel_licence.LICENCE_URL, distribution)
+    tk.Label(root, fg=DISCRET, bg=FOND, text=("Serveur : %s - produit %s - version %s"
+                                              % (etdel_licence.LICENCE_URL, PRODUIT, APP_VERSION)
                                               if configure else "Licence non configuree : lancer avec --banc")).pack()
 
     def ouvrir_licence():
@@ -146,12 +117,11 @@ def construire(arguments=None):
                 parent=root):
             return
         garde.arreter()
-        for chemin in garde._stockage.chemins:
-            for fichier in (chemin, chemin + ".tmp"):
-                try:
-                    os.remove(fichier)
-                except OSError:
-                    pass
+        # Etat vide ecrit plutot que fichiers supprimes : sans fichier 2.0, le
+        # module reprendrait l'etat laisse par une demo 1.x (DEMO-DEMO-BANC.dat).
+        vide = garde._etat_vide()
+        vide["seq"] = int((garde._local or {}).get("seq") or 0) + 1
+        garde._stockage.ecrire(vide)
         subprocess.Popen([sys.executable, os.path.abspath(__file__)] + arguments, cwd=ICI)
         root.destroy()
 

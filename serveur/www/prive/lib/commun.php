@@ -8,10 +8,11 @@ declare(strict_types=1);
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/crypto.php';
 require_once __DIR__ . '/journal.php';
+require_once __DIR__ . '/produits.php';
 
 const JOUR = 86400;
 const VERSION_API = 1;
-const VERSION_SERVEUR = '1.0.0';
+const VERSION_SERVEUR = '2.0.0';
 
 /** Charge prive/config.php et complete les valeurs par defaut. */
 function config_charger(string $prive): array
@@ -109,44 +110,6 @@ function texte_borne($valeur, int $max, bool $multiligne = false): ?string
     $propre = nettoyer_texte($valeur, $multiligne);
     $n = longueur_utf8($propre);
     return ($n < 0 || $n > $max) ? null : $propre;
-}
-
-function version_tuple(string $version): array
-{
-    $parties = [];
-    foreach (explode('.', trim($version)) as $morceau) {
-        preg_match('/^[0-9]*/', $morceau, $m);
-        $parties[] = $m[0] === '' ? 0 : (int)$m[0];
-    }
-    while (count($parties) > 1 && end($parties) === 0) {
-        array_pop($parties);
-    }
-    return $parties;
-}
-
-/** Meme regle que le client Python : 1.10 > 1.9, 1.2 == 1.2.0, suffixes ignores. */
-function version_comparer(string $a, string $b): int
-{
-    $x = version_tuple($a);
-    $y = version_tuple($b);
-    $n = max(count($x), count($y));
-    for ($i = 0; $i < $n; $i++) {
-        $p = $x[$i] ?? 0;
-        $q = $y[$i] ?? 0;
-        if ($p !== $q) {
-            return $p < $q ? -1 : 1;
-        }
-    }
-    return 0;
-}
-
-/**
- * Version minimale d'une distribution, ou null si aucune. Seule celle de la distribution compte :
- * la colonne produits.version_min (annexe B) est conservee mais sans effet (D68).
- */
-function version_min_normalisee(?string $version): ?string
-{
-    return ($version === null || trim($version) === '') ? null : trim($version);
 }
 
 function date_fr(?int $ts, bool $heure = false): string

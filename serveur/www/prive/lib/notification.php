@@ -71,17 +71,30 @@ function notification_envoyer(PDO $db, array $config, string $sujet, string $cor
     return ['ok' => $ok, 'message' => $ok ? 'e-mail envoye a ' . $a : 'echec de l\'envoi' . ($erreur !== '' ? ' : ' . $erreur : '')];
 }
 
-function notification_nouvelle_demande(PDO $db, array $config, array $demande, array $dist, int $maintenant): void
+/** $cree : le produit vient d'etre cree automatiquement par cette demande (premiere demande de l'application). */
+function notification_nouvelle_demande(PDO $db, array $config, array $demande, array $produit, int $maintenant,
+                                       bool $cree = false): void
 {
     try {
-        $lien = url_console($db, $config);
-        $lien = $lien === '' ? '(adresse de la console inconnue)' : $lien . 'index.php?page=demande&id=' . $demande['id'];
+        $console = url_console($db, $config);
+        $lien = $console === '' ? '(adresse de la console inconnue)' : $console . 'index.php?page=demande&id=' . $demande['id'];
         $essai = $demande['essai_jusqu'] === null ? 'non' : 'oui, jusqu\'au ' . date_fr((int)$demande['essai_jusqu']);
-        $corps = implode("\n", [
+        $nouveau = [];
+        if ($cree) {
+            $nouveau = [
+                'NOUVEAU PRODUIT : ' . $produit['code'] . ' vient d\'etre cree automatiquement par cette demande',
+                '(premiere demande de cette application), avec les regles par defaut. Verifiez-les dans la',
+                'console, ecran Produits : ' . ($console === '' ? '(adresse de la console inconnue)'
+                    : $console . 'index.php?page=produit&id=' . $produit['id']),
+                '',
+            ];
+        }
+        $corps = implode("\n", array_merge([
             'Nouvelle demande de licence n. ' . $demande['id'],
             '',
-            'Produit        : ' . $dist['produit_code'] . ' (' . $dist['produit_nom'] . ')',
-            'Distribution   : ' . $dist['code'] . ' (' . $dist['libelle'] . ')',
+        ], $nouveau, [
+            // Nom repete du code (produit cree automatiquement) : le code seul.
+            'Produit        : ' . $produit['code'] . ($produit['nom'] === $produit['code'] ? '' : ' (' . $produit['nom'] . ')'),
             'Ordinateur     : ' . $demande['nom_ordinateur'],
             'Identifiant    : ' . $demande['id_poste'],
             'Titulaire      : ' . $demande['titulaire'],
@@ -93,8 +106,8 @@ function notification_nouvelle_demande(PDO $db, array $config, array $demande, a
             '',
             'Traiter la demande : ' . $lien,
             '',
-        ]);
-        $sujet = '[ETDEL Licences] Nouvelle demande - ' . $dist['produit_code'] . ' - '
+        ]));
+        $sujet = '[ETDEL Licences] Nouvelle demande - ' . $produit['code'] . ($cree ? ' (nouveau produit)' : '') . ' - '
             . ($demande['nom_ordinateur'] !== '' ? $demande['nom_ordinateur'] : $demande['id_poste']);
         notification_envoyer($db, $config, $sujet, $corps, $maintenant);
     } catch (Throwable $e) {

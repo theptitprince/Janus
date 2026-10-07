@@ -9,7 +9,7 @@ Tout se fait avec l'espace client OVH, un client FTP (FileZilla par exemple) et 
 - Les identifiants FTP de l'hébergement.
 - Le dossier `serveur/` du dépôt Janus.
 
-À trancher avant l'installation : nom de domaine et sous-domaine, domaine de secours, liste initiale des produits et distributions, durée et options de la distribution démo.
+À trancher avant l'installation : nom de domaine et sous-domaine, domaine de secours. La liste des produits n'a pas à être préparée : la première demande de licence envoyée par une application crée son produit, avec les règles par défaut.
 
 ## 2. Organisation des fichiers sur l'hébergement
 
@@ -54,19 +54,19 @@ Le dossier `serveur/tests/` ne s'envoie pas sur l'hébergement.
    - `http://licence.mondomaine.fr/` redirige vers `https://`.
 8. **Copie de secours des secrets.** Télécharger par FTP `licence/prive/config.php`, `licence/prive/.htpasswd`, le dossier `licence/prive/cles/` et le fichier `licence/admin/.htaccess` généré, et les ranger hors ligne (clé USB chiffrée, coffre de mots de passe). Ils ne sont pas dans la base et ne doivent **jamais** entrer dans un dépôt Git.
 9. **Réglages.** Console › *Administration* › *Réglages* : adresses de notification et adresse expéditrice (sur le domaine du serveur, par exemple `licences@licence.mondomaine.fr`), puis **« Envoyer un e-mail de test »**.
-10. **Distributions.** Une distribution = une application livrée (un exécutable) avec ses règles, ses licences et ses demandes ; le produit sert seulement à ranger les distributions. Console › *Distributions* › **« Nouvelle distribution »**, pour chaque exécutable livré : produit pour le classement (un produit existant, ou « Nouveau produit » avec son code définitif et son nom, tous deux obligatoires, créé en même temps ; un code déjà pris, même avec d'autres majuscules, est refusé), code de la distribution (définitif : avec celui du produit, il est inscrit dans l'application) et règles (durée de licence par défaut, essai, options ; tolérance hors ligne, préavis, version minimale, message d'accueil et case « Active » sous « Reglages avances »). Les valeurs proposées conviennent dans la plupart des cas. La page de la distribution donne la ligne `installer(...)` à copier dans l'application. Pour livrer la même application à un autre client avec d'autres règles : une autre distribution (« Dupliquer » sur la page de la première, en saisissant le code de la copie ; elle reprend les règles, sans licence, demande ni client).
+10. **Produits.** Un produit = une application, reconnue par le code qu'elle envoie au serveur (`produit="CODE"` dans sa ligne `installer(...)`), avec ses règles, ses licences et ses demandes. Rien n'est à préparer : la première demande de licence d'une application inconnue crée son produit (nom = code, actif) avec les règles par défaut — licence d'un an, essai de 15 jours pendant une demande, 15 jours hors ligne, préavis de 5 jours, aucune option. L'e-mail de notification de cette demande le signale (« NOUVEAU PRODUIT ») et l'écran *Produits* marque le produit « cree automatiquement » tant que ses règles n'ont pas été enregistrées depuis sa page. Pour préparer des clés avant toute demande : Console › *Produits* › **« Nouveau produit »** : code (définitif : c'est celui de l'application ; un code déjà pris, même avec d'autres majuscules, est refusé), nom, puis les règles (durée de licence par défaut, essai, options ; tolérance hors ligne, préavis, message d'accueil et case « Actif » sous « Reglages avances »). Les valeurs proposées conviennent dans la plupart des cas. La page du produit donne la ligne `installer(...)` à copier dans l'application.
 11. **Sauvegarde quotidienne** (§ 5).
 
 ## 4. La console d'administration
 
-`https://licence.mondomaine.fr/admin/` — utilisable sur téléphone. Le menu compte six entrées : Accueil, Demandes, Licences, Distributions, Aide et Administration (écrans techniques).
+`https://licence.mondomaine.fr/admin/` — utilisable sur téléphone. Le menu compte six entrées : Accueil, Demandes, Licences, Produits, Aide et Administration (écrans techniques).
 
 | Écran | Usage |
 |---|---|
-| Accueil | demandes en attente (bouton « Traiter »), boutons « Nouvelle licence » et « Nouvelle distribution », compteurs (licences actives, expirées, suspendues, révoquées : chacun ouvre la liste filtrée ; ordinateurs vus sur 7 jours), licences expirant sous 30 jours |
+| Accueil | demandes en attente (avec leur produit et le bouton « Traiter »), boutons « Nouvelle licence » et « Nouveau produit », compteurs (licences actives, expirées, suspendues, révoquées : chacun ouvre la liste filtrée ; ordinateurs vus sur 7 jours), licences expirant sous 30 jours |
 | Demandes | accepter (durée, client titulaire de la licence, options) ou refuser (motif facultatif, renvoyé tel quel à l'application) ; historique ; export CSV |
-| Licences | « Nouvelle licence » (choisir la distribution ; clé affichée une seule fois), rechercher, filtrer par statut ou par distribution ; sur la fiche d'une licence : sa distribution (lien), prolonger (+30 j, +1 an, date libre), nouvelle clé, changer d'ordinateur, suspendre (avec date de fin facultative : réactivation automatique), réactiver, révoquer (définitif), et sous « Reglages avances » tolérance et options ; export CSV |
-| Distributions | une distribution = une application livrée (un exécutable) avec ses règles, ses licences et ses demandes, gérée seule ; liste rangée par produit (simple classement, filtre, « Renommer »), état et règles de chacune en une ligne, licences, demandes en attente. « Nouvelle distribution » (avec, au besoin, un nouveau produit) ; sur sa page : ligne `installer(...)`, « Voir ses licences », « Nouvelle licence pour cette distribution » (distribution active), règles, « Dupliquer » |
+| Licences | « Nouvelle licence » (choisir le produit), rechercher, filtrer par statut ou par produit ; sur la fiche d'une licence : son produit (lien), sa clé masquée et le bouton « Afficher la cle », prolonger (+30 j, +1 an, date libre), nouvelle clé, changer d'ordinateur, suspendre (avec date de fin facultative : réactivation automatique), réactiver, révoquer (définitif), et sous « Reglages avances » tolérance et options ; export CSV |
+| Produits | une ligne par produit : code et état (Actif, Inactif, « cree automatiquement »), nom, règles en une phrase, licences, demandes en attente ; « Nouveau produit » ; sur sa page : ligne `installer(...)` à copier, « Voir ses licences », « Nouvelle licence pour ce produit » (produit actif), règles (nom, durée par défaut, essai, options ; tolérance, préavis, message d'accueil et case « Actif » sous « Reglages avances ») |
 | Aide | mode d'emploi de chaque écran ; chaque écran porte un lien « Aide sur cet ecran » |
 | Administration | accès aux écrans ci-dessous et contrôle d'exposition des fichiers |
 | › Serveurs | liste des URL diffusées aux postes (priorité, diffusion), suivi d'une migration |
@@ -77,11 +77,17 @@ Le dossier `serveur/tests/` ne s'envoie pas sur l'hébergement.
 
 Toute action d'écriture demande une confirmation et est inscrite au journal avec l'identifiant de connexion. Une notification par e-mail part à chaque nouvelle demande (50 au plus par jour) ; un échec d'envoi est inscrit au journal et n'empêche jamais l'enregistrement de la demande.
 
-Changer d'ordinateur pour un client : *Licences* › la licence › **« Changer d'ordinateur »** › « Liberer cette cle », puis saisie de la même clé sur le nouvel ordinateur. Clé perdue ou transmise par erreur : **« Nouvelle cle »** (l'ancienne clé cesse de fonctionner, la nouvelle s'affiche une seule fois).
+**Retrouver une clé** (client qui l'a perdue, clé à redicter au téléphone) : *Licences* › la licence › **« Afficher la cle »**, à côté de la clé masquée. La clé complète s'affiche avec un bouton « Copier » ; chaque affichage est inscrit au journal (`cle_affichee`, avec l'identifiant de connexion). Une licence créée avant la version 2 du serveur n'a pas de clé conservée : la fiche l'indique. Le client peut alors lire sa clé dans l'application (touches Ctrl+Maj+L, fenêtre *Licence* › « Afficher la cle ») ; à défaut, **« Nouvelle cle »** en crée une, affichable ensuite, que l'ordinateur du client devra saisir (l'ancienne cesse de fonctionner). Clé diffusée ou transmise par erreur : **« Nouvelle cle »** (l'ancienne clé cesse de fonctionner).
+
+**Changer d'ordinateur pour un client**, deux façons :
+- depuis l'application, sur l'ancien ordinateur s'il fonctionne encore (le plus simple) : fenêtre *Licence* (touches Ctrl+Maj+L) › **« Transferer cette licence »**. L'application, connectée, libère la clé auprès du serveur, se désactive sur cet ordinateur et affiche la clé à saisir sur le nouveau (journal : `licence_transferee`, par le poste). Trois transferts au plus par licence sur 30 jours : au-delà, le serveur refuse (journal : `transfert_refuse`) et le changement passe par la console ;
+- depuis la console, si l'ancien ordinateur est perdu ou en panne : *Licences* › la licence › **« Changer d'ordinateur »** › « Liberer cette cle », puis saisie de la même clé sur le nouvel ordinateur ; l'ancien perd la licence à son contrôle suivant.
 
 **Suspendre ou révoquer ?**
 - **Suspendre** : coupure temporaire. Le poste reste bloqué mais garde sa clé ; il se débloque tout seul à son contrôle suivant quand la licence est réactivée (« Reactiver ») ou à la date de fin choisie (« Suspendre jusqu'au »). Rien à ressaisir, même pour une licence obtenue par demande.
-- **Révoquer** : définitif. Le poste efface sa clé et la licence ne peut plus être réactivée. Pour remettre le poste en service : « Nouvelle licence pour ce client » sur la fiche révoquée (création d'une clé pré-remplie ; la fiche révoquée indique ensuite « Deja remplacee par la licence n. … ») et transmettre la clé, ou laisser l'utilisateur envoyer une nouvelle demande depuis l'application (pas de nouvel essai si ce poste en a déjà eu un pour cette distribution).
+- **Révoquer** : définitif. Le poste efface sa clé et la licence ne peut plus être réactivée. Pour remettre le poste en service : « Nouvelle licence pour ce client » sur la fiche révoquée (création d'une clé pré-remplie ; la fiche révoquée indique ensuite « Deja remplacee par la licence n. … ») et transmettre la clé, ou laisser l'utilisateur envoyer une nouvelle demande depuis l'application (pas de nouvel essai si ce poste en a déjà eu un pour ce produit : l'essai est accordé une fois par ordinateur et par produit).
+
+**Version de l'application** : envoyée à chaque contrôle et affichée dans la console (fiche d'une licence ou d'une demande) pour information seulement ; le serveur ne refuse jamais une application pour sa version.
 
 L'écran **Aide** de la console détaille chaque écran, chaque réglage et chaque action.
 
@@ -95,7 +101,7 @@ L'écran **Aide** de la console détaille chaque écran, chaque réglage et chaq
 
 Chaque exécution crée `prive/data/sauvegardes/licenses-AAAAMMJJ-HHMMSS.db` (copie cohérente faite par SQLite, même pendant une écriture) et garde les 30 plus récentes (`sauvegardes_conservees` dans `config.php`). Le journal de la console mentionne chaque sauvegarde.
 
-**Copie hors de l'hébergement.** Une fois par semaine au moins : console › *Administration* › *Sauvegarde* › « Telecharger une copie de la base ». Les copies ne contiennent ni clé de licence en clair ni clé privée.
+**Copie hors de l'hébergement.** Une fois par semaine au moins : console › *Administration* › *Sauvegarde* › « Telecharger une copie de la base ». Les copies ne contiennent ni clé de licence en clair ni clé privée : les clés y sont chiffrées, et le secret qui les déchiffre (`prive/cles/secret_demandes.key`) n'est pas dans la base. Sans ce secret, une base restaurée fonctionne, mais « Afficher la cle » ne peut plus rien montrer (« Nouvelle cle » reste possible).
 
 **Restauration.**
 1. Par FTP, renommer `prive/data/licenses.db` (par sécurité) et supprimer `prive/data/licenses.db-wal` et `prive/data/licenses.db-shm` s'ils existent.
@@ -140,6 +146,8 @@ Envoyer par FTP les nouveaux fichiers de `serveur/www/` en **excluant** :
 
 La base existante est mise à niveau automatiquement à la première requête qui suit l'envoi des nouveaux fichiers (version du schéma dans `PRAGMA user_version`) : rien à faire à la main.
 
+Passage à la version 2 du serveur : une base créée par une version précédente continue de fonctionner telle quelle. Mettre à jour le serveur **avant** de livrer des applications avec le module 2.0.0 : un serveur plus ancien ne reconnaîtrait pas toujours leurs requêtes et bloquerait leurs postes (« Produit inconnu »). Chaque produit garde toutes ses licences et ses demandes ; s'il avait plusieurs jeux de règles (anciennes distributions), le premier jeu actif (à défaut, le premier créé) s'applique désormais à tout le produit, et toutes ses licences restent valables tant que le produit est actif, y compris celles d'un ancien jeu désactivé (les suspendre ou les révoquer une à une si besoin). Le premier « Enregistrer » sur la page du produit aligne tous ces jeux sur les règles affichées. Les applications livrées avec l'ancien module sont reconnues par leur code produit seul. Les clés créées avant la mise à jour ne sont pas conservées : « Afficher la cle » ne vaut que pour les clés créées ensuite (création, acceptation d'une demande, « Nouvelle cle »).
+
 Si `admin/.htaccess` a été écrasé par erreur, la console répond « accès refusé » : renvoyer la copie de secours faite à l'installation.
 
 ## 9. Sécurité, récapitulatif
@@ -147,8 +155,9 @@ Si `admin/.htaccess` a été écrasé par erreur, la console répond « accès r
 - HTTPS forcé, HSTS, politique de sécurité du contenu stricte, aucun listing de répertoire, aucune ressource externe dans la console.
 - Console protégée par Apache (`AuthType Basic`, `.htpasswd` en bcrypt dans `prive/`, jamais servi), accessible uniquement en HTTPS ; mot de passe d'au moins 20 caractères ; la console refuse aussi toute requête qu'Apache n'a pas authentifiée.
 - Écritures : jeton CSRF, contrôle de l'origine, confirmation, journal.
-- Seul le SHA-256 des clés de licence est stocké ; la clé d'une demande acceptée est conservée chiffrée jusqu'à sa récupération par le poste, puis effacée.
+- Les clés de licence sont retrouvées par leur SHA-256 et conservées chiffrées (secretbox, avec le secret de `prive/cles/`, hors de la base) pour « Afficher la cle » ; une fuite de la base seule ne livre donc aucune clé. L'affichage d'une clé passe par un formulaire (jeton CSRF) et est inscrit au journal ; une clé n'apparaît jamais dans le journal, les e-mails ni les exports. La clé d'une demande acceptée est aussi conservée chiffrée dans la demande jusqu'à sa récupération par le poste, puis effacée de la demande.
 - Réponses de l'API toujours signées (Ed25519), refus compris ; requêtes horodatées (écart maximal 10 minutes) ; limites par adresse IP.
+- Transfert depuis l'application : l'ancien ordinateur garde un jeton valable hors ligne jusqu'à la fin de sa tolérance (15 jours par défaut). Une personne qui restaurerait ses fichiers de licence après un transfert pourrait donc utiliser la même clé sur deux ordinateurs pendant ce délai ; d'où la limite de trois transferts par licence sur 30 jours, et la trace de chaque transfert dans l'historique de la licence (`licence_transferee`, `transfert_refuse`).
 - Aucun secret dans le dépôt Git (`.gitignore`).
 
 ## 10. Dépannage
@@ -160,6 +169,8 @@ Si `admin/.htaccess` a été écrasé par erreur, la console répond « accès r
 | Aucun e-mail reçu | *Administration* › *Réglages* › e-mail de test ; *Administration* › *Journal*, actions `email_echec` et `email_plafond` ; dossier des indésirables ; adresse expéditrice sur le domaine du serveur |
 | « Formulaire expiré » dans la console | recharger la page (le jeton change après chaque écriture) |
 | Ligne « DANGER » dans le contrôle d'exposition (*Administration*) | `prive/` est servi par le web : vérifier que `licence/.htaccess` et `licence/prive/.htaccess` ont bien été envoyés, ou déplacer `prive/` à côté de `licence/` (§ 2) |
+| L'application affiche « produit inconnu » | produit inactif (*Produits* › sa page › « Reglages avances », case « Actif ») ; ou code de l'application qui ne diffère d'un produit existant que par les majuscules (refusé pour ne pas créer deux produits pareils à la lecture) : corriger le code dans l'application |
+| « Cle complete non disponible » sur une licence | licence créée avant la version 2 du serveur : « Nouvelle cle » en crée une, consultable ensuite |
 | Mot de passe de la console perdu | voir ci-dessous |
 
 **Mot de passe de la console perdu.** Par FTP, inscrire dans `prive/config.php` une nouvelle chaîne aléatoire d'au moins 20 caractères dans `jeton_reinitialisation` (différente du jeton d'installation et de tout jeton déjà utilisé), puis ouvrir `https://licence.mondomaine.fr/install.php` : l'assistant, toujours verrouillé, ne propose alors que le remplacement du mot de passe d'un compte existant de la console. Chaque jeton ne sert qu'une fois ; remettre ensuite `jeton_reinitialisation` à vide.

@@ -1,14 +1,14 @@
 # demo_appli.py
-# Role : application Tkinter minimale, banc d'essai de bout en bout du module
-#        etdel_licence (activation, demande, licence hors ligne, bandeau, fenetre
-#        Licence, options).
-#        Banc d'essai uniquement : --serveur, --cle-publique, --secret-hors-ligne
+# Role : application Tkinter minimale de demonstration du module etdel_licence
+#        (activation, demande, licence hors ligne, bandeau, fenetre Licence,
+#        options), branchee sur un serveur de licences deja installe.
+#        Demonstration uniquement : --serveur, --cle-publique, --secret-hors-ligne
 #        et --banc remplacent les constantes du module, ce qu'aucune application
 #        livree ne doit faire.
 #        Rien a preparer dans la console : la premiere demande de licence cree
 #        le produit DEMO sur le serveur.
-#        Exemples : python demo_appli.py --banc   (banc local, voir README.md)
-#                   python demo_appli.py --serveur http://127.0.0.1:8090/api/v1/ --cle-publique <cle>
+#        Exemples : python demo_appli.py --serveur https://licence.mondomaine.fr/api/v1/ --cle-publique <cle>
+#                   python demo_appli.py --banc   (serveur installe sur ce poste, voir README.md)
 # ETDEL (c) 2026
 
 import argparse
@@ -30,11 +30,12 @@ FOND = etdel_licence.PALETTE_DEFAUT["fond"]
 TEXTE = etdel_licence.PALETTE_DEFAUT["texte"]
 DISCRET = etdel_licence.PALETTE_DEFAUT["discret"]
 URL_BANC = "http://127.0.0.1:8090/api/v1/"
-# Premiere cle publique du banc, comme celle qu'une application embarque ;
-# les rotations suivantes arrivent par bulletins, comme sur un vrai poste.
+# --banc : premiere cle publique du serveur installe sur ce poste depuis
+# serveur/www/, comme celle qu'une application embarque ; les rotations
+# suivantes arrivent par bulletins, comme sur un vrai poste.
 FICHE_BANC = os.path.join(ICI, "..", "serveur", "www", "prive", "cles", "signature_1.json")
-# Secret des codes hors ligne courts du banc (base64 standard dans le fichier),
-# cree par la console au premier besoin (ecran Cles, licence hors ligne).
+# --banc : secret des codes hors ligne courts de ce serveur (base64 standard
+# dans le fichier), cree par install.php (ou par la console au premier besoin).
 SECRET_BANC = os.path.join(ICI, "..", "serveur", "www", "prive", "cles", "secret_hors_ligne.key")
 
 
@@ -80,10 +81,11 @@ def _bouton_plat(parent, texte, commande=None):
 def construire(arguments=None):
     """Construit la fenetre principale (sans mainloop) ; renvoie (root, garde)."""
     arguments = list(sys.argv[1:] if arguments is None else arguments)
-    lecteur = argparse.ArgumentParser(description="Banc d'essai de la licence ETDEL")
+    lecteur = argparse.ArgumentParser(description="Application de demonstration de la licence ETDEL")
     lecteur.add_argument("--banc", action="store_true",
-                         help="serveur local du banc (%s), cle publique lue dans serveur/www/prive/cles" % URL_BANC)
-    lecteur.add_argument("--serveur", help="URL de l'API, ex. %s" % URL_BANC)
+                         help="serveur installe sur ce poste (%s), cle publique et secret lus dans "
+                              "serveur/www/prive/cles" % URL_BANC)
+    lecteur.add_argument("--serveur", help="URL de l'API, ex. https://licence.mondomaine.fr/api/v1/")
     lecteur.add_argument("--cle-publique", help="cle publique affichee par install.php ou l'ecran Cles")
     lecteur.add_argument("--secret-hors-ligne", help="LICENCE_SECRET_HORS_LIGNE affiche par l'ecran Cles "
                                                      "(codes hors ligne courts)")
@@ -96,8 +98,9 @@ def construire(arguments=None):
         if cle:
             etdel_licence.LICENCE_CLE_PUBLIQUE = cle
         else:
-            probleme = ("Banc non installe : demarrer le serveur du banc puis ouvrir\n"
-                        "http://127.0.0.1:8090/install.php (voir README.md).")
+            probleme = ("Serveur local non installe : cle publique introuvable dans\n"
+                        "serveur/www/prive/cles (installation par http://127.0.0.1:8090/install.php).\n"
+                        "Pour un serveur deja installe : --serveur <url> --cle-publique <cle>.")
     if options.serveur:
         etdel_licence.LICENCE_URL = options.serveur
     if options.cle_publique:
@@ -117,12 +120,14 @@ def construire(arguments=None):
     configure = bool(etdel_licence.LICENCE_URL and etdel_licence.LICENCE_CLE_PUBLIQUE)
     tk.Label(root, fg=DISCRET, bg=FOND, text=("Serveur : %s - produit %s - version %s"
                                               % (etdel_licence.LICENCE_URL, PRODUIT, APP_VERSION)
-                                              if configure else "Licence non configuree : lancer avec --banc")).pack()
+                                              if configure else
+                                              "Licence non configuree : lancer avec --serveur et --cle-publique")).pack()
 
     def ouvrir_licence():
         # Meme fenetre que le raccourci Ctrl+Maj+L, qui reste disponible.
         if garde._integration is None:
-            messagebox.showinfo("Licence", "Licence non configuree : lancer la demo avec --banc.", parent=root)
+            messagebox.showinfo("Licence", "Licence non configuree : lancer la demo avec --serveur et --cle-publique.",
+                                parent=root)
         else:
             garde._integration.ouvrir_licence()
 
@@ -155,7 +160,7 @@ def construire(arguments=None):
     cadre_export.pack(pady=10)
     garde.cadre_licence(root).pack(fill="x", padx=16, pady=8)
     if probleme:
-        root.after(300, lambda: messagebox.showwarning("Banc d'essai", probleme, parent=root))
+        root.after(300, lambda: messagebox.showwarning("Demo ETDEL", probleme, parent=root))
 
     def rafraichir():
         # L'option peut changer en cours de session (activation, acceptation d'une demande).

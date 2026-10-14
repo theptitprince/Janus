@@ -37,8 +37,6 @@ Tout le serveur tient dans le dossier `serveur/www/` du dépôt, qui s'envoie te
 
 **Variante plus sûre, si l'on veut :** déplacer `licence/prive/` à la racine du compte, **à côté** de `licence/` (et non dedans). Le code le cherche d'abord à cet endroit ; rien d'autre ne change. Une erreur de configuration d'Apache ne pourrait alors plus exposer la base. À faire de préférence avant l'installation, ou en déplaçant tout le dossier `prive/` d'un bloc.
 
-Le dossier `serveur/tests/` ne s'envoie pas sur l'hébergement.
-
 ## 3. Installation pas à pas
 
 1. **Sous-domaine et HTTPS.** Espace client OVH › Hébergements › *Multisite* › *Ajouter un domaine ou sous-domaine* : `licence.mondomaine.fr`, dossier racine `licence`, case **SSL** cochée (certificat Let's Encrypt). Faire de même pour le domaine de secours, avec le **même** dossier racine. Attendre que le certificat soit actif (quelques minutes à quelques heures).
@@ -54,7 +52,7 @@ Le dossier `serveur/tests/` ne s'envoie pas sur l'hébergement.
    - dans *Administration*, le « Contrôle d'exposition » affiche « protégé » sur chaque ligne ;
    - `http://licence.mondomaine.fr/` redirige vers `https://`.
 8. **Copie de secours des secrets.** Télécharger par FTP `licence/prive/config.php`, `licence/prive/.htpasswd`, le dossier `licence/prive/cles/` et le fichier `licence/admin/.htaccess` généré, et les ranger hors ligne (clé USB chiffrée, coffre de mots de passe). Ils ne sont pas dans la base et ne doivent **jamais** entrer dans un dépôt Git.
-9. **Réglages.** Console › *Administration* › *Réglages* : adresses de notification et adresse expéditrice (sur le domaine du serveur, par exemple `licences@licence.mondomaine.fr`), puis **« Envoyer un e-mail de test »**.
+9. **Réglages.** Console › *Administration* › *Réglages* : adresses de notification et adresse expéditrice (une adresse du domaine du serveur, en `@licence.mondomaine.fr` par exemple), puis **« Envoyer un e-mail de test »**.
 10. **Produits.** Un produit = une application, reconnue par le code qu'elle envoie au serveur (`produit="CODE"` dans sa ligne `installer(...)`), avec ses règles, ses licences et ses demandes. Rien n'est à préparer : la première demande de licence d'une application inconnue crée son produit (nom = code, actif) avec les règles par défaut — licence d'un an, essai de 15 jours pendant une demande, 15 jours hors ligne, préavis de 5 jours, aucune option. L'e-mail de notification de cette demande le signale (« NOUVEAU PRODUIT ») et l'écran *Produits* marque le produit « cree automatiquement » tant que ses règles n'ont pas été enregistrées depuis sa page. Pour préparer des clés avant toute demande : Console › *Produits* › **« Nouveau produit »** : code (définitif : c'est celui de l'application ; un code déjà pris, même avec d'autres majuscules, est refusé), nom, puis les règles (durée de licence par défaut, essai, options ; tolérance hors ligne, préavis, message d'accueil et case « Actif » sous « Reglages avances »). Les valeurs proposées conviennent dans la plupart des cas. La page du produit donne la ligne `installer(...)` à copier dans l'application.
 11. **Sauvegarde quotidienne** (§ 5).
 
@@ -196,6 +194,12 @@ Si `admin/.htaccess` a été écrasé par erreur, la console répond « accès r
 
 **Mot de passe de la console perdu.** Par FTP, inscrire dans `prive/config.php` une nouvelle chaîne aléatoire d'au moins 20 caractères dans `jeton_reinitialisation` (différente du jeton d'installation et de tout jeton déjà utilisé), puis ouvrir `https://licence.mondomaine.fr/install.php` : l'assistant, toujours verrouillé, ne propose alors que le remplacement du mot de passe d'un compte existant de la console. Chaque jeton ne sert qu'une fois ; remettre ensuite `jeton_reinitialisation` à vide.
 
-## 11. Banc d'essai local
+## 11. Essayer le serveur avec l'application de démonstration
 
-Pour essayer le serveur sans hébergement (développement), voir la section « Banc d'essai local » du `README.md` : `php -S` sur `127.0.0.1` directement sur `serveur/www/`, avec `serveur/tests/routeur_banc.php` (qui reproduit les `.htaccess` et l'authentification d'Apache) et la boîte aux lettres `serveur/tests/smtp_banc.py`, puis `client/demo_appli.py`.
+Pour essayer le serveur installé sans livrer d'application, lancer depuis le dépôt, sur un poste avec Python et tkinter :
+
+```
+python client/demo_appli.py --serveur https://licence.mondomaine.fr/api/v1/ --cle-publique <clé publique>
+```
+
+La clé publique est celle affichée par l'assistant d'installation et par *Administration* › *Clés de signature* ; ajouter `--secret-hors-ligne <secret>` (ligne `LICENCE_SECRET_HORS_LIGNE` du même écran) pour essayer aussi les codes hors ligne courts. La démo envoie le code produit `DEMO` : sa première « Demander une licence » crée ce produit avec les règles par défaut, comme pour toute application. Pour l'écarter ensuite, décocher « Actif » sous « Reglages avances » sur la page du produit. Détail des boutons et des options : section « L'application de démonstration » du `README.md`.

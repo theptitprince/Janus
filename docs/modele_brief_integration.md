@@ -1,6 +1,6 @@
 # Modèle de brief — intégrer la licence ETDEL dans une application
 
-À compléter, puis à transmettre à l'assistant de code ouvert à la racine de l'application à protéger.
+À compléter, puis à remettre à la personne qui réalise l'intégration ; les chemins et les commandes du brief s'entendent depuis la racine de l'application à protéger.
 
 Avant de livrer une application avec le module 2.x (2.0.0 et suivants) : mettre d'abord le serveur en version 2 (`docs/LISEZ-MOI-SERVEUR.md`, § 8), puis seulement livrer les applications. Un serveur plus ancien ne reconnaît pas toujours les requêtes du module 2.x et bloquerait les postes (« Produit inconnu »). Le module 2.1.0 accepte en plus les licences hors ligne (codes `ETDHL-…` et `ETDHL2-…`) ; une fois le serveur installé, la copie de référence du dépôt Janus porte les quatre constantes renseignées (`LICENCE_SECRET_HORS_LIGNE` comprise), à copier sans rien modifier.
 
@@ -33,7 +33,7 @@ Objectif : soumettre **{APPLICATION}** à la licence ETDEL, avec le module uniqu
 
 4. **Construction de l'exécutable.** Ajouter `etdel_licence.py` aux fichiers vérifiés par le script de construction (contrôle de l'empreinte avant la compilation ; échec si elle diffère). Empaquetage recommandé : Nuitka.
 
-5. **Tests.** Copier `test_licence_integration.py` (depuis `client/` du dépôt Janus) à côté du module ; renseigner `PRODUIT` et `creer_application()`, qui doit construire l'application réelle comme au lancement, sans `mainloop`, et renvoyer sa fenêtre principale. Le test doit être vert : constantes vides = démarrage normal ; empreinte du module conforme ; bandeau visible en `AVERTISSEMENT` (fausse horloge) ; fermeture propre en `EXPIREE` ; licence hors ligne avec serveur injoignable = application ouverte, sans fenêtre ni bandeau. L'ajouter à la commande de tests habituelle de l'application.
+5. **Vérifications.** Faire, sur l'application réelle, les vérifications de la section « Vérifier l'intégration » de `docs/INTEGRATION.md` du dépôt Janus : empreinte du module conforme ; constantes vides = démarrage et fermeture inchangés, sans fenêtre ni bandeau ; constantes renseignées = fenêtre d'activation sur un poste sans licence ; bandeau d'essai visible sans masquer d'élément indispensable ; fin propre de l'application quand la licence est bloquée en cours de session ; licence hors ligne sans connexion = application ouverte, sans fenêtre ni bandeau. Noter le résultat de chacune dans le compte rendu.
 
 6. **Documentation.** Ajouter au LISEZ-MOI de l'application une section « Licence » :
    - obtention : clé fournie par ETDEL, ou demande depuis l'application (« Demander une licence » ; le traitement peut prendre plusieurs jours, une période d'essai peut être accordée en attendant) ;
@@ -44,4 +44,4 @@ Objectif : soumettre **{APPLICATION}** à la licence ETDEL, avec le module uniqu
    - changement d'ordinateur : « Transferer cette licence » dans la fenêtre « Licence » de l'ancien ordinateur (connecté à Internet), noter la clé affichée, puis la saisir sur le nouvel ordinateur (« J'ai une cle ») ; trois transferts au plus en 30 jours, au-delà ETDEL libère la licence ;
    - ordinateur jamais connecté à Internet : communiquer à ETDEL l'identifiant du poste (fenêtre d'activation ou Ctrl+Maj+L) ; ETDEL fournit un code hors ligne, court à dicter (`ETDHL-…`) ou long à copier-coller depuis un e-mail (`ETDHL2-…`), à saisir dans « J'ai une cle » ; il est vérifié sans connexion et vaut jusqu'à la date indiquée, puis il faut un nouveau code ; si l'ordinateur se connecte un jour, la licence est vérifiée comme les autres (prolongation, suspension ou révocation décidées par ETDEL s'appliquent alors).
 
-7. **Critère d'acceptation.** Les tests existants de l'application restent verts, `test_licence_integration.py` est vert, et le démarrage n'est pas plus lent (`installer()` rend la main en moins de 50 ms ; aucun accès réseau sur le fil de l'interface). Livrer un court compte rendu : fichiers modifiés, valeur de `APP_VERSION`, code produit utilisé, options utilisées, écarts éventuels avec ce brief.
+7. **Critère d'acceptation.** Les tests existants de l'application restent verts, les vérifications de l'étape 5 sont concluantes, et le démarrage n'est pas plus lent (`installer()` rend la main en moins de 50 ms ; aucun accès réseau sur le fil de l'interface). Livrer un court compte rendu : fichiers modifiés, valeur de `APP_VERSION`, code produit utilisé, options utilisées, écarts éventuels avec ce brief.

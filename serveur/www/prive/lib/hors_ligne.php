@@ -39,7 +39,7 @@ declare(strict_types=1);
  * obligatoire. Apres nettoyage : 21 caracteres = code court, 115 = code long. Le serveur retrouve la
  * licence par le SHA-256 (hexadecimal) de la forme canonique : cle_hash (court) ou cle_long_hash (long).
  *
- * VECTEURS DE TEST FIXES (verifies par test_serveur.php ; a reprendre tels quels cote client) :
+ * VECTEURS DE TEST FIXES (a reprendre tels quels cote client) :
  *   secret = octets 0x00, 0x01, ..., 0x1F (base64url : AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8)
  *   court("APP", "SHXT-2380", 365, toutes)    = ETDHL-C0PV-ZW13-4A4S-AAQJ  (MAC = ff8119144ca957, fin exclue
  *                                                1798761600 = 2027-01-01 00:00 UTC : valable tout le 31/12/2026 UTC)

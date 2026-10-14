@@ -181,19 +181,18 @@ Données transmises au serveur, et rien d'autre : empreinte du poste (SHA-256 de
 
 État local, chiffré (DPAPI) et scellé, en trois exemplaires : `%APPDATA%\ETDEL\licences\`, `%LOCALAPPDATA%\ETDEL\licences\`, `%PROGRAMDATA%\ETDEL\licences\` (fichier `<PRODUIT>-<PRODUIT>.dat`). Un code hors ligne y est conservé et vérifié de nouveau à chaque lancement (l'état local n'est qu'un cache). Journal : `%LOCALAPPDATA%\ETDEL\licences\licence.log` (1 Mo, 2 archives ; la clé ou le code n'y figurent jamais, seulement leurs 4 derniers caractères).
 
-## Tester l'intégration
+## Vérifier l'intégration
 
-Copier `client/test_licence_integration.py` à côté de `etdel_licence.py` dans l'application, puis adapter la section « A ADAPTER » : `PRODUIT` et la fonction `creer_application()`, qui doit construire l'application comme au lancement (sans `mainloop`) et renvoyer sa fenêtre principale. Le test vérifie :
+À faire dans l'application, après l'intégration et après chaque mise à jour du module :
 
-1. que la copie du module est identique à la référence (version et empreinte) ;
-2. qu'avec des constantes vides l'application démarre normalement, sans fichier, sans message, sans raccourci de licence ;
-3. que le bandeau est visible en `AVERTISSEMENT` (fausse horloge, faux serveur) ;
-4. que l'application se ferme proprement en `EXPIREE` ;
-5. qu'avec une licence hors ligne (code long saisi, serveur injoignable) l'application s'ouvre, sans fenêtre ni bandeau, même 25 jours plus tard.
+1. **Copie du module** : depuis le dossier de l'application, la commande de calcul de l'empreinte (« Après l'installation du serveur », étape 2, avec le chemin `etdel_licence.py`) affiche l'empreinte publiée en tête de ce document, et `etdel_licence.MODULE_VERSION` vaut la version publiée.
+2. **Constantes vides** (copie du dépôt avant l'installation du serveur) : l'application démarre, fonctionne et se ferme exactement comme avant, sans fenêtre ni bandeau de licence, sans fichier de licence créé et sans réaction au raccourci Ctrl+Maj+L.
+3. **Constantes renseignées**, sur un poste sans licence : la fenêtre d'activation s'ouvre au lancement (« J'ai une cle », « Demander une licence ») ; une fois la licence active, l'application s'ouvre normalement, Ctrl+Maj+L affiche la fenêtre « Licence », et la fermeture de la fenêtre principale passe toujours par le gestionnaire de l'application (demande d'enregistrement, par exemple).
+4. **Bandeau** : pendant une période d'essai (demande envoyée pour un produit dont les règles accordent un essai), le bandeau apparaît en haut de la fenêtre principale ; vérifier qu'il ne masque rien d'indispensable (marge à prévoir : voir « Application Tkinter, cas normal »).
+5. **Blocage en cours de session** : suspendre la licence dans la console, puis « Verifier maintenant » dans la fenêtre « Licence » : dans la demi-minute qui suit, un message s'affiche, puis le module ferme la fenêtre principale ; l'application doit alors se terminer sans erreur. « Reactiver » dans la console, puis « Reessayer » au lancement suivant, la débloque sans ressaisie.
+6. **Licence hors ligne** (facultatif) : un code créé dans la console (*Licences* › « Licence hors ligne ») pour l'identifiant du poste, saisi avec « J'ai une cle », ouvre l'application sans fenêtre ni bandeau, même sans connexion à Internet.
 
-```
-python test_licence_integration.py
-```
+Les licences créées pour ces vérifications se révoquent ensuite dans la console.
 
 ## Après l'installation du serveur : renseigner les constantes
 
@@ -204,21 +203,21 @@ Une seule fois, dans le dépôt Janus :
    ```
    python -c "import hashlib; print(hashlib.sha256(open('client/etdel_licence.py','rb').read().replace(b'\r\n', b'\n')).hexdigest())"
    ```
-3. La reporter dans ce document (ligne « Empreinte SHA-256 ») et dans `EMPREINTE_REFERENCE` de `client/test_licence_integration.py`. Les tests du module échouent tant que ces trois éléments ne concordent pas.
+3. La reporter dans ce document (ligne « Empreinte SHA-256 ») : c'est la référence que vérifient les scripts de construction des applications et le brief d'intégration.
 4. Redistribuer cette copie dans les applications.
 
 Une rotation de clé ou un changement d'URL ne demande **pas** de refaire cette opération : les postes reçoivent la liste d'URL et les nouvelles clés par des messages signés et les conservent dans leur état local.
 
 ## Mettre à jour le module dans une application
 
-Remplacer `etdel_licence.py` par la nouvelle référence, mettre à jour `VERSION_REFERENCE` et `EMPREINTE_REFERENCE` dans `test_licence_integration.py`, relancer les tests de l'application. Le module garde la compatibilité de l'état local d'une version à l'autre : aucune nouvelle activation n'est nécessaire.
+Remplacer `etdel_licence.py` par la nouvelle référence, mettre à jour l'empreinte attendue par le script de construction de l'application, relancer les tests de l'application et refaire les vérifications de « Vérifier l'intégration ». Le module garde la compatibilité de l'état local d'une version à l'autre : aucune nouvelle activation n'est nécessaire.
 
-Passage de la 2.0.0 à la 2.1.0 (licences hors ligne) : rien à changer dans le code de l'application ni sur les postes. Reprendre aussi la nouvelle version de `test_licence_integration.py` (test de la licence hors ligne ; seule la section « A ADAPTER » est à reporter). Les codes hors ligne courts demandent la quatrième constante, `LICENCE_SECRET_HORS_LIGNE` (déjà renseignée dans la référence du dépôt une fois le serveur installé) ; sans elle, seuls les codes longs sont acceptés.
+Passage de la 2.0.0 à la 2.1.0 (licences hors ligne) : rien à changer dans le code de l'application ni sur les postes. Les codes hors ligne courts demandent la quatrième constante, `LICENCE_SECRET_HORS_LIGNE` (déjà renseignée dans la référence du dépôt une fois le serveur installé) ; sans elle, seuls les codes longs sont acceptés.
 
 Passage d'une version 1.x à la 2.0.0 :
 
 - **mettre d'abord le serveur en version 2** (`LISEZ-MOI-SERVEUR.md`, § 8), puis seulement livrer les applications avec le module 2.0.0 : le module 2.0.0 envoie le code produit comme distribution, qu'un serveur 1.x ne reconnaît pas quand le code de distribution diffère du code produit (il répondrait `produit_inconnu`, qui bloque le poste) ;
-- retirer le paramètre `distribution=` des appels `installer()`, `exiger()` et `Garde()` (ainsi que la constante `DISTRIBUTION`, le fichier `distribution_construite.py` et le paramètre de `construire_exe.bat`) ; le code produit suffit. Dans `test_licence_integration.py`, reprendre la nouvelle version du fichier et n'y renseigner que `PRODUIT` ;
+- retirer le paramètre `distribution=` des appels `installer()`, `exiger()` et `Garde()` (ainsi que la constante `DISTRIBUTION`, le fichier `distribution_construite.py` et le paramètre de `construire_exe.bat`) ; le code produit suffit. Les tests de l'application qui passent `distribution=` sont à adapter de même ;
 - retirer toute référence à `VERSION_REFUSEE`, qui n'existe plus ;
 - rien à faire sur les postes : au premier lancement en 2.0.0, l'état laissé par la 1.x (`<PRODUIT>-<DISTRIBUTION>.dat`) est repris automatiquement, clé, demande en attente et jeton compris ; les anciens fichiers ne sont ni modifiés ni supprimés.
 

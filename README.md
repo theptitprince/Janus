@@ -11,7 +11,7 @@
 ![tkinter](https://img.shields.io/badge/tkinter-fen%C3%AAtres%20du%20module-3776AB)
 ![Ed25519](https://img.shields.io/badge/signature-Ed25519-555555)
 ![Plateforme](https://img.shields.io/badge/plateforme-Windows%20%2B%20h%C3%A9bergement%20web-0078D6?logo=windows&logoColor=white)
-![Licence](https://img.shields.io/badge/licence-GPL--3.0-blue)
+![Licence](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)
 
 </div>
 
@@ -296,7 +296,7 @@ Pour le reste : l'écran **Aide** de la console détaille chaque écran, chaque 
 
 ## 7. Licence
 
-Janus est un **logiciel libre**, distribué sous la licence **GNU General Public License, version 3** (GPL-3.0).
+Janus est un **logiciel libre**, distribué sous la licence **GNU General Public License, version 3 ou ultérieure** (GPL-3.0-or-later).
 
 Copyright © 2026 ETDEL.
 
@@ -309,4 +309,4 @@ Le texte intégral de la licence est dans le fichier `LICENSE` du dépôt et sur
 
 ---
 
-*Janus — ETDEL 2026 — GPL-3.0*
+*Janus — ETDEL 2026 — GPL-3.0-or-later*

@@ -17,7 +17,7 @@ Choix faits pendant la réalisation, sur les points non couverts ou ambigus du c
 ### D3 — 2026-10-05 — Fichier LICENSE existant
 - **Question** : le dépôt a été créé avec une licence GPL v3 alors que le code est propriétaire (« ETDEL (c) 2026 »).
 - **Décision** : fichier laissé tel quel.
-- **Raison** : choix juridique qui revient au propriétaire du projet (à trancher).
+- **Raison** : choix juridique qui revient au propriétaire du projet (à trancher ; tranché en D85).
 
 ## Module client
 
@@ -539,3 +539,10 @@ Le propriétaire du projet, qui n'est pas technicien et tiendra seul la console,
 - **Question** : la console a de nouveaux écrans, champs et actions ; l'application de nouveaux messages.
 - **Décision** : `prive/lib/aide.php` complété, même cadre que D77 : tâche pas à pas « Poste toujours hors ligne : licence hors ligne » (identifiant du poste à se faire dicter, création, code court par téléphone ou code long par e-mail, ce que tape l'utilisateur, refus et remèdes, prolongation par un nouveau code, ce qui se passe s'il se connecte un jour) ; nouvelle section « Licences hors ligne : postes jamais connectes a Internet » (comparatif clé / licence hors ligne, les deux codes, écran et champs, page de résultat, fiche et actions avec leurs confirmations, « Si l'ordinateur se connecte un jour », « Limites », journal), vers laquelle mène le lien « Aide sur cet ecran » de l'écran *Licence hors ligne* ; les autres sections mises à jour (quatre lignes du module, *Clés de signature* et rotation, sauvegarde et restauration, journal et exports, sécurité, ce que voit l'utilisateur, statuts, mode console, tolérance, FAQ — huit questions —, codes de refus, glossaire — six termes). Les libellés des confirmations et la mention « n'atteint le poste... » sont lus dans les constantes du code. Tests (`test_console_aide`) : section et rubriques présentes, étapes de la tâche, limites, chaque libellé des écrans hors ligne (champs, cases, boutons, actions dépliables, liens) cité entre guillemets, et chaque message de l'application cité présent tel quel dans `client/etdel_licence.py`.
 - **Raison** : D63 et D77 restent la règle : le mode d'emploi vit dans la console, vérifié contre le code.
+
+## Publication
+
+### D85 — 2026-10-14 — Licence du projet
+- **Question** : D3 laissait au propriétaire du projet le choix de la licence ; les README annonçaient « GPL-3.0 », sans dire si une version ultérieure de la GPL est acceptée.
+- **Décision** : GPL-3.0-or-later (GNU GPL version 3 ou ultérieure). `LICENSE`, texte officiel de la GPL version 3, inchangé ; badge, section Licence et pied de page des deux README alignés.
+- **Raison** : choix du propriétaire du projet : la même licence que ses autres projets publiés.

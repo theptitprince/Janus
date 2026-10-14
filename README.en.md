@@ -11,7 +11,7 @@
 ![tkinter](https://img.shields.io/badge/tkinter-module%20GUI-3776AB)
 ![Ed25519](https://img.shields.io/badge/signature-Ed25519-555555)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%2B%20web%20hosting-0078D6?logo=windows&logoColor=white)
-![License](https://img.shields.io/badge/license-GPL--3.0-blue)
+![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 
 </div>
 
@@ -301,7 +301,7 @@ and that of [docs/INTEGRATION.md](docs/INTEGRATION.md) covers the applications.
 
 ## 7. License
 
-Janus is **free software**, distributed under the **GNU General Public License, version 3** (GPL-3.0).
+Janus is **free software**, distributed under the **GNU General Public License, version 3 or later** (GPL-3.0-or-later).
 
 Copyright © 2026 ETDEL.
 
@@ -314,4 +314,4 @@ The full text of the license is in the repository's `LICENSE` file and at
 
 ---
 
-*Janus — ETDEL 2026 — GPL-3.0*
+*Janus — ETDEL 2026 — GPL-3.0-or-later*

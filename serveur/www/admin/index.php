@@ -2,6 +2,8 @@
 // index.php - Routeur unique de la console d'administration (protegee par .htaccess / .htpasswd).
 //             Toute la logique est dans prive/lib/admin.php, hors de la racine web.
 // ETDEL (c) 2026
+// Janus, par ETDEL - https://github.com/theptitprince/Janus
+// GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 
 declare(strict_types=1);
 

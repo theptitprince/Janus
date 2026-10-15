@@ -7,6 +7,9 @@
 #        du serveur ; tout ce qui est propre a une application (son code
 #        produit, sa version) passe en parametres de installer() ou exiger().
 # ETDEL (c) 2026
+# Janus, par ETDEL - https://github.com/theptitprince/Janus
+# GPL-3.0-or-later + conditions additionnelles (article 7) :
+# voir NOTICE du depot https://github.com/theptitprince/Janus
 """Module de licence ETDEL.
 
 Integration Tkinter (cas normal), juste apres la creation de root :
@@ -45,7 +48,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-MODULE_VERSION = "2.1.0"
+MODULE_VERSION = "2.1.1"
 
 # Renseignees une fois le serveur installe (ecran Cles de la console).
 # Vides : aucun controle, aucun fichier, l'application ne parle jamais de licence.
@@ -266,6 +269,37 @@ def _hote(url):
 
 # ---------------------------------------------------------------------------
 # Ed25519 (RFC 8032), verification en Python pur
+# D'apres le code de reference de la RFC 8032, section 6 (IETF Trust et auteurs
+# de la RFC, licence BSD simplifiee) : voir NOTICE du depot. Ce qui en est
+# repris reste sous la licence de ce code de reference, reproduite ci-dessous
+# (dispositions juridiques de l'IETF Trust, section 4.c) :
+#
+#   Copyright (c) 2017 IETF Trust and the persons identified as authors of the
+#   code. All rights reserved.
+#
+#   Redistribution and use in source and binary forms, with or without
+#   modification, are permitted provided that the following conditions are met:
+#
+#   - Redistributions of source code must retain the above copyright notice,
+#     this list of conditions and the following disclaimer.
+#   - Redistributions in binary form must reproduce the above copyright notice,
+#     this list of conditions and the following disclaimer in the documentation
+#     and/or other materials provided with the distribution.
+#   - Neither the name of Internet Society, IETF or IETF Trust, nor the names of
+#     specific contributors, may be used to endorse or promote products derived
+#     from this software without specific prior written permission.
+#
+#   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+#   AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+#   IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+#   ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+#   LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+#   CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+#   SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+#   INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+#   CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+#   ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+#   POSSIBILITY OF SUCH DAMAGE.
 # ---------------------------------------------------------------------------
 
 _P = 2 ** 255 - 19
@@ -3067,6 +3101,13 @@ class _CadreLicence(object):
             pass
 
 
+# Mention exigee par les conditions additionnelles de la licence de Janus (GPL v3,
+# article 7 b : fichier NOTICE du depot), au bas de la fenetre Licence. Une
+# application qui integre le module ne doit ni la retirer ni la masquer.
+_MENTION_JANUS = "Janus, par ETDEL \u2014 https://github.com/theptitprince/Janus"
+_MENTION_LICENCE = _MENTION_JANUS + " (GPL-3.0-or-later, sans garantie)"
+
+
 class _FenetreLicence(object):
     """Fenetre ouverte par Ctrl+Maj+L (ou un clic sur le bandeau)."""
 
@@ -3092,6 +3133,10 @@ class _FenetreLicence(object):
         self.bouton_fermer.cadre.pack(side="right")
         actions = tk.Frame(pied, bg=c["fond"])
         actions.pack(side="left", fill="x", expand=True)
+        # Mention de licence de Janus, discrete, juste au-dessus du pied.
+        self.mention = tk.Label(self.win, text=_MENTION_LICENCE, font=s.petit, bg=fond, fg=c["discret"],
+                                anchor="w", justify="left", wraplength=s.px(_LARGEUR - 56))
+        self.mention.pack(side="bottom", fill="x", padx=s.px(28), pady=(0, s.px(10)))
         entete = tk.Frame(self.win, bg=fond)
         entete.pack(fill="x", padx=s.px(28), pady=(s.px(16), 0))
         _badge(entete, s, "licence", "accent", 44, fond).pack(side="left", anchor="n")

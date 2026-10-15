@@ -2,6 +2,8 @@
 //          presse-papiers, actions depliables, reglages replies ouverts sur un champ refuse,
 //          duree par defaut du produit choisi, compteurs, controle d'exposition.
 // ETDEL (c) 2026
+// Janus, par ETDEL - https://github.com/theptitprince/Janus
+// GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 (function () {
   'use strict';
 

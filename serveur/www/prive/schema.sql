@@ -1,5 +1,7 @@
 -- schema.sql - Schema de la base SQLite des licences (annexe B du cahier des charges)
 -- ETDEL (c) 2026
+-- Janus, par ETDEL - https://github.com/theptitprince/Janus
+-- GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 -- Toutes les dates sont des horodatages Unix UTC (secondes).
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;

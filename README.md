@@ -4,7 +4,7 @@
 
 **Un serveur de licences sur hébergement mutualisé, sa console d'administration, et un seul module à copier dans chaque application Python.**
 
-![Version](https://img.shields.io/badge/version-2.1.0-2ea44f)
+![Version](https://img.shields.io/badge/version-2.1.1-2ea44f)
 ![PHP](https://img.shields.io/badge/PHP-8.1%2B-777BB4?logo=php&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-pdo__sqlite-003B57?logo=sqlite&logoColor=white)
@@ -40,7 +40,7 @@ première demande de licence crée son produit. Côté utilisateur, l'applicatio
 se contrôle d'elle-même en arrière-plan, et montre l'état de sa licence par le raccourci **Ctrl+Maj+L**, d'où l'on
 peut aussi transférer la licence vers un nouvel ordinateur.
 
-Version actuelle : module client 2.1.0, serveur 2.1.0 (API v1) — les choix de réalisation, avec les changements
+Version actuelle : module client 2.1.1, serveur 2.1.1 (API v1) — les choix de réalisation, avec les changements
 de version qui en découlent, sont consignés dans [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Sommaire
@@ -85,7 +85,7 @@ cd Janus
 
 | Fichier | Rôle |
 |---|---|
-| `client/etdel_licence.py` | le module client unique, version 2.1.0 : contrôle en ligne, état local chiffré, tolérance hors ligne, licences hors ligne (codes vérifiés sans réseau), fenêtres Tkinter ; seules ses quatre constantes `LICENCE_*` sont renseignées, une fois, après l'installation du serveur |
+| `client/etdel_licence.py` | le module client unique, version 2.1.1 : contrôle en ligne, état local chiffré, tolérance hors ligne, licences hors ligne (codes vérifiés sans réseau), fenêtres Tkinter ; seules ses quatre constantes `LICENCE_*` sont renseignées, une fois, après l'installation du serveur |
 | `client/demo_appli.py` | application de démonstration (produit `DEMO`), à brancher sur un serveur installé (section 4) |
 | `serveur/www/` | tout le serveur, à envoyer tel quel par FTP : API, console d'administration, assistant d'installation, et `prive/` (bibliothèques, configuration, clés, base), jamais servi |
 | `serveur/www/install.php` | assistant d'installation, à usage unique, verrouillé ensuite ; il ne sert plus alors qu'à remplacer un mot de passe perdu de la console, avec un jeton déposé par FTP |
@@ -97,6 +97,7 @@ cd Janus
 | `docs/LISEZ-MOI-SERVEUR.md` | [déploiement et exploitation du serveur](docs/LISEZ-MOI-SERVEUR.md) |
 | `docs/DECISIONS.md` | [décisions de réalisation](docs/DECISIONS.md) |
 | `LICENSE` | texte intégral de la licence GNU GPL version 3 |
+| `NOTICE` | les conditions additionnelles de la licence (article 7) : la mention à conserver |
 
 Ne sont jamais versionnés (`.gitignore`) : `serveur/www/prive/config.php`, les clés et les secrets
 (`prive/cles/`), la base et ses sauvegardes (`prive/data/`), le `.htpasswd`, le verrou d'installation
@@ -200,8 +201,8 @@ La fenêtre de la démo porte deux boutons : « Fenetre Licence » (même fenêt
 licence de ce poste (essais) », qui efface l'état local de la démo et la relance avec les mêmes options ; côté
 serveur, la licence reste liée au poste (la même clé peut être ressaisie) et l'essai déjà accordé n'est pas
 redonné. Le cadre « Licence » en bas de la fenêtre est celui qu'une application place dans sa page de réglages
-(`cadre_licence()`). Pour écarter ensuite le produit `DEMO`, décochez « Actif » sous « Reglages avances » sur sa
-page.
+(`cadre_licence()`) ; en dessous, la démo affiche les mentions de licence de Janus (voir la section 7, Licence).
+Pour écarter ensuite le produit `DEMO`, décochez « Actif » sous « Reglages avances » sur sa page.
 
 Pour effacer à la main l'état local du module sur un poste, supprimez les dossiers `%APPDATA%\ETDEL\licences`,
 `%LOCALAPPDATA%\ETDEL\licences` et `%PROGRAMDATA%\ETDEL\licences` : cela vaut pour toutes les applications ETDEL
@@ -304,8 +305,32 @@ Concrètement, vous pouvez utiliser le programme librement, l'étudier, le modif
 que toute version redistribuée, modifiée ou non, reste sous la même licence, avec son code source et la mention de
 copyright. Le programme est fourni **sans aucune garantie**.
 
+### Conditions additionnelles (article 7)
+
+La GPL v3 permet à l'auteur d'ajouter quelques conditions (article 7). Celles de Janus sont dans
+le fichier [`NOTICE`](NOTICE), en français et en anglais :
+
+- **Attribution** : toute copie ou version modifiée doit garder, visible pour l'utilisateur
+  (fenêtre « À propos » ou équivalent) et dans sa documentation, la mention :
+
+  > Janus, par ETDEL — https://github.com/theptitprince/Janus
+
+  Une version modifiée peut la faire précéder de « D'après » et ajouter ses propres crédits,
+  sans la retirer ni la masquer.
+- **Origine** : une version modifiée doit dire clairement qu'elle est modifiée, et ne doit se
+  présenter ni comme l'original, ni comme approuvée par ETDEL.
+
+Dans Janus, cette mention s'affiche dans le pied de page de la console d'administration, dans la fenêtre
+« Licence » du module client et dans l'application de démonstration.
+
 Le texte intégral de la licence est dans le fichier `LICENSE` du dépôt et sur
-<https://www.gnu.org/licenses/gpl-3.0.html>. Chaque fichier source porte la mention « ETDEL (c) 2026 ».
+<https://www.gnu.org/licenses/gpl-3.0.html>. Chaque fichier source porte un en-tête : la mention « ETDEL (c) 2026 »,
+celle de Janus, la licence (GPL-3.0-or-later) et un renvoi aux conditions additionnelles du fichier `NOTICE`.
+
+La vérification Ed25519 en Python pur du module client suit le code de référence de la RFC 8032, section 6
+(IETF Trust et auteurs de la RFC, licence BSD simplifiée) : ce qui en est repris reste sous cette licence, dont
+l'avis de copyright et le texte sont reproduits dans le module, et les conditions additionnelles ne s'y
+appliquent pas (voir `NOTICE`).
 
 ---
 

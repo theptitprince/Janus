@@ -2,6 +2,8 @@
 // admin.php - Console d'administration : ecrans, actions d'ecriture (confirmation,
 //             CSRF, journal avec l'utilisateur .htpasswd), exports CSV, sauvegarde.
 // ETDEL (c) 2026
+// Janus, par ETDEL - https://github.com/theptitprince/Janus
+// GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 
 declare(strict_types=1);
 
@@ -368,6 +370,22 @@ function admin_journal(array $ctx, string $action, ?string $cible, ?string $deta
 // Gabarit et formulaires
 // ---------------------------------------------------------------------------
 
+// Mention exigee par les conditions additionnelles de la licence (GPL v3, article 7 b : fichier NOTICE du
+// depot), en HTML : au pied de chaque ecran et dans Reglages. Texte seul, sans lien : la console ne pointe
+// vers aucune ressource externe.
+const ADMIN_MENTION = 'Janus, par ETDEL &mdash; https://github.com/theptitprince/Janus';
+
+/** Pied de chaque ecran : mention, copyright, licence, absence de garantie, ou lire la licence. */
+function admin_mentions(): string
+{
+    return '<footer class="mentions"><p>' . ADMIN_MENTION . ' (version ' . h(VERSION_SERVEUR) . ')</p>'
+        . '<p>Copyright &copy; 2026 ETDEL. Logiciel libre sous licence GNU GPL version 3 ou ulterieure '
+        . '(GPL-3.0-or-later), avec des conditions additionnelles (article 7, fichier NOTICE du depot), fourni '
+        . 'SANS AUCUNE GARANTIE. Licence : https://www.gnu.org/licenses/gpl-3.0.html ; conditions additionnelles : '
+        . 'https://github.com/theptitprince/Janus/blob/main/NOTICE. Une version modifiee doit le dire et ne pas se '
+        . 'presenter comme l\'original.</p></footer>';
+}
+
 function admin_page(array $ctx, string $titre, string $contenu, int $code = 200): array
 {
     $attente = (int)db_valeur($ctx['db'], "SELECT COUNT(*) FROM demandes WHERE statut = 'en_attente'");
@@ -395,7 +413,8 @@ function admin_page(array $ctx, string $titre, string $contenu, int $code = 200)
         . '<link rel="stylesheet" href="style.css"><script src="app.js" defer></script></head><body>'
         . '<header><a class="marque" href="index.php?page=tableau">Licences ETDEL</a><nav>' . $nav . '</nav>'
         . '<span class="utilisateur">' . h($ctx['utilisateur']) . '</span></header>'
-        . '<main><h1>' . h($titre) . '</h1>' . admin_aide_lien($ctx) . $bandeau . $contenu . '</main></body></html>';
+        . '<main><h1>' . h($titre) . '</h1>' . admin_aide_lien($ctx) . $bandeau . $contenu . '</main>'
+        . admin_mentions() . '</body></html>';
     return ['code' => $code, 'entetes' => admin_entetes() + ['Content-Type' => 'text/html; charset=UTF-8'], 'corps' => $html];
 }
 
@@ -709,7 +728,7 @@ function admin_ecran_administration(array $ctx): string
             . 'export CSV.'],
         'sauvegarde' => ['Sauvegarde', 'Telecharger une copie de la base ; liste des sauvegardes quotidiennes.'],
         'reglages' => ['Reglages', 'E-mails de notification des nouvelles demandes (et e-mail de test), mot de passe de '
-            . 'la console.'],
+            . 'la console ; version et licence du logiciel.'],
     ];
     $html = '<p>Ecrans techniques, utiles a l\'installation et de temps en temps, rarement au quotidien.</p>'
         . '<div class="menu-admin">';
@@ -2221,6 +2240,9 @@ function admin_ecran_reglages(array $ctx): string
             . f_bouton('Changer le mot de passe'))
         . '<p class="discret">Le navigateur redemandera l\'identifiant et le nouveau mot de passe.</p></section>'
         . '<section><h2>Serveur</h2>' . fiche_html([
+            'Logiciel' => ADMIN_MENTION,
+            'Licence' => 'GNU GPL version 3 ou ulterieure (GPL-3.0-or-later), avec des conditions additionnelles '
+                . '(article 7, fichier NOTICE du depot) ; SANS AUCUNE GARANTIE',
             'Version du serveur' => h(VERSION_SERVEUR),
             'Version de l\'API' => (string)VERSION_API,
             'PHP' => h(PHP_VERSION),

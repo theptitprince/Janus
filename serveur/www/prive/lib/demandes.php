@@ -2,6 +2,8 @@
 // demandes.php - Demandes de licence : creation et suivi (API), acceptation et
 //                refus (console), periode d'essai unique par poste et par produit.
 // ETDEL (c) 2026
+// Janus, par ETDEL - https://github.com/theptitprince/Janus
+// GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 
 declare(strict_types=1);
 

@@ -4,6 +4,8 @@
 //            (postes jamais connectes), ce que voit l'utilisateur dans l'application, la tolerance hors
 //            ligne, le depannage (FAQ, codes de refus), le glossaire.
 // ETDEL (c) 2026
+// Janus, par ETDEL - https://github.com/theptitprince/Janus
+// GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 
 declare(strict_types=1);
 
@@ -79,7 +81,9 @@ function admin_ecran_aide(array $ctx): string
     $html = '<div class="aide"><p>Mode d\'emploi de la console des licences ETDEL, pour quelqu\'un qui la decouvre. '
         . 'Lire d\'abord "Comprendre en 2 minutes", puis la tache qui vous occupe. Les sections suivantes decrivent chaque '
         . 'ecran et chaque reglage, ce que voit l\'utilisateur dans l\'application et que faire en cas de probleme. En haut '
-        . 'de chaque ecran de la console, le lien "Aide sur cet ecran" mene directement a la bonne section.</p>'
+        . 'de chaque ecran de la console, le lien "Aide sur cet ecran" mene directement a la bonne section. En bas de '
+        . 'chaque ecran figurent les mentions de licence de Janus, le logiciel de ce serveur (voir <a href="#reglages">'
+        . 'Reglages et mot de passe</a>, "Logiciel et licence").</p>'
         . '<nav id="sommaire" class="aide-sommaire" aria-label="Sommaire de l\'aide"><h2>Sommaire</h2><ol>' . $sommaire
         . '</ol></nav>' . $corps . '</div>';
     // Les valeurs reglables (config.php, constantes du code) sont lues ici, jamais recopiees dans le texte.
@@ -963,7 +967,7 @@ function aide_section_administration(): string
         et export CSV.</li>
         <li><a href="#sauvegarde">Sauvegarde</a> : copie de la base a telecharger ; liste des sauvegardes quotidiennes.</li>
         <li><a href="#reglages">Reglages</a> : e-mails de notification des nouvelles demandes, mot de passe de la
-        console.</li>
+        console ; version et licence du logiciel.</li>
         </ul>
         <h3>Controle d'exposition</h3>
         <p>Le navigateur essaie de telecharger, par leur URL et sans identifiants, les fichiers qui ne doivent jamais l'etre :
@@ -1275,10 +1279,18 @@ function aide_section_reglages(): string
         jeton d'installation ou deja utilise.</li>
         </ol>
         <h3>Serveur</h3>
-        <p>La section "Serveur" affiche la version du serveur ({{VERSION_SERVEUR}}), la version de l'API ({{VERSION_API}}),
-        les versions de PHP et de SQLite et l'utilisateur connecte. Les autres parametres (fuseau horaire, plafond d'e-mails,
-        nombre de sauvegardes conservees, adresse de la console dans les e-mails) se reglent dans prive/config.php, par
-        FTP.</p>
+        <p>La section "Serveur" affiche le logiciel (Janus, par ETDEL &mdash; https://github.com/theptitprince/Janus), sa
+        licence, la version du serveur ({{VERSION_SERVEUR}}), la version de l'API ({{VERSION_API}}), les versions de PHP et
+        de SQLite et l'utilisateur connecte. Les autres parametres (fuseau horaire, plafond d'e-mails, nombre de sauvegardes
+        conservees, adresse de la console dans les e-mails) se reglent dans prive/config.php, par FTP.</p>
+        <h3>Logiciel et licence</h3>
+        <p>Le serveur, sa console et le module des applications forment Janus, un logiciel libre d'ETDEL : licence GNU GPL
+        version 3 ou ulterieure (GPL-3.0-or-later), avec des conditions additionnelles (article 7) ecrites dans le fichier
+        NOTICE du depot (https://github.com/theptitprince/Janus/blob/main/NOTICE). Il est fourni sans aucune garantie. Ces
+        mentions sont rappelees au bas de chaque ecran de la console. Toute copie ou version modifiee doit garder, visible,
+        la mention "Janus, par ETDEL &mdash; https://github.com/theptitprince/Janus" ; une version modifiee doit le dire et
+        ne pas se presenter comme l'original. Les adresses sont du texte, sans lien : la console ne charge et ne pointe vers
+        aucune ressource externe.</p>
         HTML;
 }
 
@@ -1321,8 +1333,9 @@ function aide_section_securite(): string
         d'un meme bureau derriere la meme box partagent ces limites. En plus, au plus {{TRANSFERTS_MAX}} transferts par
         licence sur {{TRANSFERTS_JOURS}} jours depuis l'application : une cle ne peut pas tourner sans fin d'un ordinateur a
         l'autre.</li>
-        <li><strong>Pages de la console</strong> : aucune ressource externe, aucun script ni style ecrit dans la page
-        (politique de securite du contenu stricte), aucune mise en cache.</li>
+        <li><strong>Pages de la console</strong> : aucune ressource externe (les adresses du pied de page sont du texte, sans
+        lien), aucun script ni style ecrit dans la page (politique de securite du contenu stricte), aucune mise en
+        cache.</li>
         <li>La securite repose aussi sur le compte OVH : qui controle l'hebergement peut signer. Mot de passe fort et double
         authentification sur l'espace client.</li>
         </ul>
@@ -1345,7 +1358,9 @@ function aide_section_application(): string
         Dernier controle ; Identifiant du poste ("Copier") ; Cle, masquee comme dans la console
         (ETDEL-****-****-****-XXXX), avec "Afficher la cle" / "Masquer la cle" ; Nom de l'ordinateur, suivi du lien
         "Transferer cette licence" quand le transfert est possible ; le message d'accueil du produit ; "Verifier maintenant"
-        et son resultat ; la zone "Diagnostic" avec "Copier le diagnostic" ; "Fermer" (ou Echap). On n'y saisit rien.
+        et son resultat ; la zone "Diagnostic" avec "Copier le diagnostic" ; au-dessus du pied, en petit, la mention "Janus,
+        par ETDEL &mdash; https://github.com/theptitprince/Janus (GPL-3.0-or-later, sans garantie)", que l'application ne
+        doit pas retirer ; "Fermer" (ou Echap). On n'y saisit rien.
         Certaines applications affichent le meme cadre dans leurs reglages, sans le lien de transfert. Licence hors ligne :
         la ligne s'appelle "Code hors ligne" (ETDHL-****-****-****-XXXX, ou ETDHL2-****-...-XXXX-X pour un code long), avec
         "Afficher le code" / "Masquer le code" ; Echeance montre le dernier jour de validite ou "Illimitee" ; Titulaire et

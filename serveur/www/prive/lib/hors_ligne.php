@@ -3,6 +3,8 @@
 //                  saisi dans la console, code court a dicter (HMAC-SHA256 tronque), code long signe
 //                  (Ed25519), secret des codes courts, creation et remplacement d'une licence hors ligne.
 // ETDEL (c) 2026
+// Janus, par ETDEL - https://github.com/theptitprince/Janus
+// GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 
 declare(strict_types=1);
 

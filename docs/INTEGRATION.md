@@ -1,7 +1,7 @@
 # Intégrer la licence ETDEL dans une application
 
-Module de référence : `client/etdel_licence.py`, version **2.1.0**.
-Empreinte SHA-256 (fins de ligne normalisées en LF) : `c44185897af3a0c80451573a0d816f82121883c3767f8dae5e2c9fbf1a1126ba`
+Module de référence : `client/etdel_licence.py`, version **2.1.1**.
+Empreinte SHA-256 (fins de ligne normalisées en LF) : `28657c93ec05e748ed62bf97a724348152746fd318a27c6382bc0904bbd33475`
 
 Le module est **le même pour toutes les applications** : on le copie tel quel, sans aucune modification, à côté du script principal. Il n'a pas de fichier de configuration. Ce qui est propre à une application passe en paramètres : son **code produit** et sa **version**.
 
@@ -50,7 +50,7 @@ C'est la ligne que la console affiche, avec « Copier », sur la page de chaque 
 - bandeau de préavis en superposition (période d'essai sur fond bleu clair, tolérance hors ligne bientôt épuisée ou échéance proche aux couleurs d'accent) ; un clic sur le bandeau ouvre la fenêtre « Licence ». Le bandeau recouvre environ 30 px (à 100 %) du haut de la fenêtre pendant l'essai ou le préavis, davantage si son message passe sur deux lignes dans une fenêtre étroite (moins de 700 px environ) : prévoir cette marge au-dessus de la barre d'outils ;
 - relecture de l'état toutes les 25 s ; licence expirée ou révoquée en cours de session : message, puis fermeture ;
 - interception de la fermeture de la fenêtre : l'heure atteinte est enregistrée, puis le gestionnaire d'origine de l'application est appelé (à défaut, `root.destroy()`) ; si l'application annule la fermeture, le contrôle continue ; il s'arrête à la destruction réelle de la fenêtre ;
-- raccourci **Ctrl+Maj+L** : fenêtre « Licence » (statut en pastille de couleur : vert valide, bleu essai ou attente, ambre avertissement, rouge bloqué ; titulaire, échéance, dernier contrôle, identifiant du poste avec « Copier », clé masquée `ETDEL-****-****-****-ZS95` avec « Afficher la cle », nom de l'ordinateur avec « Transferer cette licence », diagnostic avec « Copier le diagnostic » ; au pied, « Verifier maintenant », grisé tant que le poste n'a ni clé ni demande en attente, et « Fermer »). La clé complète n'apparaît que sur demande, jamais dans le diagnostic ni le journal. Avec une licence hors ligne : statut « Licence hors ligne valable jusqu'au … » (ou « illimitee »), ligne « Code hors ligne » masquée avec « Afficher le code », « Verifier maintenant » actif.
+- raccourci **Ctrl+Maj+L** : fenêtre « Licence » (statut en pastille de couleur : vert valide, bleu essai ou attente, ambre avertissement, rouge bloqué ; titulaire, échéance, dernier contrôle, identifiant du poste avec « Copier », clé masquée `ETDEL-****-****-****-ZS95` avec « Afficher la cle », nom de l'ordinateur avec « Transferer cette licence », diagnostic avec « Copier le diagnostic » ; juste au-dessus du pied, en petit, la mention « Janus, par ETDEL — https://github.com/theptitprince/Janus (GPL-3.0-or-later, sans garantie) » ; au pied, « Verifier maintenant », grisé tant que le poste n'a ni clé ni demande en attente, et « Fermer »). La clé complète n'apparaît que sur demande, jamais dans le diagnostic ni le journal. Avec une licence hors ligne : statut « Licence hors ligne valable jusqu'au … » (ou « illimitee »), ligne « Code hors ligne » masquée avec « Afficher le code », « Verifier maintenant » actif. La mention de Janus est exigée par les conditions additionnelles de sa licence (fichier `NOTICE` du dépôt, article 7 b) : l'application hôte ne doit ni la retirer ni la masquer.
 
 `installer()` renvoie la Garde pour les usages avancés.
 
@@ -211,6 +211,8 @@ Une rotation de clé ou un changement d'URL ne demande **pas** de refaire cette 
 ## Mettre à jour le module dans une application
 
 Remplacer `etdel_licence.py` par la nouvelle référence, mettre à jour l'empreinte attendue par le script de construction de l'application, relancer les tests de l'application et refaire les vérifications de « Vérifier l'intégration ». Le module garde la compatibilité de l'état local d'une version à l'autre : aucune nouvelle activation n'est nécessaire.
+
+Passage de la 2.1.0 à la 2.1.1 (mentions de licence) : rien à changer dans le code de l'application ni sur les postes ; seule l'empreinte attendue change. La fenêtre « Licence » affiche désormais, au-dessus de son pied, la mention de Janus et sa licence. Protocole, API et état local sont inchangés : le module 2.1.1 fonctionne avec un serveur 2.1.0 comme avec un serveur 2.1.1.
 
 Passage de la 2.0.0 à la 2.1.0 (licences hors ligne) : rien à changer dans le code de l'application ni sur les postes. Les codes hors ligne courts demandent la quatrième constante, `LICENCE_SECRET_HORS_LIGNE` (déjà renseignée dans la référence du dépôt une fois le serveur installé) ; sans elle, seuls les codes longs sont acceptés.
 

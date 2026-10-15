@@ -1,6 +1,8 @@
 # .htaccess - Console fermee tant que install.php n'a pas ete execute.
 # install.php remplace ce fichier par la protection AuthType Basic (.htpasswd hors www).
 # ETDEL (c) 2026
+# Janus, par ETDEL - https://github.com/theptitprince/Janus
+# GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 <IfModule mod_authz_core.c>
 Require all denied
 </IfModule>

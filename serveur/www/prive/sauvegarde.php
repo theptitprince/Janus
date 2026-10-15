@@ -2,6 +2,8 @@
 // sauvegarde.php - Copie datee de la base (tache planifiee OVH, quotidienne).
 //                  Conserve les N copies les plus recentes (config : sauvegardes_conservees).
 // ETDEL (c) 2026
+// Janus, par ETDEL - https://github.com/theptitprince/Janus
+// GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 
 declare(strict_types=1);
 

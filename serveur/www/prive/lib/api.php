@@ -3,6 +3,8 @@
 //           codes hors ligne, dont le transfert demande par l'application), reponses signees Ed25519
 //           (refus compris).
 // ETDEL (c) 2026
+// Janus, par ETDEL - https://github.com/theptitprince/Janus
+// GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 
 declare(strict_types=1);
 

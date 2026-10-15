@@ -1,6 +1,8 @@
 # .htaccess - Racine web du serveur de licences : HTTPS force, pas de listing,
 #             en-tetes de securite, fichiers sensibles jamais servis.
 # ETDEL (c) 2026
+# Janus, par ETDEL - https://github.com/theptitprince/Janus
+# GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 Options -Indexes
 DirectoryIndex index.php
 

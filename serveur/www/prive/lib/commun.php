@@ -2,6 +2,8 @@
 // commun.php - Configuration et fonctions partagees par l'API, la console,
 //              l'assistant d'installation et la sauvegarde.
 // ETDEL (c) 2026
+// Janus, par ETDEL - https://github.com/theptitprince/Janus
+// GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 
 declare(strict_types=1);
 
@@ -13,7 +15,7 @@ require_once __DIR__ . '/hors_ligne.php';
 
 const JOUR = 86400;
 const VERSION_API = 1;
-const VERSION_SERVEUR = '2.1.0';
+const VERSION_SERVEUR = '2.1.1';
 
 /** Charge prive/config.php et complete les valeurs par defaut. */
 function config_charger(string $prive): array

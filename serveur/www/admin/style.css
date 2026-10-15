@@ -1,5 +1,7 @@
 /* style.css - Console des licences ETDEL : mise en page sobre, utilisable sur mobile.
-   ETDEL (c) 2026 */
+   ETDEL (c) 2026
+   Janus, par ETDEL - https://github.com/theptitprince/Janus
+   GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE */
 :root {
   --fond: #f4f5f7; --panneau: #fff; --texte: #1d2733; --discret: #66707c; --ligne: #d9dde3;
   --accent: #1f5f99; --danger: #b3261e; --succes: #1e7b34; --alerte: #b4500a;
@@ -14,6 +16,10 @@ nav a { padding: .3rem .55rem; border-radius: 4px; opacity: .85; }
 nav a:hover, nav a.actif { background: rgba(255, 255, 255, .15); opacity: 1; }
 .utilisateur { font-size: .85rem; opacity: .7; }
 main { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+/* Pied de chaque ecran : mentions de licence (texte seul, adresses longues coupees sur telephone). */
+footer.mentions { max-width: 1200px; margin: 1.5rem auto 0; padding: .8rem 1rem 1.2rem; border-top: 1px solid var(--ligne);
+  color: var(--discret); font-size: .8rem; overflow-wrap: anywhere; }
+footer.mentions p { margin: .2rem 0; max-width: 60rem; }
 h1 { font-size: 1.45rem; margin: .4rem 0 1rem; }
 h2 { font-size: 1.1rem; margin: 1.6rem 0 .6rem; }
 a { color: var(--accent); }
@@ -112,7 +118,7 @@ form details.avance { margin: .2rem 0 1rem; padding-top: .6rem; }
   nav { order: 3; flex-basis: 100%; }
 }
 @media (max-width: 600px) {
-  main { padding: .6rem; }
+  main, footer.mentions { padding: .6rem; }
   .fiche { grid-template-columns: 1fr; }
   .fiche dt { margin-top: .4rem; }
 }

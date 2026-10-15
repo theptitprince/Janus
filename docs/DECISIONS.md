@@ -17,7 +17,7 @@ Choix faits pendant la réalisation, sur les points non couverts ou ambigus du c
 ### D3 — 2026-10-05 — Fichier LICENSE existant
 - **Question** : le dépôt a été créé avec une licence GPL v3 alors que le code est propriétaire (« ETDEL (c) 2026 »).
 - **Décision** : fichier laissé tel quel.
-- **Raison** : choix juridique qui revient au propriétaire du projet (à trancher ; tranché en D85).
+- **Raison** : choix juridique qui revient au propriétaire du projet (à trancher ; tranché en D85 et D86).
 
 ## Module client
 
@@ -546,3 +546,8 @@ Le propriétaire du projet, qui n'est pas technicien et tiendra seul la console,
 - **Question** : D3 laissait au propriétaire du projet le choix de la licence ; les README annonçaient « GPL-3.0 », sans dire si une version ultérieure de la GPL est acceptée.
 - **Décision** : GPL-3.0-or-later (GNU GPL version 3 ou ultérieure). `LICENSE`, texte officiel de la GPL version 3, inchangé ; badge, section Licence et pied de page des deux README alignés.
 - **Raison** : choix du propriétaire du projet : la même licence que ses autres projets publiés.
+
+### D86 — 2026-10-15 — Conditions additionnelles (article 7) et mention visible
+- **Question** : le propriétaire du projet veut que toute copie ou version modifiée de Janus garde, visible pour l'utilisateur et dans sa documentation, la mention « Janus, par ETDEL — https://github.com/theptitprince/Janus », sans que Janus cesse d'être un logiciel libre.
+- **Décision** : conditions additionnelles permises par l'article 7 de la GPL v3 (7 b : attribution ; 7 c : origine, une version modifiée doit le dire et ne pas se présenter comme l'original), dans un fichier `NOTICE` à la racine du dépôt, en français (qui fait foi) et en anglais ; `LICENSE` reste le texte officiel, inchangé. Le code Ed25519 en Python pur du module suit le code de référence de la RFC 8032, section 6 (IETF Trust et auteurs de la RFC, licence BSD simplifiée) : `NOTICE` l'exclut de ces conditions et le crédite, comme les README ; le module, qui le crédite aussi, reproduit l'avis de copyright de l'IETF Trust et le texte de cette licence (dispositions juridiques de l'IETF Trust, section 4.c), comme elle l'exige pour le code repris. Chaque fichier source garde « ETDEL (c) 2026 » suivi, en ASCII, de la mention et de « GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE » ; le module, qui voyage seul dans les applications, renvoie au `NOTICE` du dépôt par son adresse ; l'`admin/.htaccess` généré par l'assistant porte les mêmes lignes. Mention visible : pied de page de chaque écran de la console (texte seul, sans lien ni style en ligne, règle `footer.mentions` de `style.css`), lignes « Logiciel » et « Licence » de *Réglages* › « Serveur », fenêtre « Licence » du module (en petit, au-dessus du pied, constante `_MENTION_LICENCE`), bas de la fenêtre de l'application de démonstration ; l'aide de la console décrit ces mentions (D63, D77). Module 2.1.1, empreinte republiée dans `docs/INTEGRATION.md` (D39) ; serveur 2.1.1 ; ni l'API, ni le protocole, ni le schéma de la base ne changent.
+- **Raison** : choix du propriétaire du projet, le même pour ses autres projets publiés : rester un logiciel libre tout en gardant visible l'origine de chaque copie. Version de correctif : aucune fonction nouvelle pour les applications ; les octets du module changent, donc sa version et son empreinte aussi.

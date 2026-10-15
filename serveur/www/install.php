@@ -4,6 +4,8 @@
 //               ligne), le .htpasswd de la console, protege /admin/ puis se verrouille (refuse
 //               toute nouvelle execution).
 // ETDEL (c) 2026
+// Janus, par ETDEL - https://github.com/theptitprince/Janus
+// GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 
 declare(strict_types=1);
 

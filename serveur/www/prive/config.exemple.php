@@ -3,6 +3,8 @@
 // A copier en config.php (meme dossier), a completer, puis a envoyer par FTP.
 // config.php n'est jamais versionne (.gitignore).
 // ETDEL (c) 2026
+// Janus, par ETDEL - https://github.com/theptitprince/Janus
+// GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 
 return [
     // Jeton a usage unique demande par install.php : une chaine aleatoire

@@ -2,6 +2,8 @@
 // crypto.php - Cles de licence, identifiant de poste, signature Ed25519 (sodium),
 //              chiffrement de la cle remise par une demande acceptee.
 // ETDEL (c) 2026
+// Janus, par ETDEL - https://github.com/theptitprince/Janus
+// GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 
 declare(strict_types=1);
 

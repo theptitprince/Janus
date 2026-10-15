@@ -3,6 +3,8 @@
 //                    paire de cles, secret des demandes, .htpasswd, protection de
 //                    /admin/, verrou. Aussi utilise pour changer le mot de passe.
 // ETDEL (c) 2026
+// Janus, par ETDEL - https://github.com/theptitprince/Janus
+// GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 
 declare(strict_types=1);
 
@@ -128,6 +130,8 @@ function admin_htaccess(string $htpasswd): string
     return implode("\n", [
         '# .htaccess - Console d\'administration : authentification Basic (genere par install.php)',
         '# ETDEL (c) 2026',
+        '# Janus, par ETDEL - https://github.com/theptitprince/Janus',
+        '# GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE',
         'AuthType Basic',
         'AuthName "Console licences ETDEL"',
         'AuthUserFile "' . $htpasswd . '"',

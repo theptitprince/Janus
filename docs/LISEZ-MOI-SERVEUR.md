@@ -72,7 +72,7 @@ Tout le serveur tient dans le dossier `serveur/www/` du dépôt, qui s'envoie te
 | › Clés de signature | clé publique active (bouton « Copier »), les quatre lignes pour `etdel_licence.py` (dont `LICENCE_SECRET_HORS_LIGNE`), historique, rotation |
 | › Journal | toutes les actions (API et console), filtre, export CSV |
 | › Sauvegarde | téléchargement d'une copie de la base, dernières sauvegardes |
-| › Réglages | notification, e-mail de test, mot de passe de la console |
+| › Réglages | notification, e-mail de test, mot de passe de la console ; section « Serveur » : logiciel et licence, versions du serveur, de l'API, de PHP et de SQLite |
 
 Toute action d'écriture demande une confirmation et est inscrite au journal avec l'identifiant de connexion. Une notification par e-mail part à chaque nouvelle demande (50 au plus par jour) ; un échec d'envoi est inscrit au journal et n'empêche jamais l'enregistrement de la demande.
 
@@ -99,6 +99,8 @@ Limites assumées : une révocation n'atteint jamais un poste qui ne se connecte
 **Version de l'application** : envoyée à chaque contrôle et affichée dans la console (fiche d'une licence ou d'une demande) pour information seulement ; le serveur ne refuse jamais une application pour sa version.
 
 L'écran **Aide** de la console détaille chaque écran, chaque réglage et chaque action.
+
+Au pied de chaque écran, la console affiche les mentions de licence : « Janus, par ETDEL — https://github.com/theptitprince/Janus », la version du serveur, la licence GNU GPL version 3 ou ultérieure avec ses conditions additionnelles (fichier `NOTICE` du dépôt, article 7) et l'absence de garantie. Les adresses y sont du texte, sans lien : la console ne pointe vers aucune ressource externe.
 
 ## 5. Sauvegardes
 
@@ -160,6 +162,8 @@ La base existante est mise à niveau automatiquement à la première requête qu
 Passage à la version 2 du serveur : une base créée par une version précédente continue de fonctionner telle quelle. Mettre à jour le serveur **avant** de livrer des applications avec le module 2.0.0 : un serveur plus ancien ne reconnaîtrait pas toujours leurs requêtes et bloquerait leurs postes (« Produit inconnu »). Chaque produit garde toutes ses licences et ses demandes ; s'il avait plusieurs jeux de règles (anciennes distributions), le premier jeu actif (à défaut, le premier créé) s'applique désormais à tout le produit, et toutes ses licences restent valables tant que le produit est actif, y compris celles d'un ancien jeu désactivé (les suspendre ou les révoquer une à une si besoin). Le premier « Enregistrer » sur la page du produit aligne tous ces jeux sur les règles affichées. Les applications livrées avec l'ancien module sont reconnues par leur code produit seul. Les clés créées avant la mise à jour ne sont pas conservées : « Afficher la cle » ne vaut que pour les clés créées ensuite (création, acceptation d'une demande, « Nouvelle cle »).
 
 Passage à la version 2.1 du serveur (licences hors ligne) : la base est mise à niveau d'elle-même (colonnes ajoutées, aucune licence modifiée) ; le secret des codes hors ligne est créé au premier besoin (premier affichage de l'écran *Clés de signature* ou première licence hors ligne ; journal : `secret_hors_ligne_cree`), seulement pour une base qui n'en a jamais eu (ni empreinte inscrite, ni licence hors ligne). Reporter alors la ligne `LICENCE_SECRET_HORS_LIGNE` dans les nouvelles versions des applications, et ajouter `prive/cles/secret_hors_ligne.key` à la copie de secours (§ 3, étape 8).
+
+Passage à la version 2.1.1 du serveur (mentions de licence) : rien à faire de plus que l'envoi des fichiers ; la base n'est pas modifiée. La console affiche ses mentions de licence au pied de chaque écran et dans *Réglages* › « Serveur ». Le `admin/.htaccess` généré à l'installation, toujours exclu de l'envoi, reste valable tel quel (seul son commentaire d'en-tête a changé pour les nouvelles installations).
 
 Si `admin/.htaccess` a été écrasé par erreur, la console répond « accès refusé » : renvoyer la copie de secours faite à l'installation.
 

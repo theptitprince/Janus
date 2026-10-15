@@ -10,6 +10,8 @@
 #        Exemples : python demo_appli.py --serveur https://licence.mondomaine.fr/api/v1/ --cle-publique <cle>
 #                   python demo_appli.py --banc   (serveur installe sur ce poste, voir README.md)
 # ETDEL (c) 2026
+# Janus, par ETDEL - https://github.com/theptitprince/Janus
+# GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
 
 import argparse
 import base64
@@ -29,6 +31,13 @@ ICI = os.path.dirname(os.path.abspath(__file__))
 FOND = etdel_licence.PALETTE_DEFAUT["fond"]
 TEXTE = etdel_licence.PALETTE_DEFAUT["texte"]
 DISCRET = etdel_licence.PALETTE_DEFAUT["discret"]
+# Mentions de licence de Janus (GPL v3, article 7 : fichier NOTICE du depot), au bas de la fenetre.
+MENTION = "Janus, par ETDEL \u2014 https://github.com/theptitprince/Janus"
+MENTIONS_LICENCE = ("Copyright \u00a9 2026 ETDEL. Logiciel libre sous licence GNU GPL version 3 ou ulterieure "
+                    "(GPL-3.0-or-later), avec des conditions additionnelles (article 7), fourni SANS AUCUNE "
+                    "GARANTIE. Licence : fichier LICENSE ou https://www.gnu.org/licenses/gpl-3.0.html ; conditions "
+                    "additionnelles : fichier NOTICE. Une version modifiee doit le dire et ne pas se presenter "
+                    "comme l'original.")
 URL_BANC = "http://127.0.0.1:8090/api/v1/"
 # --banc : premiere cle publique du serveur installe sur ce poste depuis
 # serveur/www/, comme celle qu'une application embarque ; les rotations
@@ -159,6 +168,9 @@ def construire(arguments=None):
     cadre_export, export = _bouton_plat(root, "Exporter en PDF (option export_pdf)")
     cadre_export.pack(pady=10)
     garde.cadre_licence(root).pack(fill="x", padx=16, pady=8)
+    tk.Label(root, text=MENTION, fg=DISCRET, bg=FOND).pack(padx=16, pady=(6, 0))
+    tk.Label(root, text=MENTIONS_LICENCE, fg=DISCRET, bg=FOND, font=("Segoe UI", 8), wraplength=560,
+             justify="center").pack(padx=16, pady=(2, 12))
     if probleme:
         root.after(300, lambda: messagebox.showwarning("Demo ETDEL", probleme, parent=root))
 

@@ -18,8 +18,8 @@ Ces conditions s'appliquent au travail d'ETDEL contenu dans ce dépôt, à l'exc
 
    a) dans les mentions légales qu'elle affiche à l'utilisateur (fenêtre « À propos » ou
       écran équivalent ; dans Janus : pied de page de chaque écran de la console
-      d'administration, fenêtre « Licence » du module client et application de
-      démonstration) ;
+      d'administration et application de démonstration ; la fenêtre « Licence » que le
+      module client montre aux utilisateurs des applications ne la porte pas) ;
    b) dans sa documentation (README ou équivalent).
    Elle doit aussi conserver les mentions d'auteur placées en tête des fichiers source.
    Une version modifiée peut faire précéder la mention de « D'après » et ajouter ses propres
@@ -62,8 +62,9 @@ material listed below.
        Janus, par ETDEL — https://github.com/theptitprince/Janus
 
    a) in the legal notices it displays to the user (an "About" window or equivalent screen;
-      in Janus: the footer of every screen of the administration console, the client
-      module's « Licence » window and the demo application);
+      in Janus: the footer of every screen of the administration console and the demo
+      application; the « Licence » window that the client module shows to the users of
+      the applications does not carry it);
    b) in its documentation (README or equivalent).
    It must also keep the author notices at the top of the source files.
    A modified version may prefix the notice with "D'après" (or "Based on") and add its own

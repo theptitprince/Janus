@@ -1467,9 +1467,8 @@ function aide_section_application(): string
         comme dans la console
         (ETDEL-****-****-****-XXXX), avec "Afficher la cle" / "Masquer la cle" ; Nom de l'ordinateur, suivi du lien
         "Transferer cette licence" quand le transfert est possible ; le message d'accueil du produit ; "Verifier maintenant"
-        et son resultat ; la zone "Diagnostic" avec "Copier le diagnostic" ; au-dessus du pied, en petit, la mention "Janus,
-        par ETDEL &mdash; https://github.com/theptitprince/Janus (GPL-3.0-or-later, sans garantie)", que l'application ne
-        doit pas retirer ; "Fermer" (ou Echap). On n'y saisit rien.
+        et son resultat ; la zone "Diagnostic" avec "Copier le diagnostic" ; "Fermer" (ou Echap). On n'y saisit rien. La
+        fenetre ne nomme ni le logiciel de licence, ni l'adresse de ses sources ou du serveur.
         Certaines applications affichent le meme cadre dans leurs reglages, sans les liens de transfert et de
         renouvellement. Licence hors ligne :
         la ligne s'appelle "Code hors ligne" (ETDHL-****-****-****-XXXX, ou ETDHL2-****-...-XXXX-X pour un code long), avec
@@ -1548,10 +1547,12 @@ function aide_section_application(): string
         saisi dans la console (a sa creation, ou par "Nouveau code pour un autre ordinateur"), meme si l'ordinateur ne s'est
         jamais connecte. C'est aussi l'identifiant a saisir dans l'ecran Licence hors ligne.</li>
         <li><strong>Ligne de diagnostic</strong> (zone "Diagnostic", bouton "Copier le diagnostic") : version du module,
-        produit et version de l'application, poste, statut, echeance, dernier controle, serveur qui a repondu, numero (kid) de
-        la cle de signature et, a la fin, la raison du dernier echec : par exemple "serveur injoignable (...)" (pour chaque
-        adresse essayee : le nom de l'erreur reseau, "http 503" ou "reponse invalide ou mal signee"), un code de refus ou
-        "Horloge de l'ordinateur incorrecte...". La cle n'y figure jamais.</li>
+        produit et version de l'application, poste, statut, echeance, dernier controle, numero (kid) de la cle de signature
+        et, a la fin, la raison du dernier echec : par exemple "serveur injoignable (adresse 1 : ...)" (pour chaque adresse
+        essayee, par son rang dans la liste de l'ecran Serveurs, jamais par son nom : le nom de l'erreur reseau, "http 503"
+        ou "reponse invalide ou mal signee"), un code de refus ou "Horloge de l'ordinateur incorrecte...". La cle n'y
+        figure jamais. Le journal licence.log du poste (%LOCALAPPDATA%\ETDEL\licences) donne aussi le nom de chaque serveur
+        essaye.</li>
         <li><strong>Dernier controle</strong> : date du dernier controle tranche par le serveur. Une date ancienne signale un
         probleme de connexion ou d'horloge.</li>
         </ul>
@@ -1756,7 +1757,7 @@ function aide_section_depannage(): string
         <p>Verifier dans l'ordre : la connexion Internet de l'ordinateur (pare-feu, proxy d'entreprise) ; que l'URL de l'API
         repond en https (certificat SSL du sous-domaine actif chez OVH) ; que l'URL diffusee ne redirige pas ; que l'API ne
         repond pas 503 (voir plus bas). Demander la ligne de diagnostic (Ctrl+Maj+L, "Copier le diagnostic") : elle donne la
-        cause pour chaque URL essayee. Tant que la tolerance hors ligne n'est pas epuisee, l'application continue de
+        cause pour chaque URL essayee ("adresse 1", "adresse 2"... dans l'ordre de l'ecran Serveurs). Tant que la tolerance hors ligne n'est pas epuisee, l'application continue de
         fonctionner.</p>
         </details>
         <details>

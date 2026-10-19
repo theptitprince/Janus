@@ -48,7 +48,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-MODULE_VERSION = "2.2.0"
+MODULE_VERSION = "2.2.1"
 
 # Renseignees une fois le serveur installe (ecran Cles de la console).
 # Vides : aucun controle, aucun fichier, l'application ne parle jamais de licence.
@@ -1362,21 +1362,21 @@ class Garde(object):
         corps.update(champs)
         octets = json.dumps(corps).encode("utf-8")
         debut = time.monotonic()
-        raisons = []
-        for url in cascade:
+        echecs = []  # (rang de l'adresse dans la cascade, url, motif)
+        for rang, url in enumerate(cascade, 1):
             delai = _TIMEOUT
             if delai_max is not None:
                 delai = min(delai, delai_max - (time.monotonic() - debut))
                 if delai < 0.5:
-                    raisons.append("delai depasse")
+                    echecs.append((None, None, "delai depasse"))
                     break
             try:
                 code, donnees = self._transport(url, octets, delai)
             except Exception as exc:
-                raisons.append("%s : %s" % (_hote(url), exc.__class__.__name__))
+                echecs.append((rang, url, exc.__class__.__name__))
                 continue
             if code != 200 and not donnees:
-                raisons.append("%s : http %s" % (_hote(url), code))
+                echecs.append((rang, url, "http %s" % code))
                 continue
             with self._verrou:
                 lu = self._lire_reponse(donnees or b"", corps)
@@ -1385,13 +1385,19 @@ class Garde(object):
                 if lu is None:
                     # Hors HTTP 200, seul un refus signe et lie a cette requete compte
                     # (requete_invalide d'un serveur 2.1.1) ; le reste est un echec.
-                    raisons.append("%s : http %s" % (_hote(url), code) if code != 200
-                                   else "%s : reponse invalide ou mal signee" % _hote(url))
+                    echecs.append((rang, url, "http %s" % code if code != 200
+                                   else "reponse invalide ou mal signee"))
                     continue
                 payload, enveloppe = lu
                 self._contact(payload, url)
             return payload, enveloppe, None
-        return None, None, "serveur injoignable (%s)" % ("; ".join(raisons) or "aucune url")
+        # Raison montree (fenetre Licence, diagnostic) : chaque adresse par son rang, jamais son nom (D91) ;
+        # le journal local du poste garde le nom des serveurs, pour le depannage.
+        if echecs:
+            self._log(logging.INFO, "%s, adresses essayees : %s", op, "; ".join(
+                "%s : %s" % (_hote(url), motif) if url else motif for _rang, url, motif in echecs))
+        return None, None, "serveur injoignable (%s)" % ("; ".join(
+            "adresse %d : %s" % (rang, motif) if rang else motif for rang, _url, motif in echecs) or "aucune url")
 
     def _contact(self, payload, url):
         reel = int(self._horloge())
@@ -2195,13 +2201,13 @@ class Garde(object):
                 echeance = "illimitee"
             else:
                 echeance = "perpetuelle" if e["statut"] in (VALIDE, AVERTISSEMENT) else "-"
+            # Ni adresse ni nom du serveur de licences (D91) : le diagnostic s'affiche dans la fenetre Licence.
             return ("Licence ETDEL %s ; %s v%s ; poste %s (%s) ; %s%s ; echeance %s ; "
-                    "controle %s ; serveur %s ; kid %s%s" % (
+                    "controle %s ; kid %s%s" % (
                         MODULE_VERSION, self.produit, self.version,
                         e["id_poste"], _ascii(e["nom_ordinateur"]), e["statut"],
                         " (licence hors ligne)" if e["hors_ligne"] else "", echeance,
                         _date_heure(e["dernier_controle"]) or "jamais",
-                        _hote(e["url_active"]) if e["url_active"] else "-",
                         e["kid_actif"] if e["kid_actif"] is not None else "-",
                         " ; " + _ascii(e["raison"]) if e["raison"] else ""))
         except Exception as exc:
@@ -3226,13 +3232,6 @@ class _CadreLicence(object):
             pass
 
 
-# Mention exigee par les conditions additionnelles de la licence de Janus (GPL v3,
-# article 7 b : fichier NOTICE du depot), au bas de la fenetre Licence. Une
-# application qui integre le module ne doit ni la retirer ni la masquer.
-_MENTION_JANUS = "Janus, par ETDEL \u2014 https://github.com/theptitprince/Janus"
-_MENTION_LICENCE = _MENTION_JANUS + " (GPL-3.0-or-later, sans garantie)"
-
-
 class _FenetreLicence(object):
     """Fenetre ouverte par Ctrl+Maj+L (ou un clic sur le bandeau)."""
 
@@ -3258,10 +3257,8 @@ class _FenetreLicence(object):
         self.bouton_fermer.cadre.pack(side="right")
         actions = tk.Frame(pied, bg=c["fond"])
         actions.pack(side="left", fill="x", expand=True)
-        # Mention de licence de Janus, discrete, juste au-dessus du pied.
-        self.mention = tk.Label(self.win, text=_MENTION_LICENCE, font=s.petit, bg=fond, fg=c["discret"],
-                                anchor="w", justify="left", wraplength=s.px(_LARGEUR - 56))
-        self.mention.pack(side="bottom", fill="x", padx=s.px(28), pady=(0, s.px(10)))
+        # Ni nom du logiciel de licence, ni adresse de ses sources ou de son serveur (D91) : la fenetre ne
+        # montre que ce qui sert a l'utilisateur et au support.
         entete = tk.Frame(self.win, bg=fond)
         entete.pack(fill="x", padx=s.px(28), pady=(s.px(16), 0))
         _badge(entete, s, "licence", "accent", 44, fond).pack(side="left", anchor="n")

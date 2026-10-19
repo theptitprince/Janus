@@ -4,7 +4,7 @@
 
 **Un serveur de licences sur hébergement mutualisé, sa console d'administration, et un seul module à copier dans chaque application Python.**
 
-![Version](https://img.shields.io/badge/version-2.2.0-2ea44f)
+![Version](https://img.shields.io/badge/version-2.2.1-2ea44f)
 ![PHP](https://img.shields.io/badge/PHP-8.1%2B-777BB4?logo=php&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-pdo__sqlite-003B57?logo=sqlite&logoColor=white)
@@ -41,7 +41,7 @@ première demande de licence crée son produit. Côté utilisateur, l'applicatio
 se contrôle d'elle-même en arrière-plan, et montre l'état de sa licence par le raccourci **Ctrl+Maj+L**, d'où l'on
 peut aussi transférer la licence vers un nouvel ordinateur, ou en demander le renouvellement dans ses derniers jours.
 
-Version actuelle : module client 2.2.0, serveur 2.2.0 (API v1) — les choix de réalisation, avec les changements
+Version actuelle : module client 2.2.1, serveur 2.2.1 (API v1) — les choix de réalisation, avec les changements
 de version qui en découlent, sont consignés dans [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Sommaire
@@ -86,7 +86,7 @@ cd Janus
 
 | Fichier | Rôle |
 |---|---|
-| `client/etdel_licence.py` | le module client unique, version 2.2.0 : contrôle en ligne, état local chiffré, tolérance hors ligne, licences hors ligne (codes vérifiés sans réseau), fenêtres Tkinter ; seules ses quatre constantes `LICENCE_*` sont renseignées, une fois, après l'installation du serveur |
+| `client/etdel_licence.py` | le module client unique, version 2.2.1 : contrôle en ligne, état local chiffré, tolérance hors ligne, licences hors ligne (codes vérifiés sans réseau), fenêtres Tkinter ; seules ses quatre constantes `LICENCE_*` sont renseignées, une fois, après l'installation du serveur |
 | `client/demo_appli.py` | application de démonstration (produit `DEMO`), à brancher sur un serveur installé (section 4) |
 | `serveur/www/` | tout le serveur, à envoyer tel quel par FTP : API, console d'administration, assistant d'installation, et `prive/` (bibliothèques, configuration, clés, base), jamais servi |
 | `serveur/www/install.php` | assistant d'installation, à usage unique, verrouillé ensuite ; il ne sert plus alors qu'à remplacer un mot de passe perdu de la console, avec un jeton déposé par FTP |
@@ -129,7 +129,7 @@ Aucun produit n'est à préparer : la première demande de licence d'une applica
 les règles par défaut. Le même guide couvre la console, les sauvegardes et la restauration, le changement d'URL du
 serveur, la rotation de la clé de signature, la mise à jour du serveur et le dépannage.
 
-**Serveur déjà en service** (mise à jour vers la 2.2.0) : copie de la base depuis la console (*Administration* ›
+**Serveur déjà en service** (mise à jour vers la 2.2.1) : copie de la base depuis la console (*Administration* ›
 *Sauvegarde*), puis envoi par FTP des fichiers de `serveur/www/` sans `admin/.htaccess` ni les fichiers propres à
 l'installation (`prive/config.php`, `prive/.htpasswd`, `prive/cles/`, `prive/data/`, les verrous). La base se met à
 niveau seule à la première requête ; clé de signature et secrets ne changent pas, et les applications déjà livrées
@@ -333,8 +333,9 @@ le fichier [`NOTICE`](NOTICE), en français et en anglais :
 - **Origine** : une version modifiée doit dire clairement qu'elle est modifiée, et ne doit se
   présenter ni comme l'original, ni comme approuvée par ETDEL.
 
-Dans Janus, cette mention s'affiche dans le pied de page de la console d'administration, dans la fenêtre
-« Licence » du module client et dans l'application de démonstration.
+Dans Janus, cette mention s'affiche dans le pied de page de la console d'administration et dans l'application
+de démonstration. La fenêtre « Licence » que voient les utilisateurs des applications ne nomme ni Janus, ni
+l'adresse de ses sources ou du serveur de licences.
 
 Le texte intégral de la licence est dans le fichier `LICENSE` du dépôt et sur
 <https://www.gnu.org/licenses/gpl-3.0.html>. Chaque fichier source porte un en-tête : la mention « ETDEL (c) 2026 »,

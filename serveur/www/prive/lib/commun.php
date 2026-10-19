@@ -15,7 +15,7 @@ require_once __DIR__ . '/hors_ligne.php';
 
 const JOUR = 86400;
 const VERSION_API = 1;
-const VERSION_SERVEUR = '2.2.0';
+const VERSION_SERVEUR = '2.2.1';
 
 /** Charge prive/config.php et complete les valeurs par defaut. */
 function config_charger(string $prive): array

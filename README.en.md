@@ -4,7 +4,7 @@
 
 **A license server on shared web hosting, its administration console, and a single module to copy into each Python application.**
 
-![Version](https://img.shields.io/badge/version-2.2.0-2ea44f)
+![Version](https://img.shields.io/badge/version-2.2.1-2ea44f)
 ![PHP](https://img.shields.io/badge/PHP-8.1%2B-777BB4?logo=php&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-pdo__sqlite-003B57?logo=sqlite&logoColor=white)
@@ -42,7 +42,7 @@ request creates its product. On the user's side, the application receives the ke
 itself in the background, and shows the state of its license with the shortcut **Ctrl+Maj+L** (Ctrl+Shift+L),
 from which the license can also be transferred to a new computer, or its renewal requested during its last days.
 
-Current version: client module 2.2.0, server 2.2.0 (API v1) — the implementation choices, with the version changes
+Current version: client module 2.2.1, server 2.2.1 (API v1) — the implementation choices, with the version changes
 that follow from them, are recorded in [docs/DECISIONS.md](docs/DECISIONS.md) (in French).
 
 ## Contents
@@ -87,7 +87,7 @@ cd Janus
 
 | File | Role |
 |---|---|
-| `client/etdel_licence.py` | the single client module, version 2.2.0: online check, encrypted local state, offline tolerance, offline licenses (codes verified without a network), Tkinter windows; only its four `LICENCE_*` constants are filled in, once, after the server is installed |
+| `client/etdel_licence.py` | the single client module, version 2.2.1: online check, encrypted local state, offline tolerance, offline licenses (codes verified without a network), Tkinter windows; only its four `LICENCE_*` constants are filled in, once, after the server is installed |
 | `client/demo_appli.py` | demo application (product `DEMO`), to be connected to an installed server (section 4) |
 | `serveur/www/` | the whole server, to be uploaded as is by FTP: API, administration console, installation wizard, and `prive/` (libraries, configuration, keys, database), never served |
 | `serveur/www/install.php` | installation wizard, for single use, locked afterwards; from then on it only serves to replace a lost console password, with a token uploaded by FTP |
@@ -130,7 +130,7 @@ No product needs to be prepared: the first license request from an unknown appli
 the default rules. The same guide covers the console, backups and restoring, changing the server's URL, rotating
 the signing key, updating the server and troubleshooting.
 
-**Server already in service** (update to 2.2.0): a copy of the database from the console (*Administration* ›
+**Server already in service** (update to 2.2.1): a copy of the database from the console (*Administration* ›
 *Sauvegarde*), then upload by FTP the files of `serveur/www/` without `admin/.htaccess` nor the files that belong to
 the installation (`prive/config.php`, `prive/.htpasswd`, `prive/cles/`, `prive/data/`, the lock files). The
 database upgrades itself on the first request; the signing key and the secrets do not change, and the
@@ -340,8 +340,9 @@ The GPL v3 lets the author add a few terms (section 7). Janus's are in the
 - **Origin**: a modified version must state clearly that it has been modified, and must not
   present itself as the original or as endorsed by ETDEL.
 
-In Janus, this notice is shown in the footer of the administration console, in the client module's
-"Licence" (License) window and in the demo application.
+In Janus, this notice is shown in the footer of the administration console and in the demo application.
+The "Licence" (License) window that the users of the applications see names neither Janus, nor the address
+of its sources or of the license server.
 
 The full text of the license is in the repository's `LICENSE` file and at
 <https://www.gnu.org/licenses/gpl-3.0.html>. Each source file carries a header: the notice "ETDEL (c) 2026",

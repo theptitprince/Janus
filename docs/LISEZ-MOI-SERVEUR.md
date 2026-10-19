@@ -172,6 +172,8 @@ Passage à la version 2.1.1 du serveur (mentions de licence) : rien à faire de 
 
 Passage à la version 2.2.0 du serveur (demandes de renouvellement, ménage) : la base est mise à niveau d'elle-même à la première requête (table `renouvellements` ajoutée, schéma en version 4, aucune donnée existante modifiée) ; télécharger tout de même une copie de la base avant l'envoi (*Administration* › *Sauvegarde*). Fichiers à envoyer : `api/v1/`, `admin/index.php`, `admin/app.js`, `admin/style.css`, `install.php` et `prive/` hors exclusions ci-dessus, dont les deux nouveaux fichiers `prive/lib/menage.php` et `prive/lib/renouvellements.php`. Les applications déjà livrées (module 2.1.x) continuent de fonctionner sans rien changer ; seules celles livrées ensuite avec le module 2.2.0 proposent la demande de renouvellement : mettre le serveur à jour **avant** de les livrer. Une requête mal formée reçoit désormais son refus signé `requete_invalide` en HTTP 200, comme tout refus : les applications l'affichent tel quel au lieu de « serveur injoignable ».
 
+Passage à la version 2.2.1 du serveur : seule l'aide de la console change (fenêtre « Licence » et diagnostic du module 2.2.1) ; à envoyer avec `prive/lib/commun.php` (numéro de version). La base n'est pas modifiée.
+
 Si `admin/.htaccess` a été écrasé par erreur, la console répond « accès refusé » : renvoyer la copie de secours faite à l'installation.
 
 ## 9. Sécurité, récapitulatif

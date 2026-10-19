@@ -48,7 +48,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-MODULE_VERSION = "2.1.1"
+MODULE_VERSION = "2.2.0"
 
 # Renseignees une fois le serveur installe (ecran Cles de la console).
 # Vides : aucun controle, aucun fichier, l'application ne parle jamais de licence.
@@ -133,6 +133,21 @@ _MESSAGES_TRANSFERT = {
     "transferts_trop_nombreux": ("Transfert refuse : trop de transferts recents pour cette licence. "
                                  "Contactez ETDEL, qui peut la liberer pour vous."),
     "aucune_cle": "Aucune licence a transferer sur cet ordinateur.",
+}
+
+# Demande de renouvellement (op renouveler, 2.2.0) : dans les derniers jours de
+# la licence, depuis la fenetre Licence. Rien ne change sur le poste ; la licence
+# prolongee dans la console arrive au controle suivant.
+_MESSAGES_RENOUVELLEMENT = {
+    "envoyee": ("Demande de renouvellement envoyee. La nouvelle date de fin s'affichera ici des que ETDEL "
+                "aura prolonge la licence."),
+    "injoignable": ("Demande impossible : serveur de licences injoignable. Connectez l'ordinateur a Internet "
+                    "puis reessayez."),
+    "aucune_cle": "Aucune licence a renouveler sur cet ordinateur.",
+    "licence_perpetuelle": "Licence perpetuelle : aucun renouvellement necessaire.",
+    # Serveur anterieur a 2.2.0 : operation inconnue.
+    "requete_invalide": ("Demande refusee : le serveur de licences ne prend pas encore en charge les demandes "
+                         "de renouvellement. Contactez ETDEL."),
 }
 
 # Licences hors ligne : code court a dicter (ETDHL-XXXX-XXXX-XXXX-XXXX, MAC
@@ -832,7 +847,12 @@ def _transport_defaut(url, corps, delai):
         with ouvreur.open(requete, timeout=delai) as reponse:
             return reponse.status, reponse.read(262144)
     except urllib.error.HTTPError as erreur:
-        return erreur.code, b""
+        # Le corps d'une erreur est rendu aussi : un serveur 2.1.1 y signe son
+        # refus requete_invalide (HTTP 400).
+        try:
+            return erreur.code, erreur.read(262144)
+        except Exception:
+            return erreur.code, b""
 
 
 # ---------------------------------------------------------------------------
@@ -944,10 +964,12 @@ class Garde(object):
     @staticmethod
     def _etat_vide():
         # hl_retires : empreintes des codes hors ligne retires de ce poste (voir
-        # _empreinte_hl), refuses a la saisie.
+        # _empreinte_hl), refuses a la saisie. renouvellement : demande envoyee
+        # ({"t": date d'envoi, "echeance": echeance d'alors}), voir renouveler().
         return {"v": 1, "seq": 0, "cle": None, "jeton": None, "demande": None, "cles": {},
                 "urls": [], "url_active": None, "heure_max": 0, "refus": None,
-                "dernier_controle": None, "jeton_envoi": None, "hl_retires": []}
+                "dernier_controle": None, "jeton_envoi": None, "hl_retires": [],
+                "renouvellement": None}
 
     def _assurer_charge(self):
         with self._verrou:
@@ -1353,13 +1375,18 @@ class Garde(object):
             except Exception as exc:
                 raisons.append("%s : %s" % (_hote(url), exc.__class__.__name__))
                 continue
-            if code != 200:
+            if code != 200 and not donnees:
                 raisons.append("%s : http %s" % (_hote(url), code))
                 continue
             with self._verrou:
                 lu = self._lire_reponse(donnees or b"", corps)
+                if lu is not None and code != 200 and lu[0].get("ok") is not False:
+                    lu = None
                 if lu is None:
-                    raisons.append("%s : reponse invalide ou mal signee" % _hote(url))
+                    # Hors HTTP 200, seul un refus signe et lie a cette requete compte
+                    # (requete_invalide d'un serveur 2.1.1) ; le reste est un echec.
+                    raisons.append("%s : http %s" % (_hote(url), code) if code != 200
+                                   else "%s : reponse invalide ou mal signee" % _hote(url))
                     continue
                 payload, enveloppe = lu
                 self._contact(payload, url)
@@ -2065,6 +2092,77 @@ class Garde(object):
                 return True
             refus = self._refus_effectif()
             return statut == EXPIREE and isinstance(refus, dict) and refus.get("code") == "suspendue"
+
+    def renouveler(self, message=""):
+        """Demande a ETDEL le renouvellement de la licence de ce poste, avec un
+        mot facultatif (bloquant : a appeler hors du fil de l'interface).
+
+        Rien ne change sur le poste : une fois la licence prolongee dans la
+        console, la nouvelle echeance arrive au controle suivant. Un refus du
+        serveur (licence revoquee entre-temps...) n'est qu'un message : le
+        controle habituel l'applique. Renvoie {"ok", "code", "message"}.
+        """
+        try:
+            if not self._configure or self._stockage is None:
+                return {"ok": False, "code": "non_configure", "message": _MESSAGES["non_configure"]}
+            mot = _nettoyer(message, _MESSAGE_MAX, multiligne=True)
+            with self._verrou_reseau:
+                self._assurer_charge()
+                self._rafraichir()
+                with self._verrou:
+                    cle = self._local.get("cle")
+                    echeance = (self._payload or {}).get("echeance")
+                if not cle:
+                    return {"ok": False, "code": "aucune_cle", "message": _MESSAGES_RENOUVELLEMENT["aucune_cle"]}
+                payload, _enveloppe, raison = self._envoyer("renouveler", {"cle": cle, "message": mot})
+                with self._verrou:
+                    if payload is None:
+                        self._raison = raison
+                        self._log(logging.WARNING, "renouvellement : %s", raison)
+                        self._sauver()
+                        return {"ok": False, "code": "injoignable",
+                                "message": _MESSAGES_RENOUVELLEMENT["injoignable"]}
+                    code = payload.get("code")
+                    if payload.get("ok") is not True:
+                        self._sauver()
+                        self._log(logging.INFO, "renouvellement refuse : %s", code)
+                        texte = _MESSAGES_RENOUVELLEMENT.get(code) or _MESSAGES.get(code) or (
+                            "Demande refusee par le serveur de licences (%s)." % code)
+                        return {"ok": False, "code": code, "message": texte}
+                    self._local["renouvellement"] = {"t": int(self._horloge()), "echeance": echeance}
+                    self._sauver()
+                    self._log(logging.INFO, "renouvellement demande (demande %s, cle ...%s)",
+                              payload.get("renouvellement"), _indice(cle))
+            return {"ok": True, "code": None, "message": _MESSAGES_RENOUVELLEMENT["envoyee"]}
+        except Exception as exc:
+            self._log(logging.ERROR, "renouveler : %r", exc)
+            return {"ok": False, "code": "interne", "message": _MESSAGES["interne"]}
+
+    def _renouvelable(self, statut):
+        """Vrai si la fenetre Licence propose "Demander le renouvellement" : une
+        cle ETDEL verifiee par le serveur (jeton signe), licence utilisable a
+        moins de _PREAVIS_ECHEANCE_J jours de son echeance, quand le bandeau
+        l'annonce. Ni licence perpetuelle, ni licence hors ligne (sans bandeau)."""
+        with self._verrou:
+            local = self._local or {}
+            if statut not in (VALIDE, AVERTISSEMENT) or not local.get("cle") or self._payload is None:
+                return False
+            if self._hl_actif() is not None:
+                return False
+            echeance = self._payload.get("echeance")
+            if not _entier(echeance):
+                return False
+            maintenant = self._maintenant()
+            return maintenant < echeance < maintenant + _PREAVIS_ECHEANCE_J * JOUR
+
+    def _renouvellement_envoye(self):
+        """Date d'envoi de la demande de renouvellement de l'echeance actuelle ;
+        None sans demande, ou si la licence a change d'echeance depuis."""
+        with self._verrou:
+            demande = (self._local or {}).get("renouvellement")
+            if not isinstance(demande, dict) or self._payload is None or not _entier(demande.get("t")):
+                return None
+            return demande["t"] if demande.get("echeance") == self._payload.get("echeance") else None
 
     def _cle_affichee(self, complete=False):
         """Cle du poste pour la fenetre Licence : masquee comme dans la console
@@ -2805,11 +2903,15 @@ class _CadreLicence(object):
     fenetre Licence) ; a defaut, sous les informations du cadre.
     transfert : commande du lien "Transferer cette licence" (fenetre Licence
     seulement : le cadre d'une page de reglages reste en lecture seule).
+    renouvellement : commande du lien "Demander le renouvellement", sous
+    l'echeance (fenetre Licence seulement, dans les derniers jours de la licence).
     """
 
     AUCUNE = "Aucune licence a verifier sur ce poste."
+    RENOUVELER = "Demander le renouvellement"
 
-    def __init__(self, parent, garde, pal, style=None, encadre=True, actions=None, transfert=None):
+    def __init__(self, parent, garde, pal, style=None, encadre=True, actions=None, transfert=None,
+                 renouvellement=None):
         tk = _tk()
         self.garde = garde
         self.s = s = style or _Style(parent, pal)
@@ -2871,6 +2973,18 @@ class _CadreLicence(object):
                                              ("dernier_controle", "Dernier controle")), 1):
             libelle(rang, texte)
             valeur(rang, cle)
+        self.bouton_renouvellement = None
+        self._renouvellement_visible = False
+        if renouvellement is not None:
+            # Sous l'echeance : propose dans les derniers jours de la licence (voir
+            # rafraichir) ; apres l'envoi, "Demande envoyee le ..." (renvoi possible).
+            self.valeurs["echeance"].grid_forget()
+            cellule = tk.Frame(self.cadre, bg=fond)
+            cellule.grid(row=2, column=1, sticky="w", pady=s.px(2))
+            self.valeurs["echeance"] = tk.Label(cellule, bg=fond, fg=c["texte"], font=s.texte, anchor="w",
+                                                justify="left", wraplength=s.px(300))
+            self.valeurs["echeance"].pack(anchor="w")
+            self.bouton_renouvellement = _bouton(cellule, s, self.RENOUVELER, renouvellement, "lien", fond)
         tk.Frame(self.cadre, bg=c["bordure"], height=1).grid(row=4, column=0, columnspan=2, sticky="we",
                                                              pady=s.px(8))
         libelle(5, "Identifiant du poste")
@@ -3071,6 +3185,17 @@ class _CadreLicence(object):
                         self.bouton_transfert.pack(side="left", padx=(self.s.px(10), 0))
                     else:
                         self.bouton_transfert.pack_forget()
+            if self.bouton_renouvellement is not None:
+                visible = self.garde._renouvelable(e["statut"])
+                envoye = self.garde._renouvellement_envoye() if visible else None
+                _configurer(self.bouton_renouvellement, text=("Demande envoyee le %s" % _date(envoye))
+                            if envoye else self.RENOUVELER)
+                if visible != self._renouvellement_visible:
+                    self._renouvellement_visible = visible
+                    if visible:
+                        self.bouton_renouvellement.pack(anchor="w", pady=(self.s.px(2), 0))
+                    else:
+                        self.bouton_renouvellement.pack_forget()
             if e["echeance"]:
                 echeance = _date_fin_hors_ligne(e["echeance"]) if e["hors_ligne"] else _date(e["echeance"])
                 if e["jours_restants"]:
@@ -3147,7 +3272,7 @@ class _FenetreLicence(object):
                  bg=fond, fg=c["discret"], anchor="w").pack(fill="x", pady=(s.px(2), 0))
         self.dialogue = None
         self.cadre = _CadreLicence(self.win, garde, integ.pal, s, encadre=False, actions=actions,
-                                   transfert=self.transferer)
+                                   transfert=self.transferer, renouvellement=self.renouveler)
         self.cadre.cadre.pack(fill="both", expand=True, padx=s.px(28), pady=(s.px(14), s.px(16)))
         self.win.protocol("WM_DELETE_WINDOW", self.fermer)
         for sequence in ("<Return>", "<KP_Enter>"):
@@ -3188,6 +3313,21 @@ class _FenetreLicence(object):
             self.dialogue = None
             self.integ.transfert = None
             self.integ.garde._log(logging.ERROR, "fenetre de transfert : %r", exc)
+
+    def renouveler(self):
+        """Lien "Demander le renouvellement" (ou "Renouveler" du bandeau) : la demande, avec un mot facultatif."""
+        try:
+            if self.dialogue is not None and not self.dialogue.ferme:
+                self.dialogue.win.lift()
+                return
+            garde = self.integ.garde
+            if not garde._renouvelable(garde.etat()["statut"]):
+                # Licence prolongee ou bloquee depuis l'affichage du lien.
+                return
+            self.dialogue = _DialogueRenouvellement(self)
+        except Exception as exc:
+            self.dialogue = None
+            self.integ.garde._log(logging.ERROR, "fenetre de renouvellement : %r", exc)
 
     def fermer(self):
         try:
@@ -3317,6 +3457,51 @@ class _Pages(object):
             except Exception:
                 pass
 
+    def _zone_mot(self, haut=0):
+        """"Mot pour ETDEL" (formulaire de demande, demande de renouvellement) :
+        libelle, compteur, zone de texte bornee a _MESSAGE_MAX caracteres."""
+        tk = _tk()
+        s, c = self.s, self.s.c
+        fond = c["panneau"]
+        tete = tk.Frame(self.contenu, bg=fond)
+        tete.pack(fill="x", pady=(s.px(haut), s.px(6)))
+        self._libelle(tete, "Mot pour ETDEL", "facultatif, %d caracteres maximum" % _MESSAGE_MAX).pack(side="left")
+        self.compteur = tk.Label(tete, text="0/%d" % _MESSAGE_MAX, font=s.petit, bg=fond, fg=c["discret"])
+        self.compteur.pack(side="right")
+        cadre_mot = tk.Frame(self.contenu, bg=c["champ"], highlightthickness=1, highlightbackground=c["bordure"],
+                             highlightcolor=c["bordure"])
+        cadre_mot.pack(fill="x")
+        self.texte_mot = tk.Text(cadre_mot, width=10, height=3, wrap="word", font=s.saisie, relief="flat", bd=0,
+                                 highlightthickness=0, bg=c["champ"], fg=c["texte"], insertbackground=c["texte"],
+                                 selectbackground=c["accent"], selectforeground=c["accent_texte"],
+                                 padx=s.px(9), pady=s.px(6))
+        self.texte_mot.pack(fill="x")
+        _bord_actif(cadre_mot, self.texte_mot, s)
+        self.texte_mot.bind("<KeyRelease>", self._borner_mot)
+        self.texte_mot.bind("<Tab>", lambda ev: self._focus_voisin(ev, True))
+        self.texte_mot.bind("<Shift-Tab>", lambda ev: self._focus_voisin(ev, False))
+
+    def _borner_mot(self, _evenement=None):
+        texte = self.texte_mot.get("1.0", "end-1c")
+        if len(texte) > _MESSAGE_MAX:
+            self.texte_mot.delete("1.0", "end")
+            self.texte_mot.insert("1.0", texte[:_MESSAGE_MAX])
+            texte = texte[:_MESSAGE_MAX]
+        c = self.s.c
+        self.compteur.configure(text="%d/%d" % (len(texte), _MESSAGE_MAX),
+                                fg=c["orange_fort"] if len(texte) > _MESSAGE_MAX - 20 else c["discret"])
+
+    @staticmethod
+    def _focus_voisin(evenement, suivant):
+        # Tab dans le mot pour ETDEL : champ suivant plutot qu'une tabulation.
+        try:
+            voisin = evenement.widget.tk_focusNext() if suivant else evenement.widget.tk_focusPrev()
+            if voisin is not None:
+                voisin.focus_set()
+        except Exception:
+            pass
+        return "break"
+
 
 class _FenetreActivation(_Pages):
     """Fenetre modale : A_ACTIVER, DEMANDE_EN_ATTENTE, DEMANDE_REFUSEE, EXPIREE.
@@ -3426,17 +3611,6 @@ class _FenetreActivation(_Pages):
             pass
         return None
 
-    @staticmethod
-    def _focus_voisin(evenement, suivant):
-        # Tab dans le mot pour ETDEL : champ suivant plutot qu'une tabulation.
-        try:
-            voisin = evenement.widget.tk_focusNext() if suivant else evenement.widget.tk_focusPrev()
-            if voisin is not None:
-                voisin.focus_set()
-        except Exception:
-            pass
-        return "break"
-
     # -- pages --------------------------------------------------------------
 
     def afficher_statut(self):
@@ -3527,23 +3701,7 @@ class _FenetreActivation(_Pages):
                                        anchor="w")
         self.aide_titulaire.grid(row=2, column=0, columnspan=2, sticky="w", pady=(s.px(4), 0))
         self.entree_titulaire.bind("<Key>", self._titulaire_saisi, add="+")
-        tete = tk.Frame(self.contenu, bg=fond)
-        tete.pack(fill="x", pady=(s.px(16), s.px(6)))
-        self._libelle(tete, "Mot pour ETDEL", "facultatif, %d caracteres maximum" % _MESSAGE_MAX).pack(side="left")
-        self.compteur = tk.Label(tete, text="0/%d" % _MESSAGE_MAX, font=s.petit, bg=fond, fg=c["discret"])
-        self.compteur.pack(side="right")
-        cadre_mot = tk.Frame(self.contenu, bg=c["champ"], highlightthickness=1, highlightbackground=c["bordure"],
-                             highlightcolor=c["bordure"])
-        cadre_mot.pack(fill="x")
-        self.texte_mot = tk.Text(cadre_mot, width=10, height=3, wrap="word", font=s.saisie, relief="flat", bd=0,
-                                 highlightthickness=0, bg=c["champ"], fg=c["texte"], insertbackground=c["texte"],
-                                 selectbackground=c["accent"], selectforeground=c["accent_texte"],
-                                 padx=s.px(9), pady=s.px(6))
-        self.texte_mot.pack(fill="x")
-        _bord_actif(cadre_mot, self.texte_mot, s)
-        self.texte_mot.bind("<KeyRelease>", self._borner_mot)
-        self.texte_mot.bind("<Tab>", lambda ev: self._focus_voisin(ev, True))
-        self.texte_mot.bind("<Shift-Tab>", lambda ev: self._focus_voisin(ev, False))
+        self._zone_mot(haut=16)
         poste = tk.Frame(self.contenu, bg=fond)
         poste.pack(fill="x", pady=(s.px(16), 0))
         for colonne in (0, 1):
@@ -3658,16 +3816,6 @@ class _FenetreActivation(_Pages):
             self.garde._log(logging.ERROR, "transfert depuis la fenetre d'activation : %r", exc)
 
     # -- actions ------------------------------------------------------------
-
-    def _borner_mot(self, _evenement=None):
-        texte = self.texte_mot.get("1.0", "end-1c")
-        if len(texte) > _MESSAGE_MAX:
-            self.texte_mot.delete("1.0", "end")
-            self.texte_mot.insert("1.0", texte[:_MESSAGE_MAX])
-            texte = texte[:_MESSAGE_MAX]
-        c = self.s.c
-        self.compteur.configure(text="%d/%d" % (len(texte), _MESSAGE_MAX),
-                                fg=c["orange_fort"] if len(texte) > _MESSAGE_MAX - 20 else c["discret"])
 
     def _sur_saisie_cle(self):
         # validatecommand : la mise en forme est differee, car modifier le champ
@@ -4111,6 +4259,191 @@ class _DialogueTransfert(_Pages):
             pass
 
 
+class _DialogueRenouvellement(_Pages):
+    """Demande de renouvellement, ouverte depuis la fenetre Licence (lien sous
+    l'echeance, ou "Renouveler" du bandeau) dans les derniers jours de la licence.
+
+    Un mot facultatif pour ETDEL, puis "Envoyer la demande" (reseau dans un
+    fil). Succes : page "Demande envoyee". Echec : message, nouvel essai
+    possible. Rien ne change sur le poste : la licence prolongee dans la
+    console arrive au controle suivant.
+    """
+
+    def __init__(self, fenetre_licence):
+        tk = _tk()
+        self.parent = fenetre_licence
+        self.integ = integ = fenetre_licence.integ
+        self.garde = integ.garde
+        self.s = s = integ.style()
+        self.file = queue.Queue()
+        self.occupe = False
+        self.ferme = False
+        self.envoyee = False
+        self.page = None
+        self.corps = self.contenu = self.pied = None
+        self.boutons = []
+        self.principal = self.echap = self.erreur = self.info = None
+        self.texte_mot = self.compteur = None
+        self._apres = None
+        self._apres_cle = None
+        self._message_cle = None
+        self._place = False
+        self._delais = set()
+        self.win = tk.Toplevel(fenetre_licence.win)
+        # Construite cachee puis centree sur la fenetre Licence.
+        self.win.withdraw()
+        self.win.title("Renouveler la licence - %s" % _ascii(self.garde.produit))
+        self.win.configure(bg=s.c["panneau"])
+        self.win.resizable(False, False)
+        try:
+            self.win.transient(fenetre_licence.win)
+        except Exception:
+            pass
+        self.win.protocol("WM_DELETE_WINDOW", self.fermer)
+        self.win.bind("<Destroy>", self._sur_destruction, add="+")
+        for sequence in ("<Return>", "<KP_Enter>"):
+            self.win.bind(sequence, self._sur_entree, add="+")
+        self.win.bind("<Escape>", self._sur_echap, add="+")
+        try:
+            self.page_demande()
+        except Exception:
+            try:
+                self.win.destroy()
+            except Exception:
+                pass
+            raise
+
+    def _sur_destruction(self, evenement):
+        if evenement.widget is self.win:
+            self.ferme = True
+            if self._apres is not None:
+                try:
+                    self.win.after_cancel(self._apres)
+                except Exception:
+                    pass
+                self._apres = None
+            _annuler(self.win, self._delais)
+            if self.parent.dialogue is self:
+                self.parent.dialogue = None
+
+    def _placer(self):
+        if self._place:
+            _recentrer(self.win)
+            return
+        self._place = True
+        try:
+            _centrer(self.win, self.parent.win)
+            _habiller_fenetre(self.win, self.integ.root, self.s)
+            self.win.deiconify()
+            self.win.lift()
+        except Exception:
+            pass
+        try:
+            self.win.grab_set()
+        except Exception:
+            pass
+
+    def page_demande(self):
+        s, c = self.s, self.s.c
+        e = self.garde.etat()
+        self._nouvelle_page("demande", "Demander le renouvellement",
+                            "ETDEL recoit la demande et peut prolonger la licence de cet ordinateur.", "envoi")
+        lignes = [("Licence valable jusqu'au %s (%d jour(s) restant(s))." % (_date(e["echeance"]),
+                                                                            e["jours_restants"] or 0), "gras")]
+        envoye = self.garde._renouvellement_envoye()
+        if envoye:
+            lignes.append(("Une demande a deja ete envoyee le %s. Vous pouvez la renvoyer." % _date(envoye),
+                           "normal"))
+        self._boite("bleu", lignes, "info")
+        self._zone_mot(haut=16)
+        self._texte(MENTION_DELAI, couleur=c["discret"], haut=12, bas=0)
+        self.erreur = self._texte("", couleur=c["rouge_fort"], haut=8, bas=0)
+        self._boutons([("Annuler", self.fermer, "secondaire"), ("Envoyer la demande", self._envoyer, "principal")])
+        self.echap = self.fermer
+        self._placer()
+        try:
+            self.texte_mot.focus_set()
+        except Exception:
+            pass
+
+    def page_envoyee(self, message):
+        self.envoyee = True
+        self._nouvelle_page("envoyee", "Demande envoyee", "ETDEL a recu votre demande de renouvellement.", "ok",
+                            "vert")
+        self._boite("vert", [(message, "gras")], "ok")
+        self._boutons([("Fermer", self.fermer, "principal")])
+        self.echap = self.fermer
+        self._placer()
+        try:
+            self.principal.focus_set()
+        except Exception:
+            pass
+
+    def _envoyer(self):
+        if self.occupe or self.envoyee:
+            return
+        self.occupe = True
+        mot = self.texte_mot.get("1.0", "end-1c")[:_MESSAGE_MAX]
+        for bouton in self.boutons:
+            _activer_bouton(bouton, False)
+        self.erreur.configure(text="Envoi en cours...", fg=self.s.c["discret"])
+
+        def tache():
+            try:
+                resultat = self.garde.renouveler(mot)
+            except Exception:
+                resultat = {"ok": False, "code": "interne", "message": _MESSAGES["interne"]}
+            self.file.put(resultat)
+
+        threading.Thread(target=tache, name="etdel_licence_renouvellement", daemon=True).start()
+        self._apres = self.win.after(100, self._sonder)
+
+    def _sonder(self):
+        self._apres = None
+        if self.ferme:
+            return
+        try:
+            resultat = self.file.get_nowait()
+        except queue.Empty:
+            self._apres = self.win.after(100, self._sonder)
+            return
+        self.occupe = False
+        try:
+            if resultat.get("ok"):
+                self.page_envoyee(resultat.get("message") or "")
+                return
+            for bouton in self.boutons:
+                _activer_bouton(bouton, True)
+            self.erreur.configure(text=resultat.get("message") or _MESSAGES["interne"], fg=self.s.c["rouge_fort"])
+        except Exception:
+            pass
+
+    def _sur_entree(self, evenement):
+        # Dans le mot pour ETDEL, Entree passe a la ligne ; ailleurs, le bouton qui
+        # a le focus, sinon l'action principale de la page.
+        try:
+            if self.occupe or evenement.widget is self.texte_mot:
+                return None
+            if not _invoquer_bouton(evenement.widget) and self.principal is not None:
+                self.principal.invoke()
+        except Exception:
+            pass
+        return "break"
+
+    def fermer(self):
+        if self.occupe or self.ferme:
+            return
+        try:
+            self.win.destroy()
+        except Exception:
+            pass
+        self.ferme = True
+        try:
+            self.parent.win.focus_set()
+        except Exception:
+            pass
+
+
 class _Integration(object):
     """Tout ce que installer() branche sur la fenetre principale."""
 
@@ -4125,6 +4458,8 @@ class _Integration(object):
         # l'application apres un transfert reussi.
         self.transfert = None
         self.bandeau = None
+        # Lien du bandeau sur "Renouveler" (voir _maj_bandeau).
+        self._renouveler = False
         self.termine = False
         self._origine = ""
         self._apres = []
@@ -4280,6 +4615,10 @@ class _Integration(object):
                 self._creer_bandeau()
             self._habiller_bandeau(statut)
             _configurer(self.bandeau, text=e["message"])
+            # Derniers jours de la licence : le lien ouvre directement la demande de renouvellement.
+            self._renouveler = (statut == AVERTISSEMENT and self.garde._renouvelable(statut)
+                                and not self.garde._renouvellement_envoye())
+            _configurer(self._bandeau_lien, text="Renouveler" if self._renouveler else "Details")
             # Superposition : ne depend ni de pack ni de grid dans l'application.
             self.bandeau.place(relx=0, rely=0, relwidth=1)
             self.bandeau.lift()
@@ -4304,8 +4643,9 @@ class _Integration(object):
         souligne = _police(self.root.tk, s.gras, 0, None, True)
         self._bandeau_lien.bind("<Enter>", lambda _e: self._bandeau_lien.configure(font=souligne), add="+")
         self._bandeau_lien.bind("<Leave>", lambda _e: self._bandeau_lien.configure(font=s.gras), add="+")
-        for widget in (self.bandeau, self._bandeau_icone, self._bandeau_lien):
+        for widget in (self.bandeau, self._bandeau_icone):
             widget.bind("<Button-1>", lambda _e: self.ouvrir_licence(), add="+")
+        self._bandeau_lien.bind("<Button-1>", lambda _e: self._clic_lien_bandeau(), add="+")
 
         def ajuster(evenement):
             # Le message passe a la ligne avant le lien plutot que dessous.
@@ -4317,6 +4657,15 @@ class _Integration(object):
                 pass
 
         self.bandeau.bind("<Configure>", ajuster, add="+")
+
+    def _clic_lien_bandeau(self):
+        """"Details" : fenetre Licence ; "Renouveler" : fenetre Licence, puis la demande de renouvellement."""
+        self.ouvrir_licence()
+        try:
+            if self._renouveler and self.fenetre_licence is not None:
+                self.fenetre_licence.renouveler()
+        except Exception as exc:
+            self.garde._log(logging.ERROR, "renouvellement depuis le bandeau : %r", exc)
 
     def _habiller_bandeau(self, statut):
         s = self.style()

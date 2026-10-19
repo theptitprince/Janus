@@ -54,6 +54,15 @@ CREATE TABLE demandes (
   cle_chiffree TEXT,      -- cle remise au client, effacee apres le premier valider reussi
   cree_le INTEGER NOT NULL, traitee_le INTEGER, ip TEXT);
 
+-- Demande de renouvellement envoyee depuis l'application dans les derniers jours d'une licence (D89) :
+-- une seule en attente par licence ; acceptee = licence prolongee (echeance_avant -> echeance_apres).
+CREATE TABLE renouvellements (
+  id INTEGER PRIMARY KEY, licence_id INTEGER NOT NULL REFERENCES licences(id),
+  machine TEXT NOT NULL, nom_ordinateur TEXT, version_appli TEXT, message TEXT,
+  statut TEXT NOT NULL DEFAULT 'en_attente' CHECK (statut IN ('en_attente','acceptee','refusee')),
+  echeance_avant INTEGER, echeance_apres INTEGER, motif_refus TEXT,
+  cree_le INTEGER NOT NULL, traitee_le INTEGER, ip TEXT);
+
 CREATE TABLE urls_serveur (
   id INTEGER PRIMARY KEY, url TEXT UNIQUE NOT NULL, priorite INTEGER NOT NULL,
   actif INTEGER NOT NULL DEFAULT 1);
@@ -75,4 +84,4 @@ CREATE TABLE limites (
 
 -- Version du schema, relue par db_migrer() (lib/db.php) pour mettre a niveau une
 -- base creee par une version precedente du serveur.
-PRAGMA user_version = 3;
+PRAGMA user_version = 4;

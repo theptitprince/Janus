@@ -9,8 +9,9 @@ declare(strict_types=1);
 // Version du schema (PRAGMA user_version) : 1 = colonne licences.suspendue_jusqu (D61) ;
 // 2 = colonne licences.cle_chiffree (cle consultable dans la console) et une ligne de regles
 // pour tout produit qui n'en a pas ; 3 = licences hors ligne (colonnes licences.hors_ligne et
-// licences.cle_long_hash, index unique sur cette derniere).
-const SCHEMA_VERSION = 3;
+// licences.cle_long_hash, index unique sur cette derniere) ; 4 = table renouvellements (demandes de
+// renouvellement envoyees depuis l'application, D89).
+const SCHEMA_VERSION = 4;
 
 function db_ouvrir(string $chemin): PDO
 {
@@ -63,6 +64,15 @@ function db_migrer(PDO $db): void
             }
             $db->exec('CREATE UNIQUE INDEX IF NOT EXISTS licences_cle_long_hash ON licences (cle_long_hash)');
             $db->exec('PRAGMA user_version = 3');
+        }
+        if ($version < 4) {
+            // Table ajoutee, aucune ligne existante modifiee.
+            $db->exec('CREATE TABLE IF NOT EXISTS renouvellements (id INTEGER PRIMARY KEY, '
+                . 'licence_id INTEGER NOT NULL REFERENCES licences(id), machine TEXT NOT NULL, nom_ordinateur TEXT, '
+                . 'version_appli TEXT, message TEXT, statut TEXT NOT NULL DEFAULT \'en_attente\' '
+                . 'CHECK (statut IN (\'en_attente\',\'acceptee\',\'refusee\')), echeance_avant INTEGER, '
+                . 'echeance_apres INTEGER, motif_refus TEXT, cree_le INTEGER NOT NULL, traitee_le INTEGER, ip TEXT)');
+            $db->exec('PRAGMA user_version = 4');
         }
         $db->exec('COMMIT');
     } catch (Throwable $e) {

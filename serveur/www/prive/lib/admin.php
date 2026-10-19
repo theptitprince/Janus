@@ -1,6 +1,7 @@
 <?php
 // admin.php - Console d'administration : ecrans, actions d'ecriture (confirmation,
-//             CSRF, journal avec l'utilisateur .htpasswd), exports CSV, sauvegarde.
+//             CSRF, journal avec l'utilisateur .htpasswd), exports CSV, sauvegarde, menage,
+//             demandes de renouvellement.
 // ETDEL (c) 2026
 // Janus, par ETDEL - https://github.com/theptitprince/Janus
 // GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
@@ -14,6 +15,8 @@ require_once __DIR__ . '/notification.php';
 require_once __DIR__ . '/installation.php';
 require_once __DIR__ . '/csrf.php';
 require_once __DIR__ . '/aide.php';
+require_once __DIR__ . '/menage.php';
+require_once __DIR__ . '/renouvellements.php';
 
 /** Erreur de saisie affichable telle quelle a l'administrateur. */
 class AdminErreur extends RuntimeException
@@ -43,12 +46,16 @@ class AdminErreurFormulaire extends AdminErreur
 const ADMIN_ACTIONS = [
     'demande_accepter' => 'Accepter la demande et creer la cle',
     'demande_refuser' => 'Refuser la demande',
+    'renouvellement_accepter' => 'Prolonger la licence (accepter le renouvellement)',
+    'renouvellement_refuser' => 'Refuser le renouvellement',
     'licence_creer' => 'Creer une cle de licence',
     'licence_hors_ligne_creer' => 'Creer une licence hors ligne',
     'licence_hors_ligne_code' => 'Nouveau code hors ligne pour ce poste (l\'ancien code ne sera plus reconnu)',
     'licence_hors_ligne_poste' => 'Nouveau code hors ligne pour un autre ordinateur (les codes actuels ne seront plus '
         . 'reconnus)',
     'licence_prolonger' => 'Prolonger la licence',
+    'licence_echeance' => 'Fixer une echeance (la licence ne sera plus perpetuelle)',
+    'licence_perpetuelle' => 'Rendre la licence perpetuelle (sans echeance)',
     'licence_modifier' => 'Modifier la licence',
     'licence_suspendre' => 'Suspendre la licence',
     'licence_reactiver' => 'Reactiver la licence',
@@ -56,7 +63,11 @@ const ADMIN_ACTIONS = [
     'licence_liberer' => 'Changer d\'ordinateur (liberer la cle)',
     'licence_nouvelle_cle' => 'Remplacer la cle (l\'ancienne cle ne fonctionnera plus)',
     'licence_afficher_cle' => 'Afficher la cle',
+    'licence_supprimer' => 'Supprimer definitivement cette licence revoquee',
     'produit_enregistrer' => 'Enregistrer le produit',
+    'produit_supprimer' => 'Supprimer definitivement ce produit',
+    'menage_licences' => 'Supprimer definitivement les licences revoquees',
+    'menage_produits' => 'Supprimer definitivement les produits sans licence',
     'url_ajouter' => 'Ajouter l\'URL',
     'url_modifier' => 'Modifier l\'URL',
     'reglages_enregistrer' => 'Enregistrer les reglages',
@@ -77,7 +88,13 @@ const ADMIN_ACTIONS_LECTURE = ['licence_afficher_cle'];
 // Messages apres redirection : seul un code passe dans l'URL, jamais une donnee.
 const ADMIN_MESSAGES = [
     'refusee' => 'Demande refusee.',
+    'renouvellement_refuse' => 'Demande de renouvellement refusee.',
+    'renouvelee' => 'Licence prolongee : l\'application recoit la nouvelle date a son prochain controle.',
     'prolongee' => 'Licence prolongee.',
+    'echeance' => 'Echeance fixee : la licence n\'est plus perpetuelle.',
+    'perpetuelle' => 'Licence rendue perpetuelle.',
+    'licence_supprimee' => 'Licence supprimee.',
+    'produit_supprime' => 'Produit supprime.',
     'modifiee' => 'Licence modifiee.',
     'suspendue' => 'Licence suspendue.',
     'reactivee' => 'Licence reactivee.',
@@ -93,6 +110,7 @@ const ADMIN_MESSAGES = [
 // Entree du menu mise en evidence pour chaque ecran qui n'a pas la sienne.
 const ADMIN_MENU_PARENT = [
     'demande' => 'demandes',
+    'renouvellement' => 'demandes',
     'licence' => 'licences',
     'licence_nouvelle' => 'licences',
     'licence_hors_ligne' => 'licences',
@@ -102,11 +120,13 @@ const ADMIN_MENU_PARENT = [
     'journal' => 'administration',
     'sauvegarde' => 'administration',
     'reglages' => 'administration',
+    'menage' => 'administration',
 ];
 
 // Page affichee en reponse a une action (POST) : entree du menu d'apres le debut du nom de l'action ;
 // les autres actions sont celles des ecrans de l'Administration.
-const ADMIN_MENU_ACTIONS = ['demande_' => 'demandes', 'licence_' => 'licences', 'produit_' => 'produits'];
+const ADMIN_MENU_ACTIONS = ['demande_' => 'demandes', 'renouvellement_' => 'demandes', 'licence_' => 'licences',
+    'produit_' => 'produits'];
 
 // Lien "Aide sur cet ecran" des ecrans que AIDE_ANCRES (aide.php) ne connait pas encore.
 const ADMIN_AIDE_ANCRES = ['administration' => 'securite'];
@@ -289,6 +309,8 @@ function admin_get(array $ctx): array
             return admin_page($ctx, 'Demandes', admin_ecran_demandes($ctx));
         case 'demande':
             return admin_page($ctx, 'Demande n. ' . $id, admin_ecran_demande($ctx, $id));
+        case 'renouvellement':
+            return admin_page($ctx, 'Renouvellement n. ' . $id, admin_ecran_renouvellement($ctx, $id));
         case 'licences':
             return admin_page($ctx, 'Licences', admin_ecran_licences($ctx));
         case 'licence':
@@ -325,6 +347,8 @@ function admin_get(array $ctx): array
             return admin_page($ctx, 'Sauvegarde', admin_ecran_sauvegarde($ctx));
         case 'reglages':
             return admin_page($ctx, 'Reglages', admin_ecran_reglages($ctx));
+        case 'menage':
+            return admin_page($ctx, 'Menage', admin_ecran_menage($ctx));
         case 'cles':
             return admin_page($ctx, 'Cles de signature', admin_ecran_cles($ctx));
         case 'aide':
@@ -388,7 +412,9 @@ function admin_mentions(): string
 
 function admin_page(array $ctx, string $titre, string $contenu, int $code = 200): array
 {
-    $attente = (int)db_valeur($ctx['db'], "SELECT COUNT(*) FROM demandes WHERE statut = 'en_attente'");
+    // Demandes de licence et de renouvellement : toutes attendent une reponse.
+    $attente = (int)db_valeur($ctx['db'], "SELECT (SELECT COUNT(*) FROM demandes WHERE statut = 'en_attente') "
+        . "+ (SELECT COUNT(*) FROM renouvellements WHERE statut = 'en_attente')");
     $liens = [
         'tableau' => 'Accueil',
         'demandes' => 'Demandes' . ($attente > 0 ? ' <span class="pastille">' . $attente . '</span>' : ''),
@@ -575,7 +601,8 @@ function etiquette(string $statut): string
 {
     $libelles = ['active' => 'Active', 'expiree' => 'Expiree', 'suspendue' => 'Suspendue', 'revoquee' => 'Revoquee',
         'en_attente' => 'En attente', 'acceptee' => 'Acceptee', 'refusee' => 'Refusee', 'actif' => 'Actif',
-        'inactif' => 'Inactif', 'auto' => 'cree automatiquement', 'hors_ligne' => 'hors ligne'];
+        'inactif' => 'Inactif', 'auto' => 'cree automatiquement', 'hors_ligne' => 'hors ligne',
+        'renouvellement' => 'renouvellement'];
     return '<span class="etiquette ' . h($statut) . '">' . h($libelles[$statut] ?? $statut) . '</span>';
 }
 
@@ -675,16 +702,25 @@ function admin_ecran_tableau(array $ctx): string
 {
     $db = $ctx['db'];
     $n = $ctx['maintenant'];
-    $lignes = [];
+    // Demandes de licence et de renouvellement (etiquette), les plus anciennes d'abord.
+    $attente = [];
     foreach (db_lignes($db, "SELECT dm.id, dm.cree_le, dm.titulaire, dm.nom_ordinateur, p.code AS produit_code "
         . "FROM demandes dm JOIN distributions d ON d.id = dm.distribution_id JOIN produits p ON p.id = d.produit_id "
         . "WHERE dm.statut = 'en_attente' ORDER BY dm.cree_le, dm.id") as $d) {
-        $lignes[] = [h(date_fr((int)$d['cree_le'], true)), h($d['titulaire']), h($d['nom_ordinateur']),
-            h($d['produit_code']),
-            '<a class="bouton principal" href="index.php?page=demande&amp;id=' . (int)$d['id'] . '">Traiter</a>'];
+        $attente[] = [(int)$d['cree_le'], [h(date_fr((int)$d['cree_le'], true)), h($d['titulaire']),
+            h($d['nom_ordinateur']), h($d['produit_code']),
+            '<a class="bouton principal" href="index.php?page=demande&amp;id=' . (int)$d['id'] . '">Traiter</a>']];
     }
-    $html = '<h2>Demandes en attente</h2>' . tableau_html(['Date', 'Client', 'Ordinateur', 'Produit', ''], $lignes,
-        'Aucune demande en attente.');
+    foreach (renouvellements_en_attente($db) as $rn) {
+        $attente[] = [(int)$rn['cree_le'], [h(date_fr((int)$rn['cree_le'], true)), h($rn['titulaire']) . ' '
+            . etiquette('renouvellement'), h($rn['nom_ordinateur']), h($rn['produit_code']),
+            '<a class="bouton principal" href="index.php?page=renouvellement&amp;id=' . (int)$rn['id'] . '">Traiter</a>']];
+    }
+    usort($attente, static function (array $a, array $b): int {
+        return $a[0] <=> $b[0];
+    });
+    $html = '<h2>Demandes en attente</h2>' . tableau_html(['Date', 'Client', 'Ordinateur', 'Produit', ''],
+        array_column($attente, 1), 'Aucune demande en attente.');
     $html .= '<p class="raccourcis"><a class="bouton principal" href="index.php?page=licence_nouvelle">Nouvelle licence</a>'
         . '<a class="bouton" href="index.php?page=produit">Nouveau produit</a></p>';
     $c = db_ligne($db, "SELECT "
@@ -729,6 +765,8 @@ function admin_ecran_administration(array $ctx): string
         'sauvegarde' => ['Sauvegarde', 'Telecharger une copie de la base ; liste des sauvegardes quotidiennes.'],
         'reglages' => ['Reglages', 'E-mails de notification des nouvelles demandes (et e-mail de test), mot de passe de '
             . 'la console ; version et licence du logiciel.'],
+        'menage' => ['Menage', 'Supprimer les licences revoquees et les produits qui n\'ont plus aucune licence, pour '
+            . 'alleger les listes.'],
     ];
     $html = '<p>Ecrans techniques, utiles a l\'installation et de temps en temps, rarement au quotidien.</p>'
         . '<div class="menu-admin">';
@@ -789,6 +827,7 @@ function admin_ecran_demandes(array $ctx): string
     }
     $html = '<h2>En attente</h2>' . tableau_html(['Date', 'Produit', 'Ordinateur', 'Identifiant',
             'Client', 'E-mail', 'Message', 'IP', 'Essai jusqu\'au', ''], $lignes, 'Aucune demande en attente.');
+    $html .= admin_renouvellements_listes($ctx);
     $lignes = [];
     foreach (db_lignes($db, "SELECT dm.*, p.code AS produit_code FROM demandes dm "
         . "JOIN distributions d ON d.id = dm.distribution_id JOIN produits p ON p.id = d.produit_id "
@@ -867,6 +906,119 @@ function admin_action_demande_refuser(array $ctx): array
     demande_refuser($ctx['db'], (int)($ctx['post']['id'] ?? 0), (string)($ctx['post']['motif'] ?? ''),
         $ctx['utilisateur'], $ctx['ip'], $ctx['maintenant']);
     return admin_redirection('index.php?page=demandes&ok=refusee');
+}
+
+// ---------------------------------------------------------------------------
+// Demandes de renouvellement (D89) : envoyees par l'application dans les derniers jours d'une licence
+// ---------------------------------------------------------------------------
+
+/** Echeance d'une licence pour un renouvellement : "JJ/MM/AAAA (N jours restants)" ou "(depassee)". */
+function renouvellement_echeance(array $rn, int $maintenant): string
+{
+    $echeance = (int)$rn['echeance'];
+    $texte = echeance_fr($echeance, licence_hors_ligne($rn));
+    if ($echeance <= $maintenant) {
+        return $texte . ' (depassee)';
+    }
+    $jours = (int)jours_restants($echeance, $maintenant);
+    return $texte . ' (' . $jours . ($jours > 1 ? ' jours restants)' : ' jour restant)');
+}
+
+/** Ecran Demandes : renouvellements a traiter, puis les derniers traites. */
+function admin_renouvellements_listes(array $ctx): string
+{
+    $lignes = [];
+    foreach (renouvellements_en_attente($ctx['db']) as $rn) {
+        $lignes[] = [h(date_fr((int)$rn['cree_le'], true)), h($rn['produit_code']), h($rn['titulaire']),
+            h(renouvellement_echeance($rn, $ctx['maintenant'])), h($rn['nom_ordinateur']),
+            '<span class="message">' . h($rn['message']) . '</span>',
+            '<a class="bouton" href="index.php?page=renouvellement&amp;id=' . (int)$rn['id'] . '">Traiter</a>'];
+    }
+    $html = '<h2>Renouvellements demandes</h2><p class="discret">Envoyes depuis l\'application, dans les derniers jours '
+        . 'd\'une licence : accepter prolonge la licence, sans rien a ressaisir pour le client.</p>'
+        . tableau_html(['Date', 'Produit', 'Client', 'Echeance', 'Ordinateur', 'Message', ''], $lignes,
+            'Aucune demande de renouvellement en attente.');
+    $lignes = [];
+    foreach (db_lignes($ctx['db'], SQL_RENOUVELLEMENT . " WHERE rn.statut <> 'en_attente' ORDER BY rn.traitee_le DESC, "
+        . 'rn.id DESC LIMIT ?', [ADMIN_PAR_PAGE]) as $rn) {
+        $hors_ligne = licence_hors_ligne($rn);
+        $suite = $rn['statut'] === 'acceptee' && $rn['echeance_apres'] !== null
+            ? 'prolongee jusqu\'au ' . h(echeance_fr((int)$rn['echeance_apres'], $hors_ligne))
+            : h($rn['motif_refus'] ?? '');
+        $lignes[] = [h(date_fr((int)$rn['cree_le'])), h(date_fr((int)$rn['traitee_le'])), etiquette($rn['statut']),
+            h($rn['produit_code']), '<a href="index.php?page=licence&amp;id=' . (int)$rn['licence_id'] . '">'
+            . h($rn['titulaire']) . '</a>', $suite];
+    }
+    return $html . ($lignes === [] ? '' : '<h3>Renouvellements traites</h3>' . tableau_html(['Demande le', 'Traitee le',
+        'Statut', 'Produit', 'Client', 'Suite'], $lignes));
+}
+
+/** Une demande de renouvellement : la licence concernee, puis Prolonger ou Refuser. */
+function admin_ecran_renouvellement(array $ctx, int $id): string
+{
+    $rn = renouvellement_lire($ctx['db'], $id);
+    if ($rn === null) {
+        throw new AdminErreur('Demande de renouvellement inconnue.');
+    }
+    $html = fiche_html([
+        'Statut' => etiquette($rn['statut']),
+        'Date' => h(date_fr((int)$rn['cree_le'], true)),
+        'Licence' => '<a href="index.php?page=licence&amp;id=' . (int)$rn['licence_id'] . '">licence n. '
+            . (int)$rn['licence_id'] . '</a> (' . h(licence_designation($rn)) . ')',
+        'Client' => h($rn['titulaire']),
+        'Produit' => lien_produit((int)$rn['produit_id'], $rn['produit_code'], $rn['produit_nom']),
+        'Echeance' => $rn['statut'] === 'en_attente' && $rn['echeance'] !== null
+            ? h(renouvellement_echeance($rn, $ctx['maintenant']))
+            : h(echeance_fr($rn['echeance_avant'] === null ? null : (int)$rn['echeance_avant'], licence_hors_ligne($rn))),
+        'Ordinateur' => h($rn['nom_ordinateur']),
+        'Mot du client' => '<span class="message">' . h($rn['message']) . '</span>',
+        'Version de l\'application' => h($rn['version_appli']),
+        'IP' => h($rn['ip']),
+    ]);
+    $hors_ligne = licence_hors_ligne($rn);
+    if ($rn['statut'] === 'acceptee') {
+        return $html . '<p>Acceptee le ' . h(date_fr((int)$rn['traitee_le'], true)) . ' : licence prolongee jusqu\'au '
+            . h(echeance_fr($rn['echeance_apres'] === null ? null : (int)$rn['echeance_apres'], $hors_ligne)) . '.</p>';
+    }
+    if ($rn['statut'] === 'refusee') {
+        return $html . '<p>Refusee le ' . h(date_fr((int)$rn['traitee_le'], true)) . ($rn['motif_refus'] !== null
+            ? ' : ' . h($rn['motif_refus']) : ' (sans motif)') . '.</p>';
+    }
+    if ($rn['licence_statut'] === 'revoquee' || $rn['echeance'] === null) {
+        $accepter = '<p class="alerte">' . ($rn['licence_statut'] === 'revoquee' ? 'Licence revoquee' : 'Licence '
+            . 'perpetuelle') . ' : rien a prolonger. Refusez la demande.</p>';
+    } else {
+        $produit = produit_lire($ctx['db'], (int)$rn['produit_id']);
+        $depart = max((int)$rn['echeance'], $ctx['maintenant']);
+        $accepter = '<p class="discret">La duree s\'ajoute a partir du ' . h(echeance_fr($depart, $hors_ligne))
+            . ($depart > $ctx['maintenant'] ? ' (echeance actuelle)' : ' (aujourd\'hui : l\'echeance est passee)')
+            . '. Le client n\'a rien a faire : l\'application recoit la nouvelle date a son prochain controle.'
+            . ($hors_ligne ? ' ' . HORS_LIGNE_MENTION : '') . '</p>'
+            . f_formulaire($ctx, 'renouvellement_accepter', f_champ('duree_j', 'Prolonger de (jours)',
+                $produit['duree_defaut_j'] ?? 365, 'number', 'min="1" max="36500" required')
+                . f_bouton('Prolonger', 'principal'), ['id' => $id]);
+    }
+    $refuser = '<p class="discret">L\'application n\'est pas prevenue du refus : la licence s\'arrete a son echeance. '
+        . 'Prevenez le client vous-meme si besoin.</p>'
+        . f_formulaire($ctx, 'renouvellement_refuser', f_zone('motif', 'Motif (facultatif, inscrit au journal)', '',
+            MOTIF_REFUS_MAX) . f_bouton('Refuser', 'danger'), ['id' => $id]);
+    return $html . '<div class="colonnes"><section><h2>Prolonger</h2>' . $accepter . '</section>'
+        . '<section><h2>Refuser</h2>' . $refuser . '</section></div>';
+}
+
+function admin_action_renouvellement_accepter(array $ctx): array
+{
+    $id = (int)($ctx['post']['id'] ?? 0);
+    $duree = (int)entier_saisi($ctx['post']['duree_j'] ?? '', 1, 36500, 'Duree');
+    renouvellement_accepter($ctx['db'], $id, $duree, $ctx['utilisateur'], $ctx['ip'], $ctx['maintenant']);
+    return admin_redirection('index.php?page=renouvellement&id=' . $id . '&ok=renouvelee');
+}
+
+function admin_action_renouvellement_refuser(array $ctx): array
+{
+    renouvellement_refuser($ctx['db'], (int)($ctx['post']['id'] ?? 0), (string)($ctx['post']['motif'] ?? ''),
+        $ctx['utilisateur'], $ctx['ip'], $ctx['maintenant']);
+    return admin_redirection('index.php?page=demandes&ok=renouvellement_refuse');
 }
 
 // ---------------------------------------------------------------------------
@@ -1138,12 +1290,27 @@ function admin_licence_actions(array $ctx, array $lic): string
             . ($remplacantes === [] ? '' : '<p><strong>Deja remplacee par ' . implode(', ', $remplacantes) . '.</strong></p>')
             . ($hors_ligne
                 ? $lien . 'licence_hors_ligne&amp;modele=' . $id . '">Nouvelle licence hors ligne pour ce poste</a></p>'
-                : $lien . 'licence_nouvelle&amp;modele=' . $id . '">Nouvelle licence pour ce client</a></p>');
+                : $lien . 'licence_nouvelle&amp;modele=' . $id . '">Nouvelle licence pour ce client</a></p>')
+            . '<div class="actions">' . action_depliable('Supprimer cette licence', 'Definitif : la licence disparait '
+                . 'de la base et des listes (seule une sauvegarde permet de revenir en arriere). Le journal garde la '
+                . 'trace de ce qui a ete fait. Si un ordinateur presente encore ' . ($hors_ligne ? 'son code' : 'sa cle')
+                . ', le serveur le refuse comme inconnu et l\'application l\'efface, comme pour une revocation. Pour '
+                . 'supprimer d\'un coup toutes les licences revoquees : Administration, Menage.',
+                f_formulaire($ctx, 'licence_supprimer', f_bouton('Supprimer definitivement', 'danger'), ['id' => $id],
+                    'en-ligne'), 'action action-danger') . '</div>';
     }
     // Licence hors ligne : ce qui change ici n'atteint le poste que par un controle reussi. Liberee par un
     // transfert depuis l'application : le code pour le nouvel ordinateur vient en premier.
     $mention = $hors_ligne ? ' ' . HORS_LIGNE_MENTION : '';
     $html = '';
+    $renouvellement = db_valeur($ctx['db'], "SELECT id FROM renouvellements WHERE licence_id = ? AND statut = 'en_attente'",
+        [$id]);
+    if ($renouvellement !== null) {
+        // Prolonger ici repond aussi a la demande (renouvellements_clore).
+        $html .= '<p class="alerte">Le client a demande le renouvellement de cette licence depuis l\'application. '
+            . '<a href="index.php?page=renouvellement&amp;id=' . (int)$renouvellement . '">Traiter la demande</a>, ou '
+            . 'utilisez Prolonger ci-dessous.</p>';
+    }
     if ($hors_ligne) {
         $transferee = $lic['machine'] === null && $lic['dernier_contact'] !== null;
         $html = $transferee ? admin_action_autre_poste_formulaire($ctx, $lic) . admin_action_nouveau_code_formulaire($ctx, $lic)
@@ -1161,7 +1328,24 @@ function admin_licence_actions(array $ctx, array $lic): string
                 'en-ligne')
             . '</div>'
             . f_formulaire($ctx, 'licence_prolonger', f_champ('date', 'Ou choisir la nouvelle echeance', '', 'date',
-                'required') . f_bouton('Fixer la date'), ['id' => $id, 'mode' => 'date']));
+                'required') . f_bouton('Fixer la date'), ['id' => $id, 'mode' => 'date'])
+            // Changer d'avis (D90) : la meme licence, sans echeance ; le client n'a rien a ressaisir.
+            . '<p class="discret">Ou supprimer l\'echeance : la licence devient perpetuelle.</p>'
+            . f_formulaire($ctx, 'licence_perpetuelle', f_bouton('Rendre perpetuelle'), ['id' => $id], 'en-ligne'));
+    } else {
+        // Licence perpetuelle : lui fixer une echeance la rend datee (D90), sans nouvelle cle.
+        $html .= action_depliable('Fixer une echeance', 'Licence perpetuelle : une echeance la rend datee, sans changer '
+            . 'de cle. "+30 jours" et "+1 an" comptent a partir d\'aujourd\'hui. ' . ($hors_ligne ? HORS_LIGNE_MENTION
+            : 'Le client n\'a rien a faire : l\'application recoit l\'echeance a son prochain controle, et l\'annonce '
+            . '15 jours avant.'),
+            '<div class="rangee">'
+            . f_formulaire($ctx, 'licence_echeance', f_bouton('+30 jours', 'principal'), ['id' => $id, 'mode' => '30'],
+                'en-ligne')
+            . f_formulaire($ctx, 'licence_echeance', f_bouton('+1 an', 'principal'), ['id' => $id, 'mode' => '365'],
+                'en-ligne')
+            . '</div>'
+            . f_formulaire($ctx, 'licence_echeance', f_champ('date', 'Ou choisir l\'echeance', '', 'date', 'required')
+                . f_bouton('Fixer la date'), ['id' => $id, 'mode' => 'date']));
     }
     if (!$hors_ligne) {
         $html .= action_depliable('Nouvelle cle', 'Pour une cle diffusee ou transmise par erreur : une nouvelle cle '
@@ -1440,28 +1624,66 @@ function admin_date_fin_journee(string $saisie, int $maintenant): int
 
 function admin_action_licence_prolonger(array $ctx): array
 {
-    $id = (int)($ctx['post']['id'] ?? 0);
-    $lic = licence_lire($ctx['db'], $id);
+    $lic = licence_lire($ctx['db'], (int)($ctx['post']['id'] ?? 0));
     if ($lic['echeance'] === null) {
-        throw new AdminErreur('Licence perpetuelle : rien a prolonger.');
+        throw new AdminErreur('Licence perpetuelle : utilisez "Fixer une echeance".');
     }
+    return admin_licence_echeance_changer($ctx, $lic, admin_echeance_saisie($ctx, (int)$lic['echeance']), 'prolongee');
+}
+
+/** Licence perpetuelle : une echeance la rend datee (D90), a partir d'aujourd'hui pour +30 jours et +1 an. */
+function admin_action_licence_echeance(array $ctx): array
+{
+    $lic = licence_lire($ctx['db'], (int)($ctx['post']['id'] ?? 0));
+    if ($lic['echeance'] !== null) {
+        throw new AdminErreur('Cette licence a deja une echeance : utilisez "Prolonger".');
+    }
+    return admin_licence_echeance_changer($ctx, $lic, admin_echeance_saisie($ctx, $ctx['maintenant']), 'echeance');
+}
+
+/** Licence datee rendue perpetuelle (D90) : meme licence, meme cle, plus d'echeance. */
+function admin_action_licence_perpetuelle(array $ctx): array
+{
+    $lic = licence_lire($ctx['db'], (int)($ctx['post']['id'] ?? 0));
+    if ($lic['echeance'] === null) {
+        throw new AdminErreur('Licence deja perpetuelle.');
+    }
+    return admin_licence_echeance_changer($ctx, $lic, null, 'perpetuelle');
+}
+
+/** Echeance choisie : +30 jours ou +1 an a partir de $depart (ou d'aujourd'hui s'il est passe), ou une date. */
+function admin_echeance_saisie(array $ctx, int $depart): int
+{
+    $mode = (string)($ctx['post']['mode'] ?? '');
+    if ($mode === '30' || $mode === '365') {
+        return max($depart, $ctx['maintenant']) + (int)$mode * JOUR;
+    }
+    if ($mode === 'date') {
+        return admin_date_fin_journee((string)($ctx['post']['date'] ?? ''), $ctx['maintenant']);
+    }
+    throw new AdminErreur('Echeance invalide.');
+}
+
+/**
+ * Nouvelle echeance d'une licence non revoquee (null : perpetuelle). Une demande de renouvellement en attente
+ * est satisfaite (D89). L'application recoit l'echeance a son controle suivant, sans rien ressaisir.
+ */
+function admin_licence_echeance_changer(array $ctx, array $lic, ?int $echeance, string $ok): array
+{
+    $id = (int)$lic['id'];
     if ($lic['statut'] === 'revoquee') {
         throw new AdminErreur('Licence revoquee.');
     }
-    $mode = (string)($ctx['post']['mode'] ?? '');
-    // Prolongation a partir de l'echeance, ou d'aujourd'hui si elle est deja passee.
-    $depart = max((int)$lic['echeance'], $ctx['maintenant']);
-    if ($mode === '30' || $mode === '365') {
-        $echeance = $depart + (int)$mode * JOUR;
-    } elseif ($mode === 'date') {
-        $echeance = admin_date_fin_journee((string)($ctx['post']['date'] ?? ''), $ctx['maintenant']);
-    } else {
-        throw new AdminErreur('Prolongation invalide.');
-    }
+    $hors_ligne = licence_hors_ligne($lic);
+    $avant = $lic['echeance'] === null ? null : (int)$lic['echeance'];
     db_maj($ctx['db'], 'licences', ['echeance' => $echeance, 'modifie_le' => $ctx['maintenant']], 'id', $id);
-    admin_journal($ctx, 'licence_prolongee', 'licence ' . $id, echeance_fr((int)$lic['echeance'], licence_hors_ligne($lic))
-        . ' -> ' . echeance_fr($echeance, licence_hors_ligne($lic)));
-    return admin_redirection('index.php?page=licence&id=' . $id . '&ok=prolongee');
+    $close = renouvellements_clore($ctx['db'], $id, 'acceptee', $avant, $echeance, null, $ctx['maintenant']);
+    $texte = static function (?int $date) use ($hors_ligne): string {
+        return $date === null ? ($hors_ligne ? 'illimitee' : 'perpetuelle') : echeance_fr($date, $hors_ligne);
+    };
+    admin_journal($ctx, 'licence_prolongee', 'licence ' . $id, $texte($avant) . ' -> ' . $texte($echeance)
+        . ($close > 0 ? ' (demande de renouvellement acceptee)' : ''));
+    return admin_redirection('index.php?page=licence&id=' . $id . '&ok=' . $ok);
 }
 
 function admin_action_licence_modifier(array $ctx): array
@@ -1493,6 +1715,10 @@ function admin_changer_statut(array $ctx, array $depuis, string $vers, string $a
     // Reactiver ou revoquer met fin a toute suspension datee.
     db_maj($ctx['db'], 'licences', ['statut' => $vers, 'suspendue_jusqu' => null, 'modifie_le' => $ctx['maintenant']],
         'id', $id);
+    if ($vers === 'revoquee') {
+        // Une demande de renouvellement en attente n'a plus d'objet.
+        renouvellements_clore($ctx['db'], $id, 'refusee', null, null, 'licence revoquee', $ctx['maintenant']);
+    }
     admin_journal($ctx, $action, 'licence ' . $id, $lic['statut'] . ' -> ' . $vers);
     return admin_redirection('index.php?page=licence&id=' . $id . '&ok=' . $message);
 }
@@ -1593,6 +1819,21 @@ function admin_action_licence_nouvelle_cle(array $ctx): array
         . '<p class="discret">L\'ordinateur qui utilisait l\'ancienne cle la voit refusee a son prochain controle : '
         . 'l\'application l\'efface et previent l\'utilisateur ; il faudra y saisir la nouvelle cle.</p>'
         . '<p><a href="index.php?page=licence&amp;id=' . $id . '">Retour a la licence</a></p>');
+}
+
+/** Supprime une licence revoquee (fiche de la licence) ; retour a la liste des licences. */
+function admin_action_licence_supprimer(array $ctx): array
+{
+    $db = $ctx['db'];
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        licence_supprimer($db, (int)($ctx['post']['id'] ?? 0), $ctx['utilisateur'], $ctx['ip'], $ctx['maintenant']);
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        $db->exec('ROLLBACK');
+        throw $e;
+    }
+    return admin_redirection('index.php?page=licences&ok=licence_supprimee');
 }
 
 // ---------------------------------------------------------------------------
@@ -1938,7 +2179,44 @@ function admin_ecran_produit(array $ctx, array $p): string
         . '<h2>Regles</h2>' . f_formulaire($ctx, 'produit_enregistrer',
             f_champ('nom', 'Nom du produit', $p['nom'], 'text', 'maxlength="120" required')
             . f_regles_essentiel($p) . f_regles_avance($p, !$actif)
-            . f_bouton('Enregistrer', 'principal'), ['id' => $id]);
+            . f_bouton('Enregistrer', 'principal'), ['id' => $id])
+        . admin_produit_suppression($ctx, $id, $licences);
+}
+
+/**
+ * Bas de la page d'un produit sans aucune licence : "Supprimer ce produit" (D88), ou ce qui l'empeche encore
+ * (demande en attente). Rien pour un produit qui a des licences.
+ */
+function admin_produit_suppression(array $ctx, int $id, int $licences): string
+{
+    if ($licences > 0) {
+        return '';
+    }
+    $raison = produit_suppression_impossible($ctx['db'], $id);
+    if ($raison !== null) {
+        return '<p class="discret">Ce produit n\'a aucune licence. ' . h($raison) . ' Il pourra ensuite etre supprime.</p>';
+    }
+    return '<div class="actions">' . action_depliable('Supprimer ce produit', 'Ce produit n\'a aucune licence : vous '
+        . 'pouvez le supprimer, avec ses regles et ses demandes deja traitees. C\'est definitif (seule une sauvegarde '
+        . 'permet de revenir en arriere) ; le journal garde la trace de ce qui a ete fait. Si l\'application envoie un '
+        . 'jour une nouvelle demande, son produit sera recree automatiquement avec les regles par defaut, et la periode '
+        . 'd\'essai pourra de nouveau etre accordee.',
+        f_formulaire($ctx, 'produit_supprimer', f_bouton('Supprimer definitivement', 'danger'), ['id' => $id], 'en-ligne'),
+        'action action-danger') . '</div>';
+}
+
+function admin_action_produit_supprimer(array $ctx): array
+{
+    $db = $ctx['db'];
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        produit_supprimer($db, (int)($ctx['post']['id'] ?? 0), $ctx['utilisateur'], $ctx['ip'], $ctx['maintenant']);
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        $db->exec('ROLLBACK');
+        throw $e;
+    }
+    return admin_redirection('index.php?page=produits&ok=produit_supprime');
 }
 
 /** Nouveau produit (pour preparer des cles avant toute demande) : code definitif, nom, regles proposees. */
@@ -2217,6 +2495,143 @@ function admin_action_sauvegarde_telecharger(array $ctx): array
         'Content-Disposition' => 'attachment; filename="licenses-' . date('Ymd-Hi', $ctx['maintenant']) . '.db"',
         'Content-Length' => (string)filesize($fichier),
     ], 'fichier' => $fichier, 'corps' => ''];
+}
+
+// ---------------------------------------------------------------------------
+// Menage (D88) : licences revoquees et produits sans licence
+// ---------------------------------------------------------------------------
+
+/**
+ * Ecran Menage : ce qui serait supprime, liste par liste, avec un bouton par liste. Le formulaire porte les
+ * numeros affiches : seul ce que l'administrateur a vu est supprime, meme si la liste a change entre-temps.
+ */
+function admin_ecran_menage(array $ctx): string
+{
+    $html = '<p>Pour alleger les listes, supprimez ce qui ne sert plus. C\'est definitif : seule une sauvegarde '
+        . '(Administration, Sauvegarde) permet de revenir en arriere. Le journal garde la trace de tout ce qui a ete '
+        . 'fait.</p>';
+    $lignes = [];
+    $ids = [];
+    foreach (menage_licences_revoquees($ctx['db']) as $l) {
+        $ids[] = (int)$l['id'];
+        $lignes[] = ['<a href="index.php?page=licence&amp;id=' . (int)$l['id'] . '">' . h($l['titulaire']) . '</a>',
+            h($l['produit_code']), '<code>...' . h($l['cle_indice']) . '</code>'
+                . (licence_hors_ligne($l) ? ' ' . etiquette('hors_ligne') : ''),
+            h(date_fr($l['revoquee_le'] === null ? (int)$l['modifie_le'] : (int)$l['revoquee_le'])),
+            h(date_fr($l['dernier_contact'] === null ? null : (int)$l['dernier_contact']))];
+    }
+    $n = count($ids);
+    $html .= '<h2>Licences revoquees (' . $n . ')</h2><p class="discret">Une licence revoquee ne peut plus servir. La '
+        . 'supprimer l\'efface de la base et des listes. Si un ordinateur presente encore sa cle (ou son code hors '
+        . 'ligne), le serveur la refuse comme inconnue et l\'application l\'efface, comme pour une revocation. Les '
+        . 'demandes deja traitees restent dans l\'historique : la periode d\'essai n\'est pas redonnee.</p>'
+        . tableau_html(['Client', 'Produit', 'Cle', 'Revoquee le', 'Dernier contact'], $lignes,
+            'Aucune licence revoquee.');
+    if ($n > 0) {
+        $html .= f_formulaire($ctx, 'menage_licences', f_bouton('Supprimer ' . ($n > 1 ? 'les ' . $n
+            . ' licences revoquees' : 'la licence revoquee'), 'danger'), ['ids' => implode(',', $ids)], 'raccourcis');
+    }
+    $lignes = [];
+    $ids = [];
+    foreach (menage_produits_sans_licence($ctx['db']) as $p) {
+        $attente = (int)$p['nb_attente'] > 0;
+        if (!$attente) {
+            $ids[] = (int)$p['id'];
+        }
+        $lignes[] = ['<a href="index.php?page=produit&amp;id=' . (int)$p['id'] . '">' . h($p['code']) . '</a>',
+            h($p['nom']), (string)(int)$p['nb_demandes'], h(date_fr((int)$p['cree_le'])),
+            $attente ? '<a href="index.php?page=demandes">demande en attente : a traiter d\'abord</a>' : 'a supprimer'];
+    }
+    $n = count($ids);
+    // Titre : tous les produits listes, ceux qu'une demande en attente garde compris.
+    $html .= '<h2>Produits sans licence (' . count($lignes) . ')</h2><p class="discret">Un produit qui n\'a plus aucune licence '
+        . 'peut etre supprime, avec ses regles et ses demandes deja traitees. Si l\'application envoie un jour une '
+        . 'nouvelle demande, son produit sera recree automatiquement avec les regles par defaut, et la periode d\'essai '
+        . 'pourra de nouveau etre accordee. Un produit dont seules restent des licences revoquees apparait ici une fois '
+        . 'celles-ci supprimees.</p>'
+        . tableau_html(['Produit', 'Nom', 'Demandes', 'Cree le', ''], $lignes, 'Aucun produit sans licence.');
+    if ($n > 0) {
+        $html .= f_formulaire($ctx, 'menage_produits', f_bouton('Supprimer ' . ($n > 1 ? 'les ' . $n
+            . ' produits sans licence' : 'le produit sans licence'), 'danger'), ['ids' => implode(',', $ids)], 'raccourcis');
+    }
+    return $html;
+}
+
+/** Numeros envoyes par le formulaire de l'ecran Menage ("3,7,12"). */
+function menage_ids_saisis($valeur): array
+{
+    $ids = [];
+    foreach (explode(',', is_string($valeur) ? $valeur : '') as $morceau) {
+        if (preg_match('/^\d{1,9}$/', trim($morceau)) === 1) {
+            $ids[(int)$morceau] = true;
+        }
+    }
+    if ($ids === []) {
+        throw new AdminErreur('Rien a supprimer.');
+    }
+    return array_keys($ids);
+}
+
+/** Supprime, en une transaction, les licences revoquees affichees par l'ecran Menage. */
+function admin_action_menage_licences(array $ctx): string
+{
+    $db = $ctx['db'];
+    $n = 0;
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        foreach (menage_ids_saisis($ctx['post']['ids'] ?? '') as $id) {
+            // Une licence deja supprimee, ou reactivee entre-temps (impossible : revocation definitive), est sautee.
+            if (db_valeur($db, "SELECT COUNT(*) FROM licences WHERE id = ? AND statut = 'revoquee'", [$id]) == 1) {
+                licence_supprimer($db, $id, $ctx['utilisateur'], $ctx['ip'], $ctx['maintenant']);
+                $n++;
+            }
+        }
+        admin_journal($ctx, 'menage_licences', null, $n . ($n > 1 ? ' licences revoquees supprimees'
+            : ' licence revoquee supprimee'));
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        $db->exec('ROLLBACK');
+        throw $e;
+    }
+    return '<p class="succes">' . ($n === 0 ? 'Aucune licence supprimee (deja fait ?).' : $n . ($n > 1
+        ? ' licences revoquees supprimees.' : ' licence revoquee supprimee.')) . '</p>'
+        . '<p><a href="index.php?page=menage">Retour au menage</a> - <a href="index.php?page=licences">Voir les '
+        . 'licences</a></p>';
+}
+
+/** Supprime, en une transaction, les produits sans licence affiches par l'ecran Menage (s'ils le sont encore). */
+function admin_action_menage_produits(array $ctx): string
+{
+    $db = $ctx['db'];
+    $n = 0;
+    $sautes = 0;
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        foreach (menage_ids_saisis($ctx['post']['ids'] ?? '') as $id) {
+            if (produit_lire($db, $id) === null) {
+                continue;
+            }
+            // Une licence ou une demande arrivee depuis l'affichage garde le produit.
+            if (produit_suppression_impossible($db, $id) !== null) {
+                $sautes++;
+                continue;
+            }
+            produit_supprimer($db, $id, $ctx['utilisateur'], $ctx['ip'], $ctx['maintenant']);
+            $n++;
+        }
+        admin_journal($ctx, 'menage_produits', null, $n . ($n > 1 ? ' produits sans licence supprimes'
+            : ' produit sans licence supprime'));
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        $db->exec('ROLLBACK');
+        throw $e;
+    }
+    return '<p class="succes">' . ($n === 0 ? 'Aucun produit supprime.' : $n . ($n > 1 ? ' produits supprimes.'
+        : ' produit supprime.')) . '</p>'
+        . ($sautes > 0 ? '<p class="alerte">' . $sautes . ($sautes > 1 ? ' produits conserves : ils ont' : ' produit '
+            . 'conserve : il a') . ' recu une licence ou une demande depuis l\'affichage de la liste.</p>' : '')
+        . '<p><a href="index.php?page=menage">Retour au menage</a> - <a href="index.php?page=produits">Voir les '
+        . 'produits</a></p>';
 }
 
 // ---------------------------------------------------------------------------

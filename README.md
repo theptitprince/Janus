@@ -4,7 +4,7 @@
 
 **Un serveur de licences sur hébergement mutualisé, sa console d'administration, et un seul module à copier dans chaque application Python.**
 
-![Version](https://img.shields.io/badge/version-2.1.1-2ea44f)
+![Version](https://img.shields.io/badge/version-2.2.0-2ea44f)
 ![PHP](https://img.shields.io/badge/PHP-8.1%2B-777BB4?logo=php&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-pdo__sqlite-003B57?logo=sqlite&logoColor=white)
@@ -34,13 +34,14 @@ deux lignes dans chaque application.
 servir. Chaque application est un **produit**, avec ses règles ; une licence vaut pour un ordinateur. Depuis une
 console utilisable sur téléphone, l'éditeur crée des clés de licence, accepte ou refuse les demandes envoyées
 depuis l'application (avec, s'il le veut, une période d'essai en attendant), retrouve une clé pour la redicter,
-prolonge, suspend ou révoque une licence, fait passer un client sur un autre ordinateur, et crée des licences
-hors ligne pour les postes jamais connectés à Internet. Rien n'est à préparer pour une nouvelle application : sa
+prolonge, suspend ou révoque une licence, fait passer un client sur un autre ordinateur, crée des licences
+hors ligne pour les postes jamais connectés à Internet, et fait le ménage (licences révoquées, produits sans
+licence). Rien n'est à préparer pour une nouvelle application : sa
 première demande de licence crée son produit. Côté utilisateur, l'application reçoit la clé ou envoie la demande,
 se contrôle d'elle-même en arrière-plan, et montre l'état de sa licence par le raccourci **Ctrl+Maj+L**, d'où l'on
-peut aussi transférer la licence vers un nouvel ordinateur.
+peut aussi transférer la licence vers un nouvel ordinateur, ou en demander le renouvellement dans ses derniers jours.
 
-Version actuelle : module client 2.1.1, serveur 2.1.1 (API v1) — les choix de réalisation, avec les changements
+Version actuelle : module client 2.2.0, serveur 2.2.0 (API v1) — les choix de réalisation, avec les changements
 de version qui en découlent, sont consignés dans [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Sommaire
@@ -85,7 +86,7 @@ cd Janus
 
 | Fichier | Rôle |
 |---|---|
-| `client/etdel_licence.py` | le module client unique, version 2.1.1 : contrôle en ligne, état local chiffré, tolérance hors ligne, licences hors ligne (codes vérifiés sans réseau), fenêtres Tkinter ; seules ses quatre constantes `LICENCE_*` sont renseignées, une fois, après l'installation du serveur |
+| `client/etdel_licence.py` | le module client unique, version 2.2.0 : contrôle en ligne, état local chiffré, tolérance hors ligne, licences hors ligne (codes vérifiés sans réseau), fenêtres Tkinter ; seules ses quatre constantes `LICENCE_*` sont renseignées, une fois, après l'installation du serveur |
 | `client/demo_appli.py` | application de démonstration (produit `DEMO`), à brancher sur un serveur installé (section 4) |
 | `serveur/www/` | tout le serveur, à envoyer tel quel par FTP : API, console d'administration, assistant d'installation, et `prive/` (bibliothèques, configuration, clés, base), jamais servi |
 | `serveur/www/install.php` | assistant d'installation, à usage unique, verrouillé ensuite ; il ne sert plus alors qu'à remplacer un mot de passe perdu de la console, avec un jeton déposé par FTP |
@@ -127,6 +128,12 @@ En résumé (le pas à pas complet, avec les vérifications, est dans
 Aucun produit n'est à préparer : la première demande de licence d'une application inconnue crée son produit, avec
 les règles par défaut. Le même guide couvre la console, les sauvegardes et la restauration, le changement d'URL du
 serveur, la rotation de la clé de signature, la mise à jour du serveur et le dépannage.
+
+**Serveur déjà en service** (mise à jour vers la 2.2.0) : copie de la base depuis la console (*Administration* ›
+*Sauvegarde*), puis envoi par FTP des fichiers de `serveur/www/` sans `admin/.htaccess` ni les fichiers propres à
+l'installation (`prive/config.php`, `prive/.htpasswd`, `prive/cles/`, `prive/data/`, les verrous). La base se met à
+niveau seule à la première requête ; clé de signature et secrets ne changent pas, et les applications déjà livrées
+continuent de fonctionner. Détail : [docs/LISEZ-MOI-SERVEUR.md](docs/LISEZ-MOI-SERVEUR.md), § 8.
 
 ### Le module dans une application
 
@@ -240,6 +247,12 @@ du poste, journal compris, et pas seulement pour la démo.
 - **Changer d'ordinateur.** Depuis l'application, sur l'ancien ordinateur connecté : « Transferer cette licence »
   libère la clé, désactive l'application et affiche la clé à saisir sur le nouvel ordinateur (trois transferts au
   plus par licence sur 30 jours). Depuis la console, si l'ancien ordinateur est perdu : « Changer d'ordinateur ».
+- **Renouveler.** Dans les 15 derniers jours d'une licence, l'application propose « Demander le renouvellement »
+  (fenêtre « Licence », ou lien « Renouveler » du bandeau), avec un mot facultatif pour l'éditeur. La demande
+  arrive par e-mail et dans la console, où « Prolonger » l'accepte : l'application reçoit la nouvelle échéance à son
+  contrôle suivant, sans rien ressaisir (module et serveur 2.2.0).
+- **Faire le ménage.** *Administration* › « Menage » supprime les licences révoquées, puis les produits qui n'ont
+  plus aucune licence ; le journal garde la trace de tout. C'est définitif : une copie de la base d'abord.
 - **Licences hors ligne.** Pour un ordinateur jamais connecté, l'éditeur crée dans la console, à partir de
   l'« Identifiant du poste » (`XXXX-XXXX`) que l'application affiche, deux codes équivalents qui contiennent leur
   date de fin et se vérifient sans réseau : un code court `ETDHL-XXXX-XXXX-XXXX-XXXX` à dicter, protégé par

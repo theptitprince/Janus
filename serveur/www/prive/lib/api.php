@@ -1,7 +1,7 @@
 <?php
 // api.php - API v1 : validation des requetes, limites, operations sur les licences (cles ETDEL et
-//           codes hors ligne, dont le transfert demande par l'application), reponses signees Ed25519
-//           (refus compris).
+//           codes hors ligne, dont le transfert et la demande de renouvellement envoyes par l'application),
+//           reponses signees Ed25519 (refus compris).
 // ETDEL (c) 2026
 // Janus, par ETDEL - https://github.com/theptitprince/Janus
 // GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
@@ -11,8 +11,9 @@ declare(strict_types=1);
 require_once __DIR__ . '/commun.php';
 require_once __DIR__ . '/demandes.php';
 require_once __DIR__ . '/notification.php';
+require_once __DIR__ . '/renouvellements.php';
 
-const API_OPS = ['activer', 'valider', 'liberer', 'demander', 'suivre_demande', 'ping'];
+const API_OPS = ['activer', 'valider', 'liberer', 'demander', 'suivre_demande', 'renouveler', 'ping'];
 // [nombre maximal, fenetre en secondes] par IP ; ping n'est pas limite.
 const API_LIMITES = [
     'activer' => [30, 3600],
@@ -20,6 +21,8 @@ const API_LIMITES = [
     'liberer' => [30, 3600],
     'suivre_demande' => [60, 3600],
     'demander' => [3, 86400],
+    // Demande de renouvellement (D89) : une par licence en attente, les renvois ne creent rien.
+    'renouveler' => [10, 86400],
 ];
 const API_ECART_MAX = 600;
 const API_CORPS_MAX = 16384;
@@ -68,7 +71,9 @@ function api_traiter(PDO $db, array $config, string $corps, string $ip, int $mai
     $base = api_base($db, $requete, $maintenant);
     $champs = api_lire_requete($requete);
     if ($champs === null) {
-        return [400, signer($base + ['ok' => false, 'code' => 'requete_invalide'], $cle)];
+        // HTTP 200 comme tout refus signe (D87) : le module ne lit pas le corps d'une erreur HTTP
+        // jusqu'a sa version 2.1.1, qui affichait sinon "serveur injoignable".
+        return [200, signer($base + ['ok' => false, 'code' => 'requete_invalide'], $cle)];
     }
     return [200, signer(api_operation($db, $config, $champs, $base, $ip, $maintenant), $cle)];
 }
@@ -149,11 +154,20 @@ function api_lire_requete(array $r): ?array
         case 'activer':
         case 'valider':
         case 'liberer':
+        case 'renouveler':
             // 256 : le code hors ligne long fait 143 caracteres sous sa forme canonique.
             if (!is_string($r['cle'] ?? null) || strlen($r['cle']) > 256) {
                 return null;
             }
             $champs['cle'] = $r['cle'];
+            if ($r['op'] === 'renouveler') {
+                // Mot facultatif pour l'administrateur, borne comme celui d'une demande.
+                $message = texte_borne($r['message'] ?? '', 200, true);
+                if ($message === null) {
+                    return null;
+                }
+                $champs['message'] = $message;
+            }
             break;
         case 'demander':
             $titulaire = texte_borne($r['titulaire'] ?? null, 120);
@@ -209,6 +223,8 @@ function api_operation(PDO $db, array $config, array $r, array $base, string $ip
             return demande_creer($db, $config, $r, $produit, $base, $ip, $maintenant, $cree);
         case 'suivre_demande':
             return demande_suivre($db, $config, $r, $produit, $base, $ip, $maintenant);
+        case 'renouveler':
+            return renouvellement_demander($db, $config, $r, $produit, $base, $ip, $maintenant);
         default:
             // activer, valider, liberer : lecture de la licence et ecriture en une transaction immediate.
             $traiter = $r['op'] === 'liberer' ? 'api_liberer' : 'api_licence_traiter';

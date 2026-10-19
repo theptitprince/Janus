@@ -4,7 +4,7 @@
 
 **A license server on shared web hosting, its administration console, and a single module to copy into each Python application.**
 
-![Version](https://img.shields.io/badge/version-2.1.1-2ea44f)
+![Version](https://img.shields.io/badge/version-2.2.0-2ea44f)
 ![PHP](https://img.shields.io/badge/PHP-8.1%2B-777BB4?logo=php&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-pdo__sqlite-003B57?logo=sqlite&logoColor=white)
@@ -36,13 +36,13 @@ each application.
 Each application is a **product**, with its own rules; a license is valid for one computer. From a console that
 can be used on a phone, the publisher creates license keys, accepts or refuses the requests sent from the
 application (with, if they wish, a trial period in the meantime), retrieves a key to dictate it again, extends,
-suspends or revokes a license, moves a customer to another computer, and creates offline licenses for computers
-that are never connected to the Internet. Nothing needs to be prepared for a new application: its first license
+suspends or revokes a license, moves a customer to another computer, creates offline licenses for computers
+that are never connected to the Internet, and cleans up (revoked licenses, products without a license). Nothing needs to be prepared for a new application: its first license
 request creates its product. On the user's side, the application receives the key or sends the request, checks
 itself in the background, and shows the state of its license with the shortcut **Ctrl+Maj+L** (Ctrl+Shift+L),
-from which the license can also be transferred to a new computer.
+from which the license can also be transferred to a new computer, or its renewal requested during its last days.
 
-Current version: client module 2.1.1, server 2.1.1 (API v1) — the implementation choices, with the version changes
+Current version: client module 2.2.0, server 2.2.0 (API v1) — the implementation choices, with the version changes
 that follow from them, are recorded in [docs/DECISIONS.md](docs/DECISIONS.md) (in French).
 
 ## Contents
@@ -87,7 +87,7 @@ cd Janus
 
 | File | Role |
 |---|---|
-| `client/etdel_licence.py` | the single client module, version 2.1.1: online check, encrypted local state, offline tolerance, offline licenses (codes verified without a network), Tkinter windows; only its four `LICENCE_*` constants are filled in, once, after the server is installed |
+| `client/etdel_licence.py` | the single client module, version 2.2.0: online check, encrypted local state, offline tolerance, offline licenses (codes verified without a network), Tkinter windows; only its four `LICENCE_*` constants are filled in, once, after the server is installed |
 | `client/demo_appli.py` | demo application (product `DEMO`), to be connected to an installed server (section 4) |
 | `serveur/www/` | the whole server, to be uploaded as is by FTP: API, administration console, installation wizard, and `prive/` (libraries, configuration, keys, database), never served |
 | `serveur/www/install.php` | installation wizard, for single use, locked afterwards; from then on it only serves to replace a lost console password, with a token uploaded by FTP |
@@ -129,6 +129,13 @@ In short (the complete step-by-step guide, with the checks, is in
 No product needs to be prepared: the first license request from an unknown application creates its product, with
 the default rules. The same guide covers the console, backups and restoring, changing the server's URL, rotating
 the signing key, updating the server and troubleshooting.
+
+**Server already in service** (update to 2.2.0): a copy of the database from the console (*Administration* ›
+*Sauvegarde*), then upload by FTP the files of `serveur/www/` without `admin/.htaccess` nor the files that belong to
+the installation (`prive/config.php`, `prive/.htpasswd`, `prive/cles/`, `prive/data/`, the lock files). The
+database upgrades itself on the first request; the signing key and the secrets do not change, and the
+applications already shipped keep working. Details: [docs/LISEZ-MOI-SERVEUR.md](docs/LISEZ-MOI-SERVEUR.md), § 8
+(in French).
 
 ### The module in an application
 
@@ -246,6 +253,13 @@ on the computer, log included, and not only to the demo.
   "Transferer cette licence" frees the key, deactivates the application and displays the key to enter on the new
   computer (at most three transfers per license over 30 days). From the console, if the old computer is lost:
   "Changer d'ordinateur" (change computer).
+- **Renewing.** During the last 15 days of a license, the application offers "Demander le renouvellement"
+  (request renewal: "Licence" window, or the banner's "Renouveler" link), with an optional note for the
+  publisher. The request arrives by e-mail and in the console, where "Prolonger" (extend) accepts it: the
+  application receives the new end date at its next check, with nothing to enter again (module and server 2.2.0).
+- **Cleaning up.** *Administration* › "Menage" (clean-up) deletes revoked licenses, then the products that no
+  longer have any license; the log keeps a record of everything. It is permanent: make a copy of the database
+  first.
 - **Offline licenses.** For a computer that is never connected, the publisher creates in the console, from the
   "Identifiant du poste" (`XXXX-XXXX`) that the application displays, two equivalent codes that contain their
   end date and are verified without a network: a short code `ETDHL-XXXX-XXXX-XXXX-XXXX` to be dictated,

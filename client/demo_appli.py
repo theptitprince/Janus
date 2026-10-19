@@ -98,7 +98,14 @@ def construire(arguments=None):
     lecteur.add_argument("--cle-publique", help="cle publique affichee par install.php ou l'ecran Cles")
     lecteur.add_argument("--secret-hors-ligne", help="LICENCE_SECRET_HORS_LIGNE affiche par l'ecran Cles "
                                                      "(codes hors ligne courts)")
-    options = lecteur.parse_args(arguments)
+    # Une cle ou un secret base64url peut commencer par "-" (une fois sur 64) : argparse le prendrait pour une
+    # option. "--cle-publique -XYZ" est donc lu comme "--cle-publique=-XYZ".
+    noms = ("--banc", "--serveur", "--cle-publique", "--secret-hors-ligne", "-h", "--help")
+    for i in range(len(arguments) - 1):
+        if arguments[i] in ("--cle-publique", "--secret-hors-ligne") and arguments[i + 1].startswith("-") \
+                and arguments[i + 1] not in noms:
+            arguments[i:i + 2] = [arguments[i] + "=" + arguments[i + 1], ""]
+    options = lecteur.parse_args([a for a in arguments if a != ""])
     probleme = None
     if options.banc:
         etdel_licence.LICENCE_URL = URL_BANC

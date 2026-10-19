@@ -2,7 +2,7 @@
 
 À compléter, puis à remettre à la personne qui réalise l'intégration ; les chemins et les commandes du brief s'entendent depuis la racine de l'application à protéger.
 
-Avant de livrer une application avec le module 2.x (2.0.0 et suivants) : mettre d'abord le serveur en version 2 (`docs/LISEZ-MOI-SERVEUR.md`, § 8), puis seulement livrer les applications. Un serveur plus ancien ne reconnaît pas toujours les requêtes du module 2.x et bloquerait les postes (« Produit inconnu »). Le module 2.1.0 accepte en plus les licences hors ligne (codes `ETDHL-…` et `ETDHL2-…`) ; une fois le serveur installé, la copie de référence du dépôt Janus porte les quatre constantes renseignées (`LICENCE_SECRET_HORS_LIGNE` comprise), à copier sans rien modifier.
+Avant de livrer une application avec le module 2.x (2.0.0 et suivants) : mettre d'abord le serveur en version 2 (`docs/LISEZ-MOI-SERVEUR.md`, § 8), puis seulement livrer les applications. Un serveur plus ancien ne reconnaît pas toujours les requêtes du module 2.x et bloquerait les postes (« Produit inconnu »). Le module 2.1.0 accepte en plus les licences hors ligne (codes `ETDHL-…` et `ETDHL2-…`) ; le module 2.2.0 propose en plus la demande de renouvellement dans les derniers jours d'une licence (serveur 2.2.0 requis, à mettre à jour d'abord) ; une fois le serveur installé, la copie de référence du dépôt Janus porte les quatre constantes renseignées (`LICENCE_SECRET_HORS_LIGNE` comprise), à copier sans rien modifier.
 
 | À remplacer | Valeur |
 |---|---|

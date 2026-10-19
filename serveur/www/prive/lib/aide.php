@@ -1,8 +1,9 @@
 <?php
 // aide.php - Ecran Aide de la console, pour quelqu'un qui la decouvre : le modele en deux minutes,
 //            les taches courantes pas a pas, chaque ecran et chaque reglage, les licences hors ligne
-//            (postes jamais connectes), ce que voit l'utilisateur dans l'application, la tolerance hors
-//            ligne, le depannage (FAQ, codes de refus), le glossaire.
+//            (postes jamais connectes), les demandes de renouvellement, le menage, ce que voit
+//            l'utilisateur dans l'application, la tolerance hors ligne, le depannage (FAQ, codes de
+//            refus), le glossaire.
 // ETDEL (c) 2026
 // Janus, par ETDEL - https://github.com/theptitprince/Janus
 // GPL-3.0-or-later + conditions additionnelles (article 7) : voir NOTICE
@@ -15,6 +16,7 @@ const AIDE_ANCRES = [
     'tableau' => 'tableau',
     'demandes' => 'demandes',
     'demande' => 'demandes',
+    'renouvellement' => 'renouvellements',
     'licences' => 'licences',
     'licence' => 'licences',
     'licence_nouvelle' => 'licences',
@@ -27,6 +29,7 @@ const AIDE_ANCRES = [
     'journal' => 'journal',
     'sauvegarde' => 'sauvegarde',
     'reglages' => 'reglages',
+    'menage' => 'menage',
 ];
 
 /** Sections dans l'ordre du sommaire : ancre => titre ; le contenu vient de aide_section_<ancre>(). */
@@ -116,6 +119,7 @@ function aide_valeurs(array $ctx): array
         '{{ECART_MIN}}' => (string)intdiv(API_ECART_MAX, 60),
         '{{TOLERANCE_MIN_H}}' => (string)intdiv(TOLERANCE_MIN_S, 3600),
         '{{LIMITE_DEMANDER}}' => (string)API_LIMITES['demander'][0],
+        '{{LIMITE_RENOUVELER}}' => (string)API_LIMITES['renouveler'][0],
         '{{LIMITES}}' => h(aide_limites()),
         '{{TRANSFERTS_MAX}}' => (string)TRANSFERTS_MAX,
         '{{TRANSFERTS_JOURS}}' => (string)TRANSFERTS_PERIODE_J,
@@ -140,7 +144,7 @@ function aide_limites(): string
 {
     $noms = ['activer' => 'activations de cle', 'valider' => 'controles de licence',
         'liberer' => 'transferts depuis l\'application', 'suivre_demande' => 'suivis de demande',
-        'demander' => 'demandes de licence'];
+        'demander' => 'demandes de licence', 'renouveler' => 'demandes de renouvellement'];
     $textes = [];
     foreach (API_LIMITES as $operation => [$max, $duree]) {
         $periode = $duree === 3600 ? 'par heure' : ($duree === JOUR ? 'par jour (a partir de minuit UTC)'
@@ -307,13 +311,30 @@ function aide_section_taches(): string
         </ul>
         <h3 id="t-prolonger">Prolonger une licence</h3>
         <ol>
-        <li>Page de la licence, bouton "Prolonger" (absent pour une licence perpetuelle).</li>
+        <li>Page de la licence, bouton "Prolonger". Pour une licence perpetuelle, il s'appelle "Fixer une echeance" : meme
+        choix, a partir d'aujourd'hui, et la licence devient datee, sans nouvelle cle. A l'inverse, "Rendre perpetuelle",
+        en bas du panneau "Prolonger", supprime l'echeance.</li>
         <li>"+30 jours" ou "+1 an" ajoute ce temps a l'echeance actuelle, ou a aujourd'hui si elle est deja passee. Ou
         choisir une date dans "Ou choisir la nouvelle echeance", puis "Fixer la date" : la licence vaut jusqu'a la fin de ce
         jour.</li>
         <li>Le client n'a rien a faire : l'application recoit la nouvelle date a son controle suivant. Une licence deja
         expiree se debloque des que l'utilisateur clique "Reessayer" ou relance l'application.</li>
         </ol>
+        <h3 id="t-renouvellement">Repondre a une demande de renouvellement</h3>
+        <p>Dans les 15 derniers jours d'une licence, l'application du client propose "Demander le renouvellement" (lien
+        "Renouveler" du bandeau, ou fenetre Licence). Vous recevez un e-mail "[ETDEL Licences] Renouvellement demande -
+        PRODUIT - CLIENT" et la demande apparait dans l'Accueil et dans Demandes, avec l'etiquette "renouvellement".</p>
+        <ol>
+        <li>Cliquer "Traiter" (ou le lien de l'e-mail) : la page montre la licence, son echeance, l'ordinateur et le mot du
+        client.</li>
+        <li>Pour accepter : verifier "Prolonger de (jours)" (la duree du produit est proposee), puis "Prolonger". La duree
+        s'ajoute a l'echeance actuelle. Le client n'a rien a faire : l'application recoit la nouvelle date a son controle
+        suivant ("Verifier maintenant" pour tout de suite).</li>
+        <li>Pour refuser : un motif si besoin (il reste dans le journal), puis "Refuser". L'application n'en est pas
+        prevenue : la licence s'arrete a son echeance. Prevenez le client vous-meme.</li>
+        </ol>
+        <p>"Prolonger" sur la page de la licence repond aussi a la demande, et "Revoquer" la classe. Detail :
+        <a href="#renouvellements">Demandes de renouvellement</a>.</p>
         <h3 id="t-transfert">Transferer une licence vers un autre ordinateur</h3>
         <p>Une cle ne fonctionne que sur un ordinateur a la fois : pour changer d'ordinateur, il faut d'abord la detacher de
         l'ancien. Deux facons.</p>
@@ -442,6 +463,17 @@ function aide_section_taches(): string
         bandeau, ni blocage avant l'echeance. Detail : <a href="#hl-connexion">Si l'ordinateur se connecte un jour</a>.</li>
         </ol>
         <p>Limites a connaitre avant de choisir une licence hors ligne : <a href="#hl-limites">Limites</a>.</p>
+        <h3 id="t-menage">Faire le menage</h3>
+        <ol>
+        <li>Telecharger d'abord une copie de la base (Administration, Sauvegarde) : une suppression est definitive.</li>
+        <li>Administration, Menage : la liste des licences revoquees, puis "Supprimer les N licences revoquees" (ou "Supprimer
+        la licence revoquee").</li>
+        <li>Revenir sur Menage : la liste des produits sans licence (ceux dont il ne restait que des licences revoquees y
+        apparaissent maintenant), puis "Supprimer les N produits sans licence". Un produit dont une demande attend votre
+        reponse est garde : traitez d'abord la demande.</li>
+        </ol>
+        <p>On peut aussi supprimer un element a la fois : "Supprimer cette licence" sur la page d'une licence revoquee,
+        "Supprimer ce produit" en bas de la page d'un produit sans licence. Detail : <a href="#menage">Menage</a>.</p>
         HTML;
 }
 
@@ -451,7 +483,9 @@ function aide_section_tableau(): string
         <p>Premier ecran de la console (menu "Accueil", ou le nom "Licences ETDEL" en haut a gauche).</p>
         <ul>
         <li><strong>Demandes en attente</strong> : Date, Client, Ordinateur, Produit et le bouton "Traiter" ; "Aucune demande
-        en attente." s'il n'y en a pas (voir <a href="#t-demande">Traiter une demande</a>).</li>
+        en attente." s'il n'y en a pas (voir <a href="#t-demande">Traiter une demande</a>). Une demande de renouvellement y
+        figure aussi, le client suivi de l'etiquette "renouvellement" (voir <a href="#t-renouvellement">Repondre a une
+        demande de renouvellement</a>). Le chiffre a cote de "Demandes", dans le menu, compte les deux.</li>
         <li>Raccourcis <strong>"Nouvelle licence"</strong> et <strong>"Nouveau produit"</strong>.</li>
         <li><strong>En chiffres</strong> : "Licences actives" (statut actif, echeance a venir ou perpetuelle), "Licences
         expirees" (statut actif mais echeance passee : "expiree" n'est pas un statut enregistre, une prolongation suffit a
@@ -556,6 +590,34 @@ function aide_section_demandes(): string
         encore, et la suspension ne le bloque pas pendant son essai ; ensuite il reste sur "Demande en attente". Des que la
         licence redevient active, il recupere sa cle tout seul a son controle suivant, sans rien ressaisir.</li>
         </ul>
+        <h3 id="renouvellements">Demandes de renouvellement</h3>
+        <p>Dans les 15 derniers jours d'une licence (cle ETDEL a echeance, ordinateur deja verifie par le serveur), le
+        bandeau de l'application propose "Renouveler", et la fenetre Licence le lien "Demander le renouvellement", sous
+        l'echeance. L'utilisateur peut ajouter un "Mot pour ETDEL" (200 caracteres), puis clique "Envoyer la demande". Rien
+        ne change sur son ordinateur. Une seule demande par licence reste en attente : un nouvel envoi ne cree rien de plus,
+        et n'envoie pas d'autre e-mail. Au plus {{LIMITE_RENOUVELER}} demandes de renouvellement par adresse IP et par
+        jour.</p>
+        <ul>
+        <li>E-mail aux adresses des <a href="#reglages">Reglages</a> : objet "[ETDEL Licences] Renouvellement demande -
+        PRODUIT - CLIENT" ; le corps reprend produit, client, licence (numero et 4 derniers caracteres de la cle), echeance,
+        ordinateur, mot du client, date et IP, et donne le lien "Traiter la demande".</li>
+        <li>Ecran Demandes, sous les demandes de licence : <strong>Renouvellements demandes</strong> (Date, Produit, Client,
+        Echeance avec les jours restants, Ordinateur, Message, bouton "Traiter"), puis <strong>Renouvellements traites</strong>
+        (les {{PAR_PAGE}} derniers : Demande le, Traitee le, Statut, Produit, Client avec le lien vers la licence, "prolongee
+        jusqu'au JJ/MM/AAAA" ou le motif).</li>
+        <li>Page d'une demande de renouvellement : Statut, Date, Licence (lien), Client, Produit, Echeance, Ordinateur, Mot
+        du client, Version de l'application, IP. Colonne "Prolonger" : "Prolonger de (jours)", duree du produit proposee (1
+        a 36500), comptee a partir de l'echeance actuelle (ou d'aujourd'hui si elle est passee), bouton "Prolonger",
+        confirmation "Prolonger la licence (accepter le renouvellement)", message "Licence prolongee : l'application recoit
+        la nouvelle date a son prochain controle.". Colonne "Refuser" : "Motif (facultatif, inscrit au journal)",
+        {{MOTIF_MAX}} caracteres au plus, bouton rouge "Refuser", confirmation "Refuser le renouvellement", message "Demande
+        de renouvellement refusee.". L'application n'est pas prevenue d'un refus.</li>
+        <li>La page de la licence signale une demande en attente ("Le client a demande le renouvellement de cette licence
+        depuis l'application. Traiter la demande, ou utilisez Prolonger ci-dessous.") : "Prolonger" sur cette page accepte
+        aussi la demande ; "Revoquer" la refuse (motif "licence revoquee").</li>
+        <li>Journal : renouvellement_demande (acteur "poste:XXXX-XXXX"), renouvellement_accepte, renouvellement_refuse, sur la
+        licence concernee.</li>
+        </ul>
         HTML;
 }
 
@@ -629,19 +691,24 @@ function aide_section_licences(): string
         HTML;
     $html .= aide_tableau(<<<'T'
         Bouton | Quand | Ce qu'il fait | Confirmation
-        Prolonger | licence a echeance (pas perpetuelle) | "+30 jours" ou "+1 an" (365 jours) a partir de l'echeance, ou d'aujourd'hui si elle est passee ; ou "Ou choisir la nouvelle echeance" puis "Fixer la date" (fin de ce jour, fuseau {{FUSEAU}} ; date passee refusee ; une date plus proche raccourcit la licence). Seule l'echeance change : une licence suspendue le reste. Le choix entre perpetuelle et datee est definitif | Prolonger la licence
+        Prolonger | licence a echeance (pas perpetuelle) | "+30 jours" ou "+1 an" (365 jours) a partir de l'echeance, ou d'aujourd'hui si elle est passee ; ou "Ou choisir la nouvelle echeance" puis "Fixer la date" (fin de ce jour, fuseau {{FUSEAU}} ; date passee refusee ; une date plus proche raccourcit la licence). Seule l'echeance change : une licence suspendue le reste. En bas du panneau, "Rendre perpetuelle" supprime l'echeance (meme licence, meme cle) | Prolonger la licence ; Rendre la licence perpetuelle (sans echeance)
+        Fixer une echeance | licence perpetuelle | "+30 jours" ou "+1 an" a partir d'aujourd'hui, ou "Ou choisir l'echeance" puis "Fixer la date" : la licence devient datee, sans nouvelle cle ; l'application recoit l'echeance a son controle suivant et l'annonce 15 jours avant | Fixer une echeance (la licence ne sera plus perpetuelle)
         Nouvelle cle | licence active ou suspendue | bouton "Creer une nouvelle cle" : voir <a href="#t-nouvelle-cle">Remplacer une cle</a> | Remplacer la cle (l'ancienne cle ne fonctionnera plus)
         Changer d'ordinateur | cle liee a un ordinateur | bouton "Liberer cette cle" : voir <a href="#t-transfert">Transferer une licence</a> | Changer d'ordinateur (liberer la cle)
         Suspendre | licence active (meme expiree) | champ "Jusqu'au (facultatif)" puis "Suspendre" : voir <a href="#t-suspendre">Suspendre</a> | Suspendre la licence
         Reactiver | licence suspendue | fin immediate de la suspension (la date de fin est effacee) | Reactiver la licence
         Changer la date de fin | licence suspendue | "Nouvelle date de fin (vide = sans date)", la date actuelle proposee, puis "Changer la date de fin" ; vide = suspension jusqu'a "Reactiver" | Suspendre la licence
         Revoquer | licence active ou suspendue | bouton rouge "Revoquer definitivement" : arret definitif (voir <a href="#t-revoquer">Revoquer</a>) | Revoquer definitivement la licence
+        Supprimer cette licence | licence revoquee (seule action qui lui reste) | bouton rouge "Supprimer definitivement" : la licence disparait de la base et des listes (voir <a href="#menage">Menage</a>) | Supprimer definitivement cette licence revoquee
         T);
     $html .= <<<'HTML'
-        <p>Apres chaque action, un message confirme : "Licence prolongee.", "Licence suspendue.", "Licence reactivee.",
-        "Licence revoquee.", "Cle liberee : elle peut etre saisie sur le nouvel ordinateur.", "Licence modifiee.". Une licence
-        revoquee n'a plus aucune de ces actions : sa page dit que c'est definitif et propose seulement "Nouvelle licence pour
-        ce client".</p>
+        <p>Apres chaque action, un message confirme : "Licence prolongee.", "Echeance fixee : la licence n'est plus
+        perpetuelle.", "Licence rendue perpetuelle.", "Licence suspendue.", "Licence reactivee.",
+        "Licence revoquee.", "Cle liberee : elle peut etre saisie sur le nouvel ordinateur.", "Licence modifiee.", "Licence
+        supprimee." (sur la liste des licences). Une licence revoquee n'a plus aucune de ces actions : sa page dit que c'est
+        definitif et propose "Nouvelle licence pour ce client", et "Supprimer cette licence" pour l'effacer.</p>
+        <p>Si le client a demande le renouvellement de la licence depuis l'application, un encadre le signale en tete des
+        actions, avec le lien "Traiter la demande" (voir <a href="#renouvellements">Demandes de renouvellement</a>).</p>
         <h3>Page d'une licence : "Reglages avances"</h3>
         <p>Replies en bas de la page :</p>
         <ul>
@@ -656,8 +723,8 @@ function aide_section_licences(): string
         l'application, Derniere IP, Origine (console ou demande), Lie le, Creee le, Modifiee le.</li>
         <li><strong>Historique</strong> : les 50 derniers evenements du journal pour cette licence : vos actions, chaque
         affichage de la cle (cle_affichee), les evenements des ordinateurs (activation, refus_autre_poste,
-        licence_transferee, transfert_refuse) et du serveur (licence_reactivee par "systeme" a la fin d'une suspension
-        datee).</li>
+        licence_transferee, transfert_refuse, renouvellement_demande) et du serveur (licence_reactivee par "systeme" a la
+        fin d'une suspension datee).</li>
         </ul>
         HTML;
     return $html;
@@ -761,7 +828,8 @@ function aide_section_horsligne(): string
         Bouton | Quand | Ce qu'il fait | Confirmation
         Nouveau code hors ligne pour ce poste | licence active ou suspendue | "Duree en jours (vide = illimitee)", comptee a partir d'aujourd'hui (celle du produit est proposee), et "Toutes les options (decochee : aucune option)", puis "Creer le nouveau code" : un nouveau code court et un nouveau code long pour le meme poste, affiches avec "Copier". Ils remplacent les anciens sur la meme licence (meme numero, meme historique, statut conserve) : le serveur ne reconnait plus l'ancien code, mais un ordinateur jamais connecte le garde jusqu'a son echeance. C'est ainsi qu'on prolonge un ordinateur qui ne se connecte jamais. Une duree et des options qui redonneraient le code actuel sont refusees ("Le nouveau code serait identique au code actuel...") | {{HL_CONF_CODE}}
         Nouveau code pour un autre ordinateur | licence active ou suspendue | "Identifiant du nouveau poste (par exemple SHXT-2380)", la duree et la case des options, puis "Creer le code pour ce poste" : la licence passe a ce poste, n'est plus liee a aucun ordinateur et recoit de nouveaux codes ; les anciens ne sont plus reconnus par le serveur. Pour un identifiant mal dicte, un ordinateur perdu ou remplace, ou apres "Transferer cette licence" dans l'application (l'action vient alors en premier sur la page) | {{HL_CONF_POSTE}}
-        Prolonger | licence a echeance | comme pour une cle ("+30 jours", "+1 an", "Fixer la date"), mais l'ordinateur ne l'apprend que s'il se connecte ; sinon, utiliser "Nouveau code hors ligne pour ce poste" | Prolonger la licence
+        Prolonger | licence a echeance | comme pour une cle ("+30 jours", "+1 an", "Fixer la date", et "Rendre perpetuelle" pour la rendre illimitee), mais l'ordinateur ne l'apprend que s'il se connecte ; sinon, utiliser "Nouveau code hors ligne pour ce poste" | Prolonger la licence ; Rendre la licence perpetuelle (sans echeance)
+        Fixer une echeance | licence illimitee | comme pour une cle perpetuelle ("+30 jours", "+1 an", "Ou choisir l'echeance"), mais l'ordinateur ne l'apprend que s'il se connecte | Fixer une echeance (la licence ne sera plus perpetuelle)
         Suspendre, Reactiver, Changer la date de fin | comme pour une cle | l'ordinateur ne l'apprend que s'il se connecte : il est alors bloque et garde son code. Une suspension datee qu'il a recue se leve d'elle-meme a sa date, meme sans nouvelle connexion | Suspendre la licence, Reactiver la licence
         Revoquer | licence active ou suspendue | definitif. A sa connexion suivante, l'ordinateur efface son code et ne peut plus le ressaisir ; un ordinateur qui ne se connecte jamais garde son code jusqu'a son echeance | Revoquer definitivement la licence
         T);
@@ -770,7 +838,9 @@ function aide_section_horsligne(): string
         le poste saisi. Licence hors ligne revoquee : la page le dit ("Un poste qui ne se connecte jamais garde son code
         jusqu'a son echeance.") et propose "Nouvelle licence hors ligne pour ce poste", qui ouvre l'ecran Licence hors ligne
         pre-rempli (produit, client, identifiant du poste) ; apres "Creer les codes", la licence revoquee affiche "Deja
-        remplacee par la licence n. Y".</p>
+        remplacee par la licence n. Y". Elle propose aussi "Supprimer cette licence" (bouton rouge "Supprimer
+        definitivement") : un ordinateur qui se connecterait encore avec ce code le verrait refuse et l'effacerait, comme
+        apres la revocation (voir <a href="#menage">Menage</a>).</p>
         <p>"Reglages avances" : comme pour une cle, sans "Tolerance hors ligne" (une licence hors ligne n'en a pas). Les
         options modifiees ici n'atteignent l'ordinateur que s'il se connecte.</p>
         <h3 id="hl-connexion">Si l'ordinateur se connecte un jour</h3>
@@ -943,9 +1013,15 @@ function aide_section_produits(): string
         et etat Actif atteignent chaque application a son controle suivant (une licence qui a ses propres options ou sa
         propre tolerance garde les siennes). La duree par defaut et l'essai ne valent que pour les licences et les demandes a
         venir.</p>
-        <p>Un produit ne se supprime pas : on le desactive. Un ordinateur en periode d'essai d'un produit desactive n'est pas
-        bloque : il continue jusqu'a la fin de son essai, puis reste sur "Demande en attente", et votre reponse ne lui
-        parvient qu'une fois le produit reactive.</p>
+        <p>Un produit qui a des licences ne se supprime pas : on le desactive. Un ordinateur en periode d'essai d'un produit
+        desactive n'est pas bloque : il continue jusqu'a la fin de son essai, puis reste sur "Demande en attente", et votre
+        reponse ne lui parvient qu'une fois le produit reactive.</p>
+        <p>Un produit qui n'a plus aucune licence (ni active, ni suspendue, ni revoquee) et dont aucune demande n'attend de
+        reponse peut etre supprime : en bas de sa page, "Supprimer ce produit", bouton rouge "Supprimer definitivement",
+        confirmation "Supprimer definitivement ce produit" ; ou tous a la fois depuis Administration, Menage. Ses regles et
+        ses demandes deja traitees partent avec lui. Si l'application envoie un jour une nouvelle demande, le produit est
+        recree automatiquement, avec les regles par defaut (et la periode d'essai peut de nouveau etre accordee). Si une
+        demande attend encore, la page le dit : la traiter d'abord.</p>
         <p class="discret">Base creee par une ancienne version du serveur : un produit peut y avoir plusieurs jeux de regles.
         Le premier jeu actif (a defaut, le premier cree) s'applique a tout le produit, toutes ses licences restent
         valables, et le premier "Enregistrer" sur sa page aligne tous ces jeux sur les regles affichees.</p>
@@ -956,7 +1032,7 @@ function aide_section_produits(): string
 function aide_section_administration(): string
 {
     $html = <<<'HTML'
-        <p>Le menu Administration regroupe cinq ecrans techniques, utiles a l'installation et de temps en temps, rarement au
+        <p>Le menu Administration regroupe six ecrans techniques, utiles a l'installation et de temps en temps, rarement au
         quotidien, et le controle d'exposition :</p>
         <ul>
         <li><a href="#serveurs">Serveurs</a> : adresses de l'API diffusees aux applications ; en ajouter une, changer de
@@ -968,6 +1044,34 @@ function aide_section_administration(): string
         <li><a href="#sauvegarde">Sauvegarde</a> : copie de la base a telecharger ; liste des sauvegardes quotidiennes.</li>
         <li><a href="#reglages">Reglages</a> : e-mails de notification des nouvelles demandes, mot de passe de la
         console ; version et licence du logiciel.</li>
+        <li><a href="#menage">Menage</a> : supprimer les licences revoquees et les produits qui n'ont plus aucune licence,
+        pour alleger les listes.</li>
+        </ul>
+        <h3 id="menage">Menage</h3>
+        <p>L'ecran Menage supprime ce qui ne sert plus. C'est definitif : seule une sauvegarde permet de revenir en arriere
+        (telecharger une copie de la base avant, voir <a href="#sauvegarde">Sauvegarde et restauration</a>). Le journal garde
+        la trace de tout ce qui a ete fait : les evenements d'une licence ou d'un produit supprime restent, leur cible
+        marquee "(supprimee)" ou "(supprime)" (par exemple "licence 12 (supprimee)"), pour ne jamais se meler a ceux d'une
+        nouvelle licence qui recevrait le meme numero.</p>
+        <ul>
+        <li><strong>Licences revoquees (N)</strong> : Client (lien vers la licence), Produit, Cle (4 derniers caracteres),
+        Revoquee le, Dernier contact ; bouton rouge "Supprimer les N licences revoquees", confirmation "Supprimer
+        definitivement les licences revoquees". Une licence revoquee ne peut plus servir : la supprimer l'efface de la base
+        et des listes. Si un ordinateur presente encore sa cle (ou son code hors ligne), le serveur la refuse comme inconnue
+        et l'application l'efface, comme pour une revocation. Les demandes deja traitees de ces licences restent dans
+        l'historique des demandes : la periode d'essai n'est pas redonnee. Leurs demandes de renouvellement sont
+        effacees.</li>
+        <li><strong>Produits sans licence (N)</strong> : Produit (lien), Nom, Demandes (leur nombre), Cree le ; bouton rouge
+        "Supprimer les N produits sans licence", confirmation "Supprimer definitivement les produits sans licence". Un
+        produit dont une demande attend votre reponse est liste avec "demande en attente : a traiter d'abord" et n'est pas
+        supprime. Un produit dont il ne restait que des licences revoquees apparait ici une fois celles-ci supprimees.</li>
+        <li>Seuls les elements affiches sont supprimes : si la liste a change entre-temps (nouvelle licence, nouvelle
+        demande), ce qui est arrive depuis est garde, et la page de resultat le dit. Elle indique le nombre d'elements
+        supprimes, avec les liens "Retour au menage" et "Voir les licences" (ou "Voir les produits").</li>
+        <li>Un element a la fois : "Supprimer cette licence" sur la page d'une licence revoquee (confirmation "Supprimer
+        definitivement cette licence revoquee", message "Licence supprimee."), "Supprimer ce produit" en bas de la page d'un
+        produit sans licence (confirmation "Supprimer definitivement ce produit", message "Produit supprime.").</li>
+        <li>Journal : licence_supprimee, produit_supprime, menage_licences, menage_produits.</li>
         </ul>
         <h3>Controle d'exposition</h3>
         <p>Le navigateur essaie de telecharger, par leur URL et sans identifiants, les fichiers qui ne doivent jamais l'etre :
@@ -1130,11 +1234,13 @@ function aide_section_journal(): string
         ("Changer d'ordinateur"), cle_remplacee ("Nouvelle cle"), cle_affichee ("Afficher la cle", "Afficher les codes"),
         licence_hors_ligne_creee ("Licence hors ligne"), code_hors_ligne_remplace ("Nouveau code hors ligne pour ce poste",
         "Nouveau code pour un autre ordinateur"), produit_cree, produit_modifie, url_ajoutee, url_modifiee, reglages,
-        email_test, mot_de_passe, cle_rotation, sauvegarde_telechargee.</li>
+        email_test, mot_de_passe, cle_rotation, sauvegarde_telechargee, renouvellement_accepte, renouvellement_refuse,
+        licence_supprimee, produit_supprime, menage_licences, menage_produits (voir <a href="#menage">Menage</a>).</li>
         <li>Les evenements des ordinateurs (acteur "poste:XXXX-XXXX") : demande, activation (premiere liaison d'une cle a un
         ordinateur ; pour une licence hors ligne, son premier contact avec le serveur), refus_autre_poste (cle ou code hors
         ligne presente par un autre ordinateur, avec le nom de celui-ci), licence_transferee (transfert depuis
-        l'application), transfert_refuse (trop de transferts recents).</li>
+        l'application), transfert_refuse (trop de transferts recents), renouvellement_demande (demande de renouvellement
+        envoyee depuis l'application).</li>
         <li>Le serveur (acteur "systeme") : produit_cree_automatiquement, licence_reactivee (fin d'une suspension datee ;
         detail "fin de la suspension programmee"), email_envoye, email_echec, email_plafond, sauvegarde,
         cles_resynchronisees, secret_hors_ligne_cree (secret des codes hors ligne cree).</li>
@@ -1351,17 +1457,21 @@ function aide_section_application(): string
         peut pas etre utilisee ; la fenetre principale reste alors cachee. En bas, l'identifiant du poste avec "Copier"
         (c'est lui qu'il faut pour une licence hors ligne). La fermer par la croix quitte l'application.</li>
         <li><strong>Bandeau</strong> en haut de la fenetre principale, seulement pendant un essai (bleu clair) ou un
-        avertissement (couleur de l'application), avec le lien "Details" ; un clic ouvre la fenetre Licence. Il ne se ferme
-        pas.</li>
+        avertissement (couleur de l'application), avec le lien "Details" ; un clic ouvre la fenetre Licence. Dans les 15
+        derniers jours d'une licence (cle ETDEL), le lien devient "Renouveler" tant que le renouvellement n'a pas ete demande :
+        il ouvre la fenetre Licence et la demande de renouvellement. Il ne se ferme pas.</li>
         <li><strong>Fenetre Licence</strong>, a tout moment par les touches Ctrl+Maj+L (ou un clic sur le bandeau) : titre
-        "Licence", produit et version de l'application ; le statut (pastille de couleur et message) ; Titulaire, Echeance,
-        Dernier controle ; Identifiant du poste ("Copier") ; Cle, masquee comme dans la console
+        "Licence", produit et version de l'application ; le statut (pastille de couleur et message) ; Titulaire, Echeance
+        (suivie, dans les 15 derniers jours, du lien "Demander le renouvellement", puis, une fois la demande envoyee, "Demande
+        envoyee le JJ/MM/AAAA", qui permet de la renvoyer), Dernier controle ; Identifiant du poste ("Copier") ; Cle, masquee
+        comme dans la console
         (ETDEL-****-****-****-XXXX), avec "Afficher la cle" / "Masquer la cle" ; Nom de l'ordinateur, suivi du lien
         "Transferer cette licence" quand le transfert est possible ; le message d'accueil du produit ; "Verifier maintenant"
         et son resultat ; la zone "Diagnostic" avec "Copier le diagnostic" ; au-dessus du pied, en petit, la mention "Janus,
         par ETDEL &mdash; https://github.com/theptitprince/Janus (GPL-3.0-or-later, sans garantie)", que l'application ne
         doit pas retirer ; "Fermer" (ou Echap). On n'y saisit rien.
-        Certaines applications affichent le meme cadre dans leurs reglages, sans le lien de transfert. Licence hors ligne :
+        Certaines applications affichent le meme cadre dans leurs reglages, sans les liens de transfert et de
+        renouvellement. Licence hors ligne :
         la ligne s'appelle "Code hors ligne" (ETDHL-****-****-****-XXXX, ou ETDHL2-****-...-XXXX-X pour un code long), avec
         "Afficher le code" / "Masquer le code" ; Echeance montre le dernier jour de validite ou "Illimitee" ; Titulaire et
         Dernier controle restent "-" et "Jamais" tant que l'ordinateur ne s'est pas connecte ; "Transferer cette licence"
@@ -1394,6 +1504,16 @@ function aide_section_application(): string
         ordinateur : communiquez a ETDEL l'identifiant du poste du nouvel ordinateur pour obtenir son code." et, apres le
         transfert, "Licence transferee : communiquez a ETDEL l'identifiant du poste du nouvel ordinateur pour obtenir son
         code." Dans la console : "Nouveau code pour un autre ordinateur" sur la page de la licence.</li>
+        <li><strong>Fenetre "Demander le renouvellement"</strong> (lien du meme nom, ou "Renouveler" du bandeau ; seulement
+        dans les 15 derniers jours d'une cle ETDEL a echeance, une fois l'ordinateur verifie par le serveur) : "Licence
+        valable jusqu'au JJ/MM/AAAA (N jour(s) restant(s)).", "Une demande a deja ete envoyee le JJ/MM/AAAA. Vous pouvez la
+        renvoyer." si c'est le cas, le champ "Mot pour ETDEL" (facultatif, 200 caracteres), la mention "Le traitement d'une
+        demande peut prendre plusieurs jours.", boutons "Annuler" et "Envoyer la demande". Pendant l'envoi : "Envoi en
+        cours...". Succes : page "Demande envoyee" ("Demande de renouvellement envoyee. La nouvelle date de fin s'affichera
+        ici des que ETDEL aura prolonge la licence."), bouton "Fermer". Echec : le message s'affiche (par exemple "Demande
+        impossible : serveur de licences injoignable. Connectez l'ordinateur a Internet puis reessayez.") et l'on peut
+        reessayer. Rien ne change sur l'ordinateur. Voir <a href="#t-renouvellement">Repondre a une demande de
+        renouvellement</a>. Une application livree avec un module anterieur a 2.2.0 n'a pas ce lien.</li>
         </ul>
         <h3>Statut par statut</h3>
         HTML;
@@ -1406,7 +1526,7 @@ function aide_section_application(): string
         Valide (Valide) | licence en regle | rien : l'application s'ouvre normalement | aucune action
         Licence hors ligne valable (Valide) | code hors ligne saisi, echeance a venir (voir <a href="#horsligne">Licences hors ligne</a>) | rien : l'application s'ouvre normalement ; la fenetre Licence affiche "Licence hors ligne valable jusqu'au JJ/MM/AAAA" ou "Licence hors ligne illimitee". Aucun bandeau, ni avant l'echeance ni sans Internet ; "Verifier maintenant" sans Internet repond "Serveur de licences injoignable : la licence hors ligne reste valable." | aucune action ; a l'echeance, "Nouveau code hors ligne pour ce poste"
         Licence hors ligne expiree (Bloquee) | echeance du code atteinte (ou celle recue du serveur, si l'ordinateur s'est connecte) | en cours d'utilisation : boite "Licence" avec le message, puis fermeture ; au lancement : fenetre "Licence hors ligne expiree" : "L'application ne peut pas s'ouvrir pour le moment.", "Licence hors ligne expiree le JJ/MM/AAAA : demandez un nouveau code a ETDEL", boutons "Reessayer" et "J'ai une cle" ; le code est conserve | "Nouveau code hors ligne pour ce poste", saisi par "J'ai une cle" ; ou, si l'ordinateur peut se connecter, "Prolonger" puis "Reessayer"
-        Avertissement (Attention) | echeance dans moins de 15 jours, ou fin de la tolerance hors ligne proche | bandeau "Licence valable jusqu'au JJ/MM/AAAA (N jour(s) restant(s)). Contactez ETDEL pour la prolonger." ou "Licence non verifiee depuis N jour(s) : connectez l'ordinateur a Internet avant le JJ/MM/AAAA." | prolonger, ou faire connecter l'ordinateur
+        Avertissement (Attention) | echeance dans moins de 15 jours, ou fin de la tolerance hors ligne proche | bandeau "Licence valable jusqu'au JJ/MM/AAAA (N jour(s) restant(s)). Contactez ETDEL pour la prolonger." (lien "Renouveler", qui ouvre la demande de renouvellement) ou "Licence non verifiee depuis N jour(s) : connectez l'ordinateur a Internet avant le JJ/MM/AAAA." | prolonger (ou accepter la demande de renouvellement), ou faire connecter l'ordinateur
         Bloquee (Bloquee) | echeance passee, tolerance epuisee, licence suspendue, produit inactif | en cours d'utilisation : boite "Licence" avec le message, puis fermeture ; au lancement : fenetre "Licence a verifier" ("Licence suspendue" pour une suspension) : "L'application ne peut pas s'ouvrir pour le moment.", le message, "J'ai une cle" et "Reessayer" (et, pour une suspension, "Changer d'ordinateur : Transferer cette licence") ; la cle est conservee | prolonger, "Reactiver", cocher "Actif" sur le produit, ou faire connecter l'ordinateur ; suspension datee : rien a faire. L'ordinateur se debloque seul, sans ressaisie, a son premier controle apres le changement (3 secondes apres un lancement, sinon jusqu'a 6 heures plus tard ; "Reessayer" le fait tout de suite)
         Revoquee (Revoquee, ou Transferee) | licence revoquee, cle liberee, liee a un autre ordinateur, inconnue ou remplacee ; ou licence transferee depuis cet ordinateur | message ("Licence revoquee", "Ce poste n'est plus autorise pour cette licence", "Cle deja utilisee sur un autre ordinateur" ou "Cle invalide") puis fermeture ; la cle est effacee ; au lancement suivant : "Licence requise". Si la fenetre d'activation est deja ouverte, pas de fermeture : elle passe a "Licence requise", avec le message. Apres un transfert : page "Licence transferee" (pastille "Transferee"), puis "Fermer l'application" | nouvelle cle ou nouvelle demande
         Non configure (Non configuree) | LICENCE_CLE_PUBLIQUE vide, ou LICENCE_URL et LICENCE_URL_SECOURS vides toutes les deux, dans etdel_licence.py | rien : le module ne fait rien et l'application fonctionne sans licence | reporter les quatre lignes de l'ecran Cles avant de livrer
@@ -1670,6 +1790,22 @@ function aide_section_depannage(): string
         a "Licence requise" : lui transmettre une cle a saisir par "J'ai une cle".</p>
         </details>
         <details>
+        <summary>Le client demande le renouvellement de sa licence.</summary>
+        <p>Une demande de renouvellement envoyee depuis l'application (lien "Demander le renouvellement") arrive dans
+        Demandes, avec l'etiquette "renouvellement" sur l'Accueil : "Traiter", puis "Prolonger" ou "Refuser" (voir
+        <a href="#t-renouvellement">Repondre a une demande de renouvellement</a>). Le client vous l'a demande autrement
+        (telephone, e-mail) : "Prolonger" sur la page de sa licence suffit, et classe aussi une demande en attente. Le lien
+        n'apparait que dans les 15 derniers jours d'une cle ETDEL a echeance, et seulement dans une application livree avec
+        le module 2.2.0 ou plus recent.</p>
+        </details>
+        <details>
+        <summary>Peut-on supprimer une licence ou un produit ?</summary>
+        <p>Oui, pour faire le menage : une licence revoquee ("Supprimer cette licence" sur sa page), un produit qui n'a plus
+        aucune licence ni demande en attente ("Supprimer ce produit" en bas de sa page), ou tous a la fois dans
+        Administration, Menage. C'est definitif : telecharger d'abord une copie de la base. Une licence active ou suspendue ne
+        se supprime pas : la revoquer d'abord. Voir <a href="#menage">Menage</a>.</p>
+        </details>
+        <details>
         <summary>Une licence a expire : comment debloquer le client ?</summary>
         <p>"Prolonger" ("+30 jours", "+1 an" ou "Fixer la date"). L'ordinateur a garde sa cle : faire cliquer "Reessayer"
         dans la fenetre "Licence a verifier", ou relancer l'application. Sans cela, le controle automatique n'a lieu que 6
@@ -1776,16 +1912,11 @@ function aide_section_depannage(): string
         </details>
         <details>
         <summary>Passer une licence de perpetuelle a datee, ou l'inverse.</summary>
-        <p>Impossible sur la meme licence.</p>
-        <ol>
-        <li>Creer une nouvelle licence avec la bonne duree et transmettre sa cle au client.</li>
-        <li>Revoquer l'ancienne licence.</li>
-        <li>Faire cliquer "Verifier maintenant" (Ctrl+Maj+L) ou relancer l'application : message "Licence revoquee", puis
-        fermeture apres OK.</li>
-        <li>Relancer l'application : fenetre "Licence requise", "J'ai une cle", saisir la nouvelle cle, "Activer".</li>
-        </ol>
-        <p>L'application ne permet pas de saisir une cle tant qu'une licence fonctionne : convenir du moment avec le
-        client.</p>
+        <p>Sur la meme licence, sans nouvelle cle : page de la licence, "Fixer une echeance" pour une licence perpetuelle
+        ("+30 jours", "+1 an" a partir d'aujourd'hui, ou une date), ou "Rendre perpetuelle" en bas du panneau "Prolonger"
+        pour une licence datee. Le client n'a rien a faire : l'application recoit le changement a son controle suivant
+        ("Verifier maintenant" pour tout de suite). Licence hors ligne : seulement si l'ordinateur se connecte ; sinon, un
+        nouveau code hors ligne avec la bonne duree.</p>
         </details>
         <details>
         <summary>Je ne recois pas les e-mails de nouvelle demande.</summary>
@@ -1861,8 +1992,9 @@ function aide_section_depannage(): string
         demande_inconnue | demande introuvable (base restauree), cle deja remise, ou remplacee par "Nouvelle cle" avant sa remise | l'application oublie sa demande et revient a "Licence requise" | nouvelle demande, ou cle transmise
         transferts_trop_nombreux | deja {{TRANSFERTS_MAX}} transferts depuis l'application pour cette licence dans les {{TRANSFERTS_JOURS}} derniers jours | "Transfert refuse : trop de transferts recents pour cette licence. Contactez ETDEL, qui peut la liberer pour vous." ; rien ne change | "Changer d'ordinateur" dans la console, si c'est legitime
         horloge | heure de l'ordinateur decalee de plus de {{ECART_MIN}} minutes | "Horloge de l'ordinateur incorrecte : corrigez la date et l'heure" ; nouvel essai 15 minutes plus tard | faire corriger l'heure de l'ordinateur
+        licence_perpetuelle | demande de renouvellement d'une licence perpetuelle (l'application ne la propose pas) | "Licence perpetuelle : aucun renouvellement necessaire." ; rien ne change | aucune action
         trop_de_requetes | limite par adresse IP depassee | "Trop de tentatives : reessayez plus tard" ; nouvel essai 15 minutes plus tard | attendre
-        requete_invalide | requete mal formee (HTTP 400) | comme "serveur injoignable" (diagnostic "http 400") ; nouvel essai 15 minutes plus tard | verifier, dans la ligne installer(...), le code produit (lettres, chiffres, . _ - ; 64 caracteres) et la version de l'application (32 caracteres au plus), puis la version du module etdel_licence.py
+        requete_invalide | requete mal formee ; ou demande de renouvellement adressee a un serveur anterieur a 2.2.0 | "Requete refusee par le serveur de licences" ; nouvel essai 15 minutes plus tard (demande de renouvellement : "Demande refusee : le serveur de licences ne prend pas encore en charge les demandes de renouvellement. Contactez ETDEL.") | verifier, dans la ligne installer(...), le code produit (lettres, chiffres, . _ - ; 64 caracteres) et la version de l'application (32 caracteres au plus), puis la version du module etdel_licence.py
         indisponible, non_installe | HTTP 503 : base, cle privee ou secret illisible ; dossier prive/ introuvable | "Serveur de licences injoignable" (diagnostic "http 503") | voir "L'API repond 503" ci-dessus
         methode | HTTP 405 : URL de l'API ouverte dans un navigateur | rien (l'API ne s'ouvre pas dans un navigateur) | aucune action
         T);
@@ -1910,6 +2042,10 @@ function aide_section_glossaire(): string
         'Nouveau code hors ligne' => 'Nouveaux codes (court et long) d\'une licence hors ligne, avec une nouvelle duree : '
             . 'ils remplacent les anciens sur la meme licence ; c\'est ainsi qu\'on prolonge un ordinateur jamais '
             . 'connecte.',
+        'Demande de renouvellement' => 'Demande envoyee depuis l\'application ("Demander le renouvellement") dans les 15 '
+            . 'derniers jours d\'une licence, a traiter dans Demandes : "Prolonger" ou "Refuser".',
+        'Menage' => 'Suppression des licences revoquees et des produits sans licence (Administration, Menage) ; definitif, '
+            . 'le journal en garde la trace.',
         'Demande' => 'Demande de licence envoyee depuis l\'application ("Demander une licence"), a accepter ou refuser '
             . 'dans Demandes.',
         'Essai' => 'Utilisation accordee pendant l\'attente d\'une demande, une seule fois par ordinateur et par produit.',

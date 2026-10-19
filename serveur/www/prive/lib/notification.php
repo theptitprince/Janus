@@ -1,5 +1,5 @@
 <?php
-// notification.php - E-mails a l'administrateur (nouvelle demande, e-mail de test).
+// notification.php - E-mails a l'administrateur (nouvelle demande, demande de renouvellement, e-mail de test).
 //                    Un echec est journalise et ne bloque jamais l'enregistrement.
 // ETDEL (c) 2026
 // Janus, par ETDEL - https://github.com/theptitprince/Janus
@@ -111,6 +111,40 @@ function notification_nouvelle_demande(PDO $db, array $config, array $demande, a
         ]));
         $sujet = '[ETDEL Licences] Nouvelle demande - ' . $produit['code'] . ($cree ? ' (nouveau produit)' : '') . ' - '
             . ($demande['nom_ordinateur'] !== '' ? $demande['nom_ordinateur'] : $demande['id_poste']);
+        notification_envoyer($db, $config, $sujet, $corps, $maintenant);
+    } catch (Throwable $e) {
+        error_log('etdel notification : ' . $e->getMessage());
+    }
+}
+
+/** Demande de renouvellement envoyee depuis l'application (D89). */
+function notification_renouvellement(PDO $db, array $config, array $renouvellement, array $lic, array $produit,
+                                     int $maintenant): void
+{
+    try {
+        $console = url_console($db, $config);
+        $lien = $console === '' ? '(adresse de la console inconnue)'
+            : $console . 'index.php?page=renouvellement&id=' . $renouvellement['id'];
+        $echeance = (int)$lic['echeance'];
+        $reste = jours_restants($echeance, $maintenant);
+        $corps = implode("\n", [
+            'Demande de renouvellement n. ' . $renouvellement['id'],
+            '',
+            'Produit        : ' . $produit['code'] . ($produit['nom'] === $produit['code'] ? '' : ' (' . $produit['nom'] . ')'),
+            'Client         : ' . $lic['titulaire'],
+            'Licence        : n. ' . $lic['id'] . ', ' . licence_designation($lic),
+            'Echeance       : ' . echeance_fr($echeance, licence_hors_ligne($lic)) . ' (' . max(0, (int)$reste)
+                . ' jour(s) restant(s))',
+            'Ordinateur     : ' . $renouvellement['nom_ordinateur'] . ' (' . id_poste((string)$renouvellement['machine'],
+                (string)$produit['code']) . ')',
+            'Mot du client  : ' . ($renouvellement['message'] ?? '-'),
+            'Date           : ' . date_fr((int)$renouvellement['cree_le'], true),
+            'IP             : ' . $renouvellement['ip'],
+            '',
+            'Traiter la demande : ' . $lien,
+            '',
+        ]);
+        $sujet = '[ETDEL Licences] Renouvellement demande - ' . $produit['code'] . ' - ' . $lic['titulaire'];
         notification_envoyer($db, $config, $sujet, $corps, $maintenant);
     } catch (Throwable $e) {
         error_log('etdel notification : ' . $e->getMessage());
